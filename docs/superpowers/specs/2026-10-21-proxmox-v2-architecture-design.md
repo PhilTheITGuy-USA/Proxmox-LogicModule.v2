@@ -125,16 +125,17 @@ documentation:
 | Scheduled downtime per guest | **yes**: SDT is settable on an instance | yes | [Instance Tab](https://www.logicmonitor.com/support/instance-tab), [SDT Tab](https://www.logicmonitor.com/support/devices/devices-page-overview/scheduled-down-time-sdt-tab) |
 | Access control per guest or tenant | **no**: role permissions are set on resource groups only; instances get threshold rights alone | **yes** | [Resources Role Permissions](https://www.logicmonitor.com/support/resources-role-permissions) |
 | Alert routing by guest | by instance name in an alert rule [unverified] | yes, by group | — |
-| Drawn under its node on the topology map, on a cluster | **open**: it seems to be drawn only under the node that holds the instance (v1 DESIGN §7, spike 3); the Debian-Test check on 2026-10-21 decides this | yes, resource to resource | v1 portal checks |
+| Drawn under its node on the topology map, on a cluster | **not shown**: an instance vertex is drawn only with edges to the resource holding it (v1 DESIGN §7, spike 3); an instance-only guest of a token-less node is untested | **yes, verified**: v1 drew `Node-B` → `Debian-Test` from the token holder's TopologySource, though the token holder's instance carried the same MAC (v1 DESIGN §7, 2026-10-22) | v1 portal checks |
 
 So the user's position holds, with two exceptions:
 - **Multi-tenant access control** (an MSP, or a team that owns some guests) needs guests as
   resources in groups.
-- **The map,** if the open row resolves against instances.
+- **The map, on a cluster.** A guest resource is drawn under its real node; a guest that is only an
+  instance is not shown to be. On a standalone host the question does not arise.
 
 **Guest resources stay opt-in and filtered,** as in VMware's NetScan. A guest that is already a
-resource through SNMP, SSH or WMI is adopted by deduplication, not duplicated. If the map row
-resolves against instances, a NetScan-created guest resource carries its MAC from the guest config
+resource through SNMP, SSH or WMI is adopted by deduplication, not duplicated. For the map, a
+NetScan-created guest resource carries its MAC from the guest config
 (`pve.guest.mac`), and an ERI PropertySource stamps it. That draws the guest under its node with no
 in-guest access. Its cost — 1 HU, and a hostname that may not answer ping — is the user's choice,
 per guest or per filter.
