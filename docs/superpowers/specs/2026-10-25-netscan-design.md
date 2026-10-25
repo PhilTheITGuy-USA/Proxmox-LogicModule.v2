@@ -33,10 +33,18 @@ Read from the `netscanProps` binding; in the Collector's debug console, where th
 exist, from `hostProps` instead, which is how the vSphere script makes itself runnable from a
 resource [vmware]. This script does the same, so the spikes can run it from the debug console.
 
+**Where they are entered:** the Advanced NetScan form has no "properties" section. They go under
+**Resource Credentials Options → "Use custom credentials for this scan" → Add**, a key and value
+each ([LM doc](https://www.logicmonitor.com/support/enhanced-script-netscan)); the script then
+reads them through `netscanProps` [S2]. That screen masks a `.credential` value [S2, user
+2026-10-25]. The same section offers "Inherit credentials from Device / Device Group"; whether
+inherited properties reach `netscanProps`, which would let an install reuse a token already on a
+resource, is [unverified, S2].
+
 | Property | Default | Meaning |
 |---|---|---|
 | `pve.api.url` | — (required) | `https://<address>:8006` of any node, a VIP, or a DNS round-robin name |
-| `pve.api.token.credential` | — (required) | **one token per cluster** (Q7, user 2026-10-25): the whole `user@realm!tokenid=secret`, as v1. `PVEAuditor` on `/` suffices except for §5.3's guest-agent address |
+| `pve.token.credential` | — (required) | **one token per cluster** (Q7, user 2026-10-25): the whole `user@realm!tokenid=secret`. `PVEAuditor` on `/` suffices on PVE 9, the guest-agent address included [S6]. **Not v1's `pve.api.token.credential`** (user 2026-10-25): v1's `addCategory_Proxmox_VE` tags any resource holding that exact property with `ProxmoxVE` and applies all of v1 to it [v1, `pve_common.groovy` 62–69], so a different name keeps v1 off v2's resources with no change to v1. Permanent once shipped |
 | `pve.api.insecure`, `pve.api.timeout` | `false`, `10000` | as v1; copied with the token |
 | `pve.api.concurrency` | `2` | requests in flight per node in an O(guests) loop (main spec §3.9 rule 4); copied with the token so the modules use the same bound |
 | `pve.netscan.rootFolder` | `Proxmox VE` | the root group of §4 |
@@ -155,8 +163,11 @@ needs its place on the map and its down state):
      report Docker bridges (`172.17.0.1/16`…), VPN tunnels (Tailscale `100.x`, MAC
      `00:00:00:00:00:00`), loopback and link-local alongside the real one, often first [S6]. On
      that interface, the first IPv4 (container addresses come as CIDR, `192.0.2.60/24`: strip
-     the prefix), else a non-link-local IPv6; then its reverse-DNS name where one exists, as
-     VMware does with the VM's guest IP [vmware]. No interface matches `net0`'s MAC: skip this
+     the prefix), else a non-link-local IPv6. **The IP stays the hostname:** VMware swaps it for
+     its reverse-DNS name [vmware], but that defeated LogicMonitor's duplicate-IP exclusion in the
+     lab (§6) and cost ~1.3 s per guest where lookups fail slowly — ~22 minutes at 1,000 guests,
+     one at a time [S2, 2026-10-25]. A name is an opt-in for later, with both costs stated, not a
+     phase-1 property. No interface matches `net0`'s MAC: skip this
      step rather than guess. PVE 8 has no `VM.GuestAgent.*`; there the agent call needed
      `VM.Monitor`, which `PVEAuditor` lacked [unverified, no PVE 8 lab] — so a 403 from it means
      "skip this step and report it", never a failed run;
@@ -172,7 +183,7 @@ needs its place on the map and its down state):
   `netscan.powerstate` [vmware], `pve.serial` = `<cluster>::<vmid>`, as VMware's `vcenter.serial`
   is `<vCenter UUID>::<VM UUID>` [vmware]. **Never the token:** no guest module calls the Proxmox
   API (main spec §3.2).
-- `addERI_Proxmox_VE_Guest` stamps `pve.guest.mac`, so the map's guest vertex opens the guest
+- `addERI_Proxmox_VE_GuestResource` stamps `pve.guest.mac`, so the map's guest vertex opens the guest
   resource instead of the cluster resource's instance (main spec §3.6).
 
 ## 6. Deduplication
@@ -199,8 +210,18 @@ As VMware's, through the `lm.api` snippet [vmware]:
     properties and group land on it;
   - `netscan`: emit as new with the display name `<name> - <hostname>`, which creates a second
     device and a second host unit.
+- **Compare addresses, not hostname strings.** LogicMonitor's own NetScan setting "Exclude
+  duplicate IP addresses: Matching any Monitored Resources" (on by default) compares the emitted
+  hostname as written: a dry run excluded the 7 entries whose IP hostname matched an existing
+  resource, but proposed adding `automation01`, the reverse-DNS name of `192.0.2.44`, beside the
+  existing `192.0.2.44` resource [S2, dry run 2026-10-25]. So this script's own match resolves
+  both sides to addresses, and §5.3 no longer swaps an IP for its DNS name by default.
 - **Upgrading from v1 means `hostname.source=lm`,** so the existing node resources and SNMP guests
-  are adopted, and the install guide says so.
+  are adopted, and the install guide says so. LogicMonitor's exclusion above skips a match; it
+  does not update it, so adoption has to come from the script or from the NetScan's "Criteria for
+  updating existing resources" (default "Resources discovered by this NetScan") [unverified, S3].
+  An adopted v1 node keeps v1's `pve.api.token.credential` until it is deleted by hand, and with
+  it v1's modules: the install guide says to delete it.
 - **Adoption and `system.categories`:** VMware writes `system.categories` outright [vmware].
   Whether that replaces an adopted device's categories (dropping v1's `ProxmoxVE`, and anything
   else) or merges is [unverified, S3]. If it replaces, the run emits the union of the device's
@@ -223,7 +244,7 @@ run's output says so.
   run no longer emits.
 - **Token (Q7): one per cluster,** held by that cluster's NetScan and written onto its cluster and
   node resources, as VMware writes its credentials onto every host it adds [vmware]. Rotation is
-  one edit: the NetScan's `pve.api.token.credential`, then a run. A token also set on a group is
+  one edit: the NetScan's `pve.token.credential`, then a run. A token also set on a group is
   overridden by the resource-level one, so the two are never mixed.
 
 ## 8. Failure behaviour
@@ -272,7 +293,7 @@ NetScan into a test group.
 
 | Spike | Settles | Method |
 |---|---|---|
-| S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group |
+| S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group. **In progress 2026-10-25.** The script ran first in a Groovy 4 / JDK 17 container against the lab (18 calls, 0.9 s without reverse DNS), then in the portal as dry runs: properties entered as custom credentials, the token masked; every emitted entry listed, unresolvable hostnames (`Labcluster`, `Migration-Test`) included; LogicMonitor's duplicate-IP exclusion held back every entry whose IP matched an existing resource, both v1 nodes included (§6). The dry-run screen gives counts (Scanned / Found / Added), not per-device labels. The spike's resources carry no token, so v1 cannot apply to them. Still open: the real run (alive or dead for an unresolvable hostname, groups, the report property), the UI filter rows, credential inheritance, timeouts |
 | S3 | adopting a device the NetScan did not create; `system.categories` merge or replace; a portal lookup by MAC | the same NetScan with `hostname.source=lm` against the existing v1 node resources and the SNMP guest `Debian-Test` |
 | S5 | a re-run rewriting properties and moving groups; what happens to a property no longer emitted | run twice, migrating a guest and changing a NetScan property between runs |
 | S6 | the guest-agent privilege on 9.2.3; `/lxc/<vmid>/interfaces` on 9.2.3 | **Done 2026-10-25.** v1's token (`monitor@pve!logicmonitor`, privsep 0, `PVEAuditor` on `/`), from a workstation against Node-B: `/cluster/status`, `/cluster/resources`, and for each of the 7 running guests its interfaces call and `/config` — all 200. Results in §5.3. 9.2.3's `PVEAuditor` = `Datastore.Audit, Mapping.Audit, Pool.Audit, SDN.Audit, Sys.Audit, VM.Audit, VM.GuestAgent.Audit` (`pveum role list`) |

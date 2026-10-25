@@ -2,7 +2,8 @@
 
 Status: **draft for review**, 2026-10-21; revised 2026-10-24 with the v1 reuse decisions (§3.2,
 §3.8) and topology corrections (§2, §3.4, §3.6); revised 2026-10-25 for v1 complete at `2e0237b`,
-the NetScan spec (§3.3) and the v1-against-v2 licence comparison (§3.7). Nothing here is approved or built. Research behind it:
+the NetScan spec (§3.3) and the v1-against-v2 licence comparison (§3.7); revised again 2026-10-25:
+v2 is standalone, with its own token property `pve.token.credential` (§3.2, §3.5, §3.8). Nothing here is approved or built. Research behind it:
 `docs/research/2026-10-21-lm-vsphere-architecture.md`. v1 is the `Proxmox-LogicModule` repository
 (18 modules, portal-verified on a two-node lab cluster).
 
@@ -73,9 +74,10 @@ resource (the NetScan writes it), the Collector reaching each node's 8006 direct
 modules rewritten without their fan-out.
 
 **Module names are new** (user ruling, 2026-10-24), split by role as VMware splits `VMware_vSphere_*`
-from `VMware_ESXi_*`: `Proxmox_VE_Cluster_*` and `Proxmox_VE_Node_*`. None collides with a v1 name
-except where noted, so v1 and v2 can be imported side by side (§3.5). Every v2 module starts from
-a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
+from `VMware_ESXi_*`: `Proxmox_VE_Cluster_*` and `Proxmox_VE_Node_*`. None collides with a v1 name,
+so v1 and v2 can be imported side by side (§3.5). **v2 is standalone** (user, 2026-10-25): it
+neither needs v1 installed nor changes it. Every v2 module starts as a copy, in this repository,
+of a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 
 | v2 module | Role | From v1 | Change | Calls per poll |
 |---|---|---|---|---|
@@ -97,7 +99,7 @@ a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 | `Proxmox_VE_Node_Replication` | Node | `Proxmox_VE_Replication` | Fan-out removed. Node-scoped: its endpoint is `/nodes/{node}/replication` | O(1) per node |
 | `Proxmox_VE_Info` (PropertySource) | Cluster, Node | `addCategory_Proxmox_VE` | Keeps the `auto.pve.version` / `release` / `clustered` reads; **sets no category** (§3.1) | — |
 | `addERI_Proxmox_VE_Node` (ERI) | Node | `addERI_Proxmox_VE` | AppliesTo `hasCategory("ProxmoxVE_Node")`, replacing the `-pve` kernel and `pve.topology.node` selectors | — |
-| `addERI_Proxmox_VE_Guest` (ERI) | Guest | same name | **Shared with v1**: v2's import replaces v1's, extended to read `pve.guest.mac` (§3.6) and otherwise unchanged, so it stays correct for v1 | — |
+| `addERI_Proxmox_VE_GuestResource` (ERI) | Guest | `addERI_Proxmox_VE_Guest` | New name, so v2's import leaves v1's alone (standalone, user 2026-10-25). Extended to read `pve.guest.mac` (§3.6); where both are installed, both stamp the same MAC key, which merges | — |
 | — | Guest | — | No Proxmox API module in phase 1. In-guest monitoring (SNMP, WMI, SSH) applies by hostname, as for any resource | 0 |
 
 Node-local storage stays in `Proxmox_VE_Cluster_StorageCapacity`, which already reads every store,
@@ -157,16 +159,23 @@ documents "Manually Assigning Properties to Resources".
 Moving from instances to resources does not convert anything, and LogicMonitor says the same of
 its own VMware migration. The rules:
 
+- **v2 needs no v1** (user, 2026-10-25): a fresh install is v2 alone, and nothing below applies.
 - Run v1 and v2 side by side only briefly, because both poll the same API. The new names (§3.2)
-  and disjoint categories (`ProxmoxVE` against `ProxmoxVE_Cluster` / `_Node` / `_Guest`) keep
-  the two from replacing each other on import or applying to each other's resources.
+  keep the two from replacing each other on import. **Categories alone would not keep v1 off v2's
+  resources:** v1's `addCategory_Proxmox_VE` applies on `true()` and tags any resource holding
+  `pve.api.token.credential` with `ProxmoxVE`, which applies all of v1 [v1, `pve_common.groovy`
+  62–69; found 2026-10-25]. v2's token is therefore **`pve.token.credential`** (user, 2026-10-25),
+  which v1 never reads, so v1 does not apply to a resource v2 created. A v1 node v2 adopts (NetScan
+  spec §6) still holds v1's property and v1's modules until that property is deleted, which ends
+  the overlap for that node.
 - While both run, the cluster key `proxmoxve--<cluster>` sits on two instances (v1's
   `Proxmox_VE_Cluster` and v2's `Proxmox_VE_Cluster_Status`), and v1's `addERI_Proxmox_VE` and
   v2's `addERI_Proxmox_VE_Node` stamp the same node key. Same keys, so the node ERIs merge
   harmlessly; the doubled cluster key is a multi-match whose drawing is untested, which is one
   more reason to keep the overlap short.
-- Then disable v1's modules. v1 instance history stays readable until v1 is deleted.
-  `addERI_Proxmox_VE_Guest` is the one module both share; it stays.
+- Then delete v1's token property from the adopted nodes and disable v1's modules. v1 instance
+  history stays readable until v1 is deleted. No module is shared, so removing v1 removes nothing
+  v2 uses.
 
 The v1 guest wildvalues carry over unchanged to the cluster resource. History does not, because
 the instances live on a different resource. This is stated once, in the install guide.
@@ -193,7 +202,7 @@ guest a resource.
 **Guest resources stay opt-in and filtered,** as in VMware's NetScan. A guest that is already a
 resource through SNMP, SSH or WMI is adopted by deduplication, not duplicated. A NetScan-created
 guest resource carries its MAC from the guest config (`pve.guest.mac`), and
-`addERI_Proxmox_VE_Guest` stamps it, so the map's guest vertex opens that resource rather than
+`addERI_Proxmox_VE_GuestResource` stamps it, so the map's guest vertex opens that resource rather than
 the instance, with no in-guest access needed. Its cost — 1 HU, and a hostname that may not answer
 ping — is the user's choice, per guest or per filter.
 
@@ -264,16 +273,20 @@ guest selected adds up to 10,000 HU, less the guests already monitored: 10,170 w
   cluster-level module, one call per node per node-level module); v2 adds the NetScan's hourly
   2 + *N* calls, plus 2 per selected guest.
 
-### 3.8 Carried over from v1 unchanged
+### 3.8 Carried over from v1
 
-Copied into this repository from v1 commit `2e0237b` (v1 complete), the commit recorded here, as
-the skill pins its fixtures. That includes what v1 added after `e6873b7`: graphs on every
+**Everything is copied into this repository** from v1 commit `2e0237b` (v1 complete), the commit
+recorded here, as the skill pins its fixtures: all 19 modules' scripts and definitions as the
+starting point of §3.2's rows, and the pieces below unchanged except where stated (user,
+2026-10-25: v2 is standalone and customises its own copy). The copy is the implementation plan's
+first task, verbatim, so every later change shows as a diff against v1. That includes what v1 added after `e6873b7`: graphs on every
 DataSource and the build's `check_graphs`, `pveSizeLabel` sizes in instance names and descriptions,
 and the rule that end-user text points at Proxmox's own views because stderr on a successful run is
 not shown (v1 DESIGN §7). v1 keeps its own history; a later v1 fix reaches v2 only by copying it over.
 
 - `scripts/lib/pve_common.groovy`: properties, TLS, HTTP, `pveWildValue`, the emit and discovery
-  helpers, the topology key and guest MAC helpers. One addition: failover across `pve.api.hosts`,
+  helpers, the topology key and guest MAC helpers. The token is read from `pve.token.credential`
+  (§3.5); the other `pve.api.*` names stay, since v1 keys on none of them. One addition: failover across `pve.api.hosts`,
   used by the cluster role only (§3.2); per-node requests addressed to the owning node, bounded
   concurrency and a time budget for the O(guests) loops (§3.9).
 - `build/` (`build.py`, `dashboards.py`, `groovylint.py`), `tests/` (the Docker compile job, the

@@ -11,9 +11,14 @@ into the skill) applies once modules exist.
 
 v1 is the sibling repo `..\Proxmox-LogicModule`, complete at `2e0237b` (19 modules,
 portal-verified on a two-node lab).
-Its build, Docker harness, mock API, `pveWildValue`, HTTP preamble and dashboard validation are
-meant to carry over unchanged (spec §3.8), so read v1's `CLAUDE.md` and `docs/DESIGN.md` before
+**v2 is standalone** (user, 2026-10-25): it never requires v1 to be installed and never changes
+v1. The implementation plan's first task copies all of v1 at `2e0237b` (19 modules, their scripts,
+build, Docker harness, mock API, dashboard validation) into this repo verbatim; v2 customises its
+own copy from there (spec §3.8). Until then, read v1's `CLAUDE.md` and `docs/DESIGN.md` before
 proposing any build or code layout. References like "v1 DESIGN §7" in the docs here point there.
+
+v2's token property is **`pve.token.credential`**, never v1's `pve.api.token.credential`: v1's
+`addCategory_Proxmox_VE` applies all of v1 to any resource holding that one (spec §3.5).
 
 ## Documents
 
@@ -24,8 +29,9 @@ proposing any build or code layout. References like "v1 DESIGN §7" in the docs 
 - `docs/superpowers/specs/` -- the v2 architecture spec and the NetScan spec it points to (§3.3),
   both **draft for review**. The workflow is spec → spikes (§5) → plan → code; don't start a plan
   or code until the user approves the specs and the open questions that block them (architecture
-  §4, NetScan §11) are answered. The NetScan spec tags claims **[v1]**, **[vmware]** or
-  **[unverified]** with the spike that settles each.
+  §4, NetScan §11) are answered. The NetScan spec tags claims **[v1]**, **[vmware]**,
+  **[unverified]** with the spike that settles each, or **[S<n>]** when a spike has seen it in the
+  lab cluster `Labcluster` (PVE 9.2.3).
 
 Spec edits are dated and attributed to their evidence (a portal check, a live target, the user's
 stated position, a LogicMonitor doc URL); commit messages follow the same style, e.g.
@@ -49,5 +55,5 @@ node, guest and storage object is an instance on the token-holding node":
   never grouped by node), deduplicates against existing devices (display name, hostname, MAC),
   and never deletes.
 - **Licensing drives defaults:** every resource is one host unit, instances are free -- hence
-  guests-as-resources is opt-in, and Q8 (dedicated cluster resource vs. a node carrying the
-  cluster role) is still open.
+  guests-as-resources is opt-in, and the cluster is its own resource (Q8, user 2026-10-25: 1 HU
+  per cluster, so cluster monitoring survives any one node being down).
