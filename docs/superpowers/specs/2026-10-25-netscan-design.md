@@ -10,7 +10,8 @@ Each claim about LogicMonitor or Proxmox is tagged by how it is known:
 
 - **[v1]** read in v1's code or proven in v1 DESIGN §7;
 - **[vmware]** read in the vSphere NetScan script or LogicMonitor's vSphere page (research §2, §2a);
-- **[unverified]** believed, not yet seen; the spike named beside it settles it.
+- **[unverified]** believed, not yet seen; the spike named beside it settles it;
+- **[S<n>]** seen in the lab cluster `Labcluster` (PVE 9.2.3) by the spike named, dated in §10.
 
 ## 1. What it is for
 
@@ -148,12 +149,20 @@ needs its place on the map and its down state):
 - **Selected** by §2's filters; templates never.
 - **Hostname,** first that exists — Proxmox knows a guest's address only from inside it:
   1. its live address: for a container, `GET /nodes/<n>/lxc/<vmid>/interfaces`; for a VM with
-     `agent: 1` in its config and running, the guest agent's `network-get-interfaces`. The first
-     non-loopback, non-link-local IPv4, else IPv6, then its reverse-DNS name where one exists, as
-     VMware does with the VM's guest IP [vmware]. Which privilege the agent call needs on 9.2, and
-     whether `PVEAuditor` has it, is [unverified, S6]; without it this step is skipped;
+     `agent: 1` in its config and running, the guest agent's `network-get-interfaces`. Both
+     answer `PVEAuditor` on 9.2.3, which grants `VM.GuestAgent.Audit` [S6]. **Take the address of
+     the interface whose MAC is `net0`'s** (case-insensitive), not the first address: guests
+     report Docker bridges (`172.17.0.1/16`…), VPN tunnels (Tailscale `100.x`, MAC
+     `00:00:00:00:00:00`), loopback and link-local alongside the real one, often first [S6]. On
+     that interface, the first IPv4 (container addresses come as CIDR, `192.0.2.60/24`: strip
+     the prefix), else a non-link-local IPv6; then its reverse-DNS name where one exists, as
+     VMware does with the VM's guest IP [vmware]. No interface matches `net0`'s MAC: skip this
+     step rather than guess. PVE 8 has no `VM.GuestAgent.*`; there the agent call needed
+     `VM.Monitor`, which `PVEAuditor` lacked [unverified, no PVE 8 lab] — so a 403 from it means
+     "skip this step and report it", never a failed run;
   2. a static address in the config (a container's `ip=` on `net0`, a VM's cloud-init
-     `ipconfig0`);
+     `ipconfig0`). Only containers have one in the lab; the VM has none, and a DHCP container has
+     neither [S6];
   3. the guest's name, as VMware falls back to the display name [vmware].
 - **Display name:** the guest name; if two selected guests share one, ` (<vmid>)` is appended to
   both, every run, so the pair's names do not depend on which was seen first.
@@ -258,7 +267,7 @@ script, set §2's properties, schedule hourly; one per cluster.
 ## 10. Spikes, run together with the user
 
 Each is a throwaway against the lab cluster `Labcluster`, with its output deleted afterwards. Run
-order: S6 (two `curl`s), then S2 from the Collector debug console (§2), then S2/S3/S5 as a real
+order: S6 (done), then S2 from the Collector debug console (§2), then S2/S3/S5 as a real
 NetScan into a test group.
 
 | Spike | Settles | Method |
@@ -266,7 +275,7 @@ NetScan into a test group.
 | S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group |
 | S3 | adopting a device the NetScan did not create; `system.categories` merge or replace; a portal lookup by MAC | the same NetScan with `hostname.source=lm` against the existing v1 node resources and the SNMP guest `Debian-Test` |
 | S5 | a re-run rewriting properties and moving groups; what happens to a property no longer emitted | run twice, migrating a guest and changing a NetScan property between runs |
-| S6 | the guest-agent privilege on 9.2.3; `/lxc/<vmid>/interfaces` on 9.2.3 | two `curl`s with the `PVEAuditor` token |
+| S6 | the guest-agent privilege on 9.2.3; `/lxc/<vmid>/interfaces` on 9.2.3 | **Done 2026-10-25.** v1's token (`monitor@pve!logicmonitor`, privsep 0, `PVEAuditor` on `/`), from a workstation against Node-B: `/cluster/status`, `/cluster/resources`, and for each of the 7 running guests its interfaces call and `/config` — all 200. Results in §5.3. 9.2.3's `PVEAuditor` = `Datastore.Audit, Mapping.Audit, Pool.Audit, SDN.Audit, Sys.Audit, VM.Audit, VM.GuestAgent.Audit` (`pveum role list`) |
 
 ## 11. Questions
 

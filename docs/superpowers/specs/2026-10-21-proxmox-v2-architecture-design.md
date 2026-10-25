@@ -371,7 +371,7 @@ answered (2026-10-25).
 | S1 | Q1 | read the VMware VM modules' AppliesTo | **done** 2026-10-25, from LogicMonitor's exports |
 | S2 | Q2 | a throwaway NetScan against the lab cluster that creates resources in a test group; detail in NetScan spec §10 | one import, one run, then delete the group |
 | S3 | Q3 | the same NetScan run against the v1 node resources and a guest already monitored over SNMP | the same run |
-| S5, S6 | NetScan re-runs; guest-address privileges | NetScan spec §10 | two runs; two `curl`s |
+| S5, S6 | NetScan re-runs; guest-address privileges (S6 done 2026-10-25: `PVEAuditor` suffices on 9.2.3) | NetScan spec §10 | two runs; API calls from a workstation |
 | S7 | Q4 | a throwaway TopologySource and DataSource on one Collector, one writing an `lm.cache` key and the other reading it | one import each, then deleted |
 | S4 | failover; `/nodes/localhost` | the preamble with two addresses, the first unreachable; and one `GET /nodes/localhost/status` over HTTPS | harness plus one Collector debug run |
 
