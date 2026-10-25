@@ -1,7 +1,8 @@
 # Proxmox VE suite v2: cluster, node and guest resources
 
 Status: **draft for review**, 2026-10-21; revised 2026-10-24 with the v1 reuse decisions (§3.2,
-§3.8) and topology corrections (§2, §3.4, §3.6). Nothing here is approved or built. Research behind it:
+§3.8) and topology corrections (§2, §3.4, §3.6); revised 2026-10-25 for v1 complete at `2e0237b`,
+the NetScan spec (§3.3) and the v1-against-v2 licence comparison (§3.7). Nothing here is approved or built. Research behind it:
 `docs/research/2026-10-21-lm-vsphere-architecture.md`. v1 is the `Proxmox-LogicModule` repository
 (18 modules, portal-verified on a two-node lab cluster).
 
@@ -41,7 +42,7 @@ first run of v1's spike 3; the re-run on 2026-10-22 drew the cluster vertex, thr
 |---|---|---|---|
 | **Cluster** | `ProxmoxVE_Cluster` | vCenter | NetScan, or manually |
 | **Node** | `ProxmoxVE_Node` | ESXi host | NetScan, or manually |
-| **Guest** | `ProxmoxVE_Guest` | VMwareVM | NetScan only, optional (`discover.guests`), **off by default** |
+| **Guest** | `ProxmoxVE_Guest` | VMwareVM | NetScan only, optional (`pve.netscan.guests`), **off by default** |
 
 **Licensing decides the defaults** (§3.7): every resource costs one host unit (HU); instances
 cost none. So a guest becomes a resource only when the user asks for it.
@@ -72,20 +73,21 @@ modules rewritten without their fan-out.
 **Module names are new** (user ruling, 2026-10-24), split by role as VMware splits `VMware_vSphere_*`
 from `VMware_ESXi_*`: `Proxmox_VE_Cluster_*` and `Proxmox_VE_Node_*`. None collides with a v1 name
 except where noted, so v1 and v2 can be imported side by side (§3.5). Every v2 module starts from
-a v1 module at commit `e6873b7`:
+a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 
 | v2 module | Role | From v1 | Change | Calls per poll |
 |---|---|---|---|---|
-| `Proxmox_VE_Cluster_Status` | Cluster | `Proxmox_VE_Cluster` | AppliesTo only. Its one instance still carries the cluster vertex key (§3.4) | O(1) |
-| `Proxmox_VE_Cluster_Nodes` | Cluster | `Proxmox_VE_Nodes` | AppliesTo only. Stays on the cluster role: a node that is down cannot report itself down | O(1) |
+| `Proxmox_VE_Cluster_Status` | Cluster | `Proxmox_VE_Cluster` | AppliesTo only. Its one instance still carries the cluster vertex key (§3.4); it includes v1's migration counts | 4 + 2 per online node (migration history) |
+| `Proxmox_VE_Cluster_Nodes` | Cluster | `Proxmox_VE_Nodes` | **Keeps only `Status`** (online). A node that is down cannot report itself down, so this stays on the cluster role; CPU, memory and uptime move to `Proxmox_VE_Node_Detail` | O(1) |
 | `Proxmox_VE_Cluster_GuestStatus` | Cluster | `Proxmox_VE_GuestStatus` | AppliesTo only. Instance ERIs (guest MACs) unchanged | O(1), plus the hourly guest-config read in discovery |
 | `Proxmox_VE_Cluster_GuestPerformance` | Cluster | `Proxmox_VE_GuestPerformance` | AppliesTo only | O(1) |
 | `Proxmox_VE_Cluster_StorageCapacity` | Cluster | `Proxmox_VE_StorageCapacity` | AppliesTo only | O(1) |
 | `Proxmox_VE_Cluster_Ceph` | Cluster | `Proxmox_VE_Ceph` | AppliesTo only | O(1) |
 | `Proxmox_VE_Cluster_CephOSD` | Cluster | `Proxmox_VE_CephOSD` | AppliesTo only. Any node returns the whole CRUSH tree | O(1) |
 | `Proxmox_VE_Cluster_Backups` | Cluster | `Proxmox_VE_Backups` | AppliesTo only. Keeps its loop over nodes for vzdump tasks: the view is cluster-wide | O(jobs + nodes) |
+| `Proxmox_VE_Cluster_Snapshots` | Cluster | `Proxmox_VE_Snapshots` | AppliesTo only. Hourly, with v1's per-node circuit breaker | 2 + 1 per guest on an online node, hourly |
 | `Proxmox_VE_Cluster_Topology` | Cluster | `Proxmox_VE_Topology` | AppliesTo only (§3.4) | O(1), plus the hourly guest-config read |
-| `Proxmox_VE_Node_Detail` | Node | `Proxmox_VE_NodeDetail` | Single-instance; asks its own node | O(1) per node |
+| `Proxmox_VE_Node_Detail` | Node | `Proxmox_VE_NodeDetail` | Single-instance; asks its own node. **Gains `CPUUsagePercent`, `CPUCount`, the memory trio and `UpTimeSeconds`** from the same `/nodes/{node}/status` call, so a node's performance alerts are raised on the node (the reason for this section) and each datapoint still lives in one module, as v1 DESIGN §4 requires | O(1) per node |
 | `Proxmox_VE_Node_Disks` | Node | `Proxmox_VE_Disks` | Fan-out removed; asks its own node | O(1) per node |
 | `Proxmox_VE_Node_Services` | Node | `Proxmox_VE_NodeServices` | Fan-out removed | O(1) per node |
 | `Proxmox_VE_Node_Certificates` | Node | `Proxmox_VE_Certificates` | Fan-out removed | O(1) per node |
@@ -100,13 +102,20 @@ Node-local storage stays in `Proxmox_VE_Cluster_StorageCapacity`, which already 
 local or shared, in its one call.
 
 **How a node module finds its own node:** the `local` row of `/cluster/status`, which
-`pveTopoClusterName` already reads in v1, so no property is set by hand. The node modules use the
+`pveTopoClusterName` already reads in v1, so no property is set by hand; a NetScan-created node
+also carries `pve.node` (NetScan spec §5.2), which is read first. The node API modules apply on
+`hasCategory("ProxmoxVE_Node") && pve.netscan.reachable != "false"`, so a node the Collector
+cannot reach raises no collection errors (NetScan spec §5.2); a manually added node, which has no
+such property, is included. The node modules use the
 node resource's own hostname and **never fail over** through `pve.api.hosts`: another node's
 `local` row would report the wrong node. If `/nodes/localhost/...` is accepted over HTTPS, it saves
 that call; S4 checks it as an optimisation, nothing depends on it.
 
-**Guest hypervisor metrics stay instances on the cluster role,** which is what VMware does if
-research §3 holds (Q1 checks it). Guest instance wildvalues stay `pveWildValue(id)`, so a migration
+**Guest hypervisor metrics stay instances on the cluster role,** which is what VMware does:
+LogicMonitor's `VMware_vSphere_VirtualMachineStatus` export applies on
+`system.virtualization =~ "VMware ESX vCenter"`, the vCenter resource only, and its
+`VMware_ESXi_VirtualMachinePerformance` on a host only with `standaloneEsxi =~ "true"` (exports
+read 2026-10-25; Q1 answered). Guest instance wildvalues stay `pveWildValue(id)`, so a migration
 keeps a guest's history.
 
 **Dashboards** carry over from v1's Tier 1 and Tier 2 with the module names replaced. The node
@@ -114,25 +123,16 @@ widgets are rebuilt to legend on `##HOSTNAME##`, since each node is now its own 
 
 ### 3.3 The NetScan
 
-An Enhanced Script NetScan modelled on VMware's (research §2), using the same Collector snippets:
-`lm.emit`, `lm.api`, `lm.cache` and `lm.debug`, plus this suite's HTTP preamble.
-
-**Inputs:** the API address and the token; optionally `rootFolder`, `discover.nodes` and
-`discover.guests`; filters on cluster, node, pool, tag and status; and LogicMonitor API
-credentials for deduplication.
-
-**Output:**
-- **Groups:** `<rootFolder>/Cluster - <name>/` holding the cluster resource, `Nodes/` and `Guests/`.
-  Guests can also be grouped by pool. As in VMware, guests are never grouped by node, because the
-  node changes on every migration.
-- **Guest properties:** `pve.cluster`, `pve.node`, `pve.vmid`, `pve.pool`, `pve.tags.*`,
-  `pve.guest.type`, `netscan.powerstate` and `pve.serial` = `<cluster>::<vmid>`. A per-node view
-  is one dynamic group on `pve.node`, current to within one NetScan run.
-- **Deduplication:** like VMware's, an existing device with the same display name or hostname is
-  adopted or reported, never duplicated. Proxmox adds the MAC as a third match key, because a
-  guest's IP is known only through the QEMU guest agent.
-- **Lifecycle:** it adds and moves resources but never deletes them, as in VMware. A guest removed
-  from Proxmox is reported in the NetScan output for an operator to retire.
+**Designed in its own spec: `2026-10-25-netscan-design.md`.** In brief: an Enhanced Script NetScan
+modelled on VMware's (research §2), one per cluster, run hourly. It reads `/cluster/status` and
+`/cluster/resources`, checks that the Collector reaches each node directly, and writes the cluster
+role, every node and (opt-in, filtered) guests into `<rootFolder>/Cluster - <name>/Nodes|Guests`,
+never grouping guests by node. It writes the token onto cluster and node resources only, and the
+node name, cluster name and failover list (`pve.api.hosts`) as properties, so no property is set
+by hand. With LogicMonitor API credentials it adopts existing devices by hostname, display name
+or (guests) MAC instead of duplicating them, and lists orphans; it never deletes. Its
+Proxmox logic is a pure preamble function the harness tests; only the `lm.emit` / `lm.api` calls
+are Collector-only.
 
 **Manual adds** set the category and the properties by hand, documented per role, as VMware
 documents "Manually Assigning Properties to Resources".
@@ -212,10 +212,55 @@ ping — is the user's choice, per guest or per filter.
   The catch: the cluster-level instances then live on a node resource, and leave with it if that
   node is retired. This trade-off is Q8.
 
+#### v1 against v2, in host units (2026-10-25)
+
+From the table above: 1 HU per resource, 0 per instance. *N* is the nodes in a cluster, *G* its
+guests, *S* the guests selected for guest resources, and *A* the guests that are already resources
+through SNMP, WMI or SSH. Those *A* cost 1 HU each under both versions alike, and v2's
+deduplication adopts them, so selecting them adds nothing; the rows below take them to be among
+the selected.
+
+| Deployment | v1 | v2, cluster role on a node (Q8 `node`) | v2, dedicated cluster resource (Q8 `dedicated`) |
+|---|---|---|---|
+| Standalone host | 1 | 1 | 1 (a standalone host never has a dedicated resource) |
+| Cheapest possible, per cluster | **1**: the token holder alone collects everything, node-level modules included, by fan-out; only the other nodes are missing from the map | **1** (`pve.netscan.nodes=false`): cluster-level data and each node's online state only. **No node-level modules** (disks, certificates, services, detail), since they apply only to node resources | 2 |
+| As documented (every node a resource) | *N* (v1 INSTALL §3.3, for the map) | *N* | *N* + 1 |
+| + guests as resources | *N* + *A* (v1 creates none; *A* are the user's own) | *N* + *S* | *N* + 1 + *S* |
+| Lab: 2 nodes, 9 guests, guests off, none SNMP | 2 | 2 | 3 |
+| Target: 12 nodes, 500 guests, guests off, none SNMP | 12 | 12 | 13 |
+| Target, 10 guests already SNMP, 50 selected (those 10 among them) | 12 + 10 = 22 | 12 + 50 = 62 | 63 |
+| Target, 10 guests already SNMP, every guest selected | 22 | 12 + 500 = 512 | 513 |
+
+**At its defaults v2 costs exactly what v1 costs as documented**, or one more per cluster with a
+dedicated cluster resource. The licence cost of v2 is **opt-in**, and is entirely guests: *S*
+minus *A*, the guests already monitored.
+
+**Why one might be preferred:**
+
+- **v1, when the licence budget is the constraint.** One resource per cluster still collects every
+  node's disks, certificates, services and detail, because it fans out from the token holder. v2
+  cannot match that at 1 HU: its node modules need node resources. v1 is also the simpler install
+  (one property, no NetScan, no LogicMonitor API credentials, the Collector needs to reach one
+  address).
+- **v2, when the resources are worth their units.** At the same *N* HU it adds what v1 cannot:
+  node alerts raised, routed and silenced on the node itself; cluster monitoring that survives the
+  loss of any one node; no hand-set token, category or topology property, and no stale category
+  when a host joins a cluster; and, for the guests someone selects, access control per tenant and
+  in-guest monitoring organised by cluster and pool — at 1 HU per guest not already monitored.
+- **The risk in v2 is a single switch.** `pve.netscan.guests=true` with no filter on the target
+  cluster is 500 HU at the next hourly run. The default is off, the install guide pairs the switch
+  with a filter, and the NetScan's output states how many guest resources the run would create.
+- **API load is not a differentiator.** The total is the same either way (one bulk call per
+  cluster-level module, one call per node per node-level module); v2 adds the NetScan's hourly
+  2 + *N* calls, plus 2 per selected guest.
+
 ### 3.8 Carried over from v1 unchanged
 
-Copied into this repository from v1 commit `e6873b7`, the commit recorded here, as the skill pins
-its fixtures. v1 keeps its own history; a later v1 fix reaches v2 only by copying it over.
+Copied into this repository from v1 commit `2e0237b` (v1 complete), the commit recorded here, as
+the skill pins its fixtures. That includes what v1 added after `e6873b7`: graphs on every
+DataSource and the build's `check_graphs`, `pveSizeLabel` sizes in instance names and descriptions,
+and the rule that end-user text points at Proxmox's own views because stderr on a successful run is
+not shown (v1 DESIGN §7). v1 keeps its own history; a later v1 fix reaches v2 only by copying it over.
 
 - `scripts/lib/pve_common.groovy`: properties, TLS, HTTP, `pveWildValue`, the emit and discovery
   helpers, the topology key and guest MAC helpers. One addition: failover across `pve.api.hosts`,
@@ -229,18 +274,17 @@ its fixtures. v1 keeps its own history; a later v1 fix reaches v2 only by copyin
 
 ## 4. Open questions
 
-The spikes in §5 answer the first four. The last three are yours.
+The spikes in §5 answer Q2–Q4. Q6–Q8 are yours, and the NetScan spec §11 adds Q9.
 
-- **Q1.** Does `VMware_vSphere_VirtualMachinePerformance` apply to the vCenter resource or to each
-  VM resource? It decides whether §3.2's "guest metrics as cluster instances" is LogicMonitor's own
-  pattern. Read-only check: the module's AppliesTo in the Exchange.
+- **Q1. Answered** 2026-10-25 (§3.2): VMware's VM modules apply to the vCenter resource; per-host
+  VM modules exist only for standalone ESXi.
 - **Q2.** Can a Proxmox NetScan, built from the Collector snippets above, create a cluster, a node
   and a guest resource in a test group, with groups and properties as in §3.3?
 - **Q3.** Does `lm.api` deduplication adopt an existing SNMP or WMI guest resource, or only report
   it? And can MAC matching be added?
 - **Q4.** Does `lm.cache` share data across resources on one Collector? This matters only for a
   later per-guest module.
-- **Q5. Licensing:** answered in §3.7. `discover.guests` defaults to off.
+- **Q5. Licensing:** answered in §3.7. `pve.netscan.guests` defaults to off.
 - **Q6. Scale target:** the largest cluster and guest count to design and test for.
 - **Q7. Where the token lives:** the NetScan writes it on cluster and node resources only. Do you
   want it on a group instead?
@@ -251,9 +295,10 @@ The spikes in §5 answer the first four. The last three are yours.
 
 | Spike | Answers | Method | Cost |
 |---|---|---|---|
-| S1 | Q1 | read the VMware VM modules' AppliesTo in the Exchange | minutes, read-only |
-| S2 | Q2 | a throwaway NetScan against the lab cluster that creates resources in a test group | one import, one run, then delete the group |
-| S3 | Q3 | the same NetScan run against a guest already monitored over SNMP | the same run |
+| S1 | Q1 | read the VMware VM modules' AppliesTo | **done** 2026-10-25, from LogicMonitor's exports |
+| S2 | Q2 | a throwaway NetScan against the lab cluster that creates resources in a test group; detail in NetScan spec §10 | one import, one run, then delete the group |
+| S3 | Q3 | the same NetScan run against the v1 node resources and a guest already monitored over SNMP | the same run |
+| S5, S6 | NetScan re-runs; guest-address privileges | NetScan spec §10 | two runs; two `curl`s |
 | S4 | failover; `/nodes/localhost` | the preamble with two addresses, the first unreachable; and one `GET /nodes/localhost/status` over HTTPS | harness plus one Collector debug run |
 
 ## 6. Not in scope
