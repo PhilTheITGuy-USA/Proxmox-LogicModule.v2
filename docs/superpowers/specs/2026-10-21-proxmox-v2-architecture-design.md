@@ -47,10 +47,12 @@ first run of v1's spike 3; the re-run on 2026-10-22 drew the cluster vertex, thr
 **Licensing decides the defaults** (§3.7): every resource costs one host unit (HU); instances
 cost none. So a guest becomes a resource only when the user asks for it.
 
-**The cluster resource is not a node.** Its hostname is the address the user gives the NetScan:
-a VIP, a DNS round-robin name or one node. It carries `pve.api.hosts`, every node's address from
-`/cluster/status`, and the preamble fails over through that list. This removes the single point
-of failure.
+**The cluster resource is not a node** (Q8, user 2026-10-25: a separate resource). Its hostname
+is the address the user gives the NetScan, a VIP or a DNS name; where that address is a node's,
+it is the cluster name instead, so it never collides with the node resource (NetScan spec §5.1).
+It carries `pve.api.url` and `pve.api.hosts`, every node's address from `/cluster/status`, and the
+preamble fails over through that list; the cluster modules never use the hostname. This removes
+the single point of failure.
 
 **A standalone host is one resource carrying both roles**, `ProxmoxVE_Cluster,ProxmoxVE_Node`.
 This is the counterpart of vSphere's `standaloneEsxi` mode.
@@ -120,6 +122,9 @@ keeps a guest's history.
 
 **Dashboards** carry over from v1's Tier 1 and Tier 2 with the module names replaced. The node
 widgets are rebuilt to legend on `##HOSTNAME##`, since each node is now its own resource.
+
+**Scale** (Q6: 10 clusters of 16 nodes and 1,000 guests) changes how the per-guest and per-node
+loops are written, not where the modules go: §3.9.
 
 ### 3.3 The NetScan
 
@@ -210,7 +215,8 @@ ping — is the user's choice, per guest or per filter.
   v1's token-holding node doubles as the cluster. The alternative is to put the cluster role on a
   node resource, as v1 does, and fail over through `pve.api.hosts` from there. That costs 0 HU.
   The catch: the cluster-level instances then live on a node resource, and leave with it if that
-  node is retired. This trade-off is Q8.
+  node is retired. **Chosen: the dedicated resource** (Q8, user 2026-10-25), so v2 is the right-hand
+  column below.
 
 #### v1 against v2, in host units (2026-10-25)
 
@@ -235,6 +241,10 @@ the selected.
 dedicated cluster resource. The licence cost of v2 is **opt-in**, and is entirely guests: *S*
 minus *A*, the guests already monitored.
 
+**At the scale target (Q6: 10 clusters of 16 nodes and 1,000 guests):** 160 HU under v1 as
+documented and **170 under v2** with guests off — ten more in all, one per cluster resource. Every
+guest selected adds up to 10,000 HU, less the guests already monitored: 10,170 with every guest.
+
 **Why one might be preferred:**
 
 - **v1, when the licence budget is the constraint.** One resource per cluster still collects every
@@ -247,8 +257,8 @@ minus *A*, the guests already monitored.
   loss of any one node; no hand-set token, category or topology property, and no stale category
   when a host joins a cluster; and, for the guests someone selects, access control per tenant and
   in-guest monitoring organised by cluster and pool — at 1 HU per guest not already monitored.
-- **The risk in v2 is a single switch.** `pve.netscan.guests=true` with no filter on the target
-  cluster is 500 HU at the next hourly run. The default is off, the install guide pairs the switch
+- **The risk in v2 is a single switch.** `pve.netscan.guests=true` with no filter on one cluster
+  of the scale target is 1,000 HU at the next hourly run. The default is off, the install guide pairs the switch
   with a filter, and the NetScan's output states how many guest resources the run would create.
 - **API load is not a differentiator.** The total is the same either way (one bulk call per
   cluster-level module, one call per node per node-level module); v2 adds the NetScan's hourly
@@ -264,7 +274,8 @@ not shown (v1 DESIGN §7). v1 keeps its own history; a later v1 fix reaches v2 o
 
 - `scripts/lib/pve_common.groovy`: properties, TLS, HTTP, `pveWildValue`, the emit and discovery
   helpers, the topology key and guest MAC helpers. One addition: failover across `pve.api.hosts`,
-  used by the cluster role only (§3.2).
+  used by the cluster role only (§3.2); per-node requests addressed to the owning node, bounded
+  concurrency and a time budget for the O(guests) loops (§3.9).
 - `build/` (`build.py`, `dashboards.py`, `groovylint.py`), `tests/` (the Docker compile job, the
   harness and its mock API), the dashboard validation and the lint run order. The build's
   module-name and category checks change with §3.1 and §3.2.
@@ -272,9 +283,69 @@ not shown (v1 DESIGN §7). v1 keeps its own history; a later v1 fix reaches v2 o
   wildvalue, `derive` counters, template filtering, the cost tiers.
 - Every portal lesson recorded in v1 DESIGN §7 and in the skill.
 
+### 3.9 Scale: 10 clusters × 16 nodes × 1,000 guests (Q6, user 2026-10-25)
+
+The target the design is built for, though the lab (2 nodes, 9 guests) cannot test it. The user's
+rule: as scalable as realistic real-world deployments need.
+
+**The steady load is small.** From v1's own intervals and per-module costs (v1 CLAUDE.md), per
+cluster per hour:
+
+| Where | Calls/hour | Of which O(guests), hourly |
+|---|---|---|
+| Cluster resource | ~2,550 (with the shared config read below; ~3,550 without) | ~2,000: one guest-config read (GuestStatus discovery and Topology together) and one snapshot read per guest |
+| Each node resource | ~31, to itself | 0 |
+| 16 nodes | ~490 | 0 |
+| NetScan, guests off | 18 | 0 (up to ~2,000 with every guest selected) |
+| **One cluster** | **~3,050, 0.85 a second** | |
+| **Ten clusters** | **~30,500**, spread over their Collectors | |
+
+The largest 5-minute cost is `Proxmox_VE_Cluster_Status`'s migration history, 2 calls per node
+every 5 minutes (~430 an hour at 16 nodes); acceptable, and the first to move to a longer interval
+if a site needs it.
+
+**What limits scale is not the average but the hourly per-guest loops:** ~1,000 calls in a row
+inside one script run, against one API node, which is also a production hypervisor. So v2 builds
+these rules into every O(guests) and O(nodes) loop:
+
+1. **One guest-config read per hour, not two.** v1's backlog item (v1 DESIGN §4) is built in v2:
+   whichever of GuestStatus discovery and the TopologySource runs first caches each guest's config
+   through `lm.cache`, and the other reads the cache, falling back to the API on a miss. Saves
+   ~1,000 calls an hour per cluster. Needs Q4 (S7).
+2. **Ask the node that owns the object.** A per-guest or per-node read (`/nodes/<n>/...`) goes
+   straight to node `<n>`'s address from `pve.api.hosts`, not through the API address, which would
+   proxy it there anyway. That spreads the hourly ~2,000 calls over 16 nodes instead of one, and
+   halves their hops. The Collector already has to reach every node for the node modules (§3.2).
+   A node it cannot reach falls back to the API address.
+3. **A per-node circuit breaker** in every loop, as v1's Snapshots has: one failure skips the rest
+   of that node's objects for the run, so a sick node costs one timeout, not 60.
+4. **Bounded concurrency** for O(guests) loops: `pve.api.concurrency`, default 2, so 1,000 reads
+   take half the wall time without crowding the node's own API workers (pveproxy and pvedaemon
+   run a small fixed pool each, 3 by default [unverified on 9.2]), which the Proxmox UI and its
+   users share. Rule 2 already spreads the load, so 2 per node in flight is the ceiling.
+5. **A time budget** inside every O(guests) loop, below the Collector's script timeout (its value
+   for each module type is [unverified]; S2 reads it). If the budget runs out, the run emits what
+   it has, says so, and withholds the rest: no fabricated values. If S2's per-call latency says
+   1,000 guests would not fit, the loop spreads the guests over several runs with a cursor in
+   `lm.cache`. That is designed, and built only if measured.
+
+**On the LogicMonitor side:** each cluster-level guest module holds 1,000 instances on its
+cluster resource, and Backups one per guest per job. Whether the portal limits instances per
+module is [unverified]; LogicMonitor's own VMware modules carry every VM of a vCenter the same
+way. One Collector, or an auto-balanced Collector group, per cluster keeps each cluster's load
+apart, as LogicMonitor advises for vSphere (research §2). Deduplication on a portal of ~10,000
+devices takes VMware's one-query-per-resource path (NetScan spec §6).
+
+**Tested how:** the harness gets a generated fixture of 16 nodes and 1,000 guests, and asserts
+the call count per module against this table, the breaker, the budget and the concurrency bound,
+so a change that adds an O(guests) call fails locally. The latency side needs a real cluster:
+S2 measures the lab's per-call time; the scale itself is for end-user review, as v1 recorded
+for its own scale claim (v1 DESIGN §7).
+
 ## 4. Open questions
 
-The spikes in §5 answer Q2–Q4. Q6–Q8 are yours, and the NetScan spec §11 adds Q9.
+The spikes in §5 answer Q2–Q4, run together with the user. The user's questions, Q6–Q9, are
+answered (2026-10-25).
 
 - **Q1. Answered** 2026-10-25 (§3.2): VMware's VM modules apply to the vCenter resource; per-host
   VM modules exist only for standalone ESXi.
@@ -282,14 +353,16 @@ The spikes in §5 answer Q2–Q4. Q6–Q8 are yours, and the NetScan spec §11 a
   and a guest resource in a test group, with groups and properties as in §3.3?
 - **Q3.** Does `lm.api` deduplication adopt an existing SNMP or WMI guest resource, or only report
   it? And can MAC matching be added?
-- **Q4.** Does `lm.cache` share data across resources on one Collector? This matters only for a
-  later per-guest module.
+- **Q4.** Does `lm.cache` share data between a TopologySource and a DataSource's discovery on one
+  Collector? Needed at the scale target for the single guest-config read (§3.2).
 - **Q5. Licensing:** answered in §3.7. `pve.netscan.guests` defaults to off.
-- **Q6. Scale target:** the largest cluster and guest count to design and test for.
-- **Q7. Where the token lives:** the NetScan writes it on cluster and node resources only. Do you
-  want it on a group instead?
-- **Q8. The cluster role:** a dedicated cluster resource (1 HU, independent of any node) or a node
-  resource that carries the cluster role (0 HU, with failover)? See §3.7.
+- **Q6. Scale target: answered** — 10 clusters of 16 nodes and 1,000 guests each (§3.7, §3.9).
+- **Q7. Where the token lives: answered** — one Proxmox API token per cluster (user, confirmed
+  2026-10-25), held by that cluster's NetScan and written onto its cluster and node resources
+  (NetScan spec §7).
+- **Q8. The cluster role: answered** — a separate cluster resource (§3.1, §3.7).
+- **Q9. Node hostnames: answered** — the node's `/cluster/status` address by default, the name
+  as an option (NetScan spec §5.2).
 
 ## 5. Spikes, before any plan
 
@@ -299,6 +372,7 @@ The spikes in §5 answer Q2–Q4. Q6–Q8 are yours, and the NetScan spec §11 a
 | S2 | Q2 | a throwaway NetScan against the lab cluster that creates resources in a test group; detail in NetScan spec §10 | one import, one run, then delete the group |
 | S3 | Q3 | the same NetScan run against the v1 node resources and a guest already monitored over SNMP | the same run |
 | S5, S6 | NetScan re-runs; guest-address privileges | NetScan spec §10 | two runs; two `curl`s |
+| S7 | Q4 | a throwaway TopologySource and DataSource on one Collector, one writing an `lm.cache` key and the other reading it | one import each, then deleted |
 | S4 | failover; `/nodes/localhost` | the preamble with two addresses, the first unreachable; and one `GET /nodes/localhost/status` over HTTPS | harness plus one Collector debug run |
 
 ## 6. Not in scope

@@ -86,7 +86,42 @@ NetScan does [script]:
   NetScan does not have the ability to delete resources" [doc]. It can run as often as hourly.
 - **Requires Collector 32.400 or later** [script].
 
-## 3. Where VM metrics are collected [inferred, to verify]
+## 2a. The script's contract, read 2026-10-25 [script]
+
+From the copy the user supplied on 2026-10-25 (© LogicMonitor; summarised, not copied). These are
+the mechanics a Proxmox NetScan has to reproduce:
+
+- **Properties** come from the `netscanProps` binding. When that binding is missing, as in the
+  Collector's debug console run against a resource, the script falls back to `hostProps` and
+  forces its debug mode on, so it never prints secrets there.
+- **It refuses a Collector below 32.400** (`AgentVersion.AGENT_VERSION`), naming the version.
+- **Snippets** are loaded through `GroovyScriptHelper` / `Snippets.getLoader()` with the script's
+  binding: `lm.emit` 1.1, `lm.debug` 1, `proto.http` 0, `lm.cache` 0, `lm.api` 0, plus the two
+  VMware snippets. The cache is keyed `<host>::vmware-vsphere`.
+- **Output** is one call, `emit.resource(resources, debug)`, on a list of maps with `hostname`,
+  `displayname`, `hostProps` (categories go in `system.categories`) and `groupName`, a *list* of
+  group paths, since a VM sits in both the compute view and the folder view. No `collectorId` is
+  emitted.
+- **Deduplication** (`lm.api`, skipped with `skip.device.dedupe`): it first asks the snippet for
+  an estimate of listing every device; within `lmapi.timelimit.sec` (default 60, clamped to
+  30–120) it lists them all once (fields: name, display name, current Collector), otherwise it
+  looks each resource up individually. It matches by display name, then hostname, then, for a
+  host, its vmk0 IP. **A match is not emitted** and is reported as a collision, unless
+  `hostname.source` is `lm` (emit with the portal device's hostname and display name, which adopts
+  it) or `netscan` (emit with display name `<name> - <hostname>`, a new device). The collision
+  report goes to its debug output.
+- **Hostnames:** a VM's is its guest IP, replaced by the IP's reverse-DNS name where one exists,
+  else its display name; a host's is its vmk0 IP, likewise resolved.
+- **Hosts are logged into one by one,** with failures capped (`esx.maxloginfailures`, default 10).
+  A host it cannot log into is emitted without `system.categories`, carrying
+  `esx.netscan.status` only.
+- **Credentials and identity on resources:** each host carries `esx.user` / `esx.pass` /
+  `esx.addr`, the vCenter credentials, and `vcenter.hostname`. A VM carries no credentials;
+  `vcenter.serial` is `<vCenter UUID>::<VM UUID>` (the host's is its service tag or hardware
+  UUID). `netscan.powerstate` and the lineage (`vcenter.datacenter`, `.cluster`, …) and tags are
+  properties for filtering and dynamic groups.
+
+## 3. Where VM metrics are collected [doc, confirmed 2026-10-25]
 
 The page does not say whether `VMware_vSphere_VirtualMachinePerformance` applies to the vCenter
 resource, with VMs as instances, or to each `VMwareVM` resource. The evidence points to the
@@ -107,7 +142,7 @@ If this holds, **VMware's model is a hybrid**:
   IP), alert routing, maintenance windows and access control;
 - each hypervisor host is a resource polled directly for host-level data.
 
-This is to be verified in the portal: the Exchange shows each module's AppliesTo.
+Confirmed 2026-10-25 from LogicMonitor's exports: `VMware_vSphere_VirtualMachineStatus` applies on `system.virtualization =~ "VMware ESX vCenter"`, and `VMware_ESXi_VirtualMachinePerformance` on a host only with `standaloneEsxi =~ "true"`.
 
 ## 4. Mapping to Proxmox VE
 

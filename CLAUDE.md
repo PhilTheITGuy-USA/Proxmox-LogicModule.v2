@@ -19,7 +19,8 @@ proposing any build or code layout. References like "v1 DESIGN §7" in the docs 
 
 - `docs/research/` -- what LogicMonitor's own vSphere (and Nutanix) suites do. Claims are tagged
   **[doc]**, **[script]** or **[inferred]**; keep that tagging when adding to it. The vSphere
-  NetScan the user supplied is LogicMonitor's code: summarise it, never copy it in.
+  NetScan the user supplied is LogicMonitor's code: summarise it, never copy it in (its contract
+  is summarised in research §2a).
 - `docs/superpowers/specs/` -- the v2 architecture spec and the NetScan spec it points to (§3.3),
   both **draft for review**. The workflow is spec → spikes (§5) → plan → code; don't start a plan
   or code until the user approves the specs and the open questions that block them (architecture
