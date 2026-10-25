@@ -1,0 +1,49 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this repo is
+
+Design work for the second generation of the Proxmox VE LogicModule suite. **Nothing is built
+yet**: there is no `build/`, `dist/`, `modules/` or test harness, so there are no build, lint or test
+commands to run here. The workspace `..\CLAUDE.md` (skill use, lint commands, lessons going back
+into the skill) applies once modules exist.
+
+v1 is the sibling repo `..\Proxmox-LogicModule` (18 modules, portal-verified on a two-node lab).
+Its build, Docker harness, mock API, `pveWildValue`, HTTP preamble and dashboard validation are
+meant to carry over unchanged (spec §3.8), so read v1's `CLAUDE.md` and `docs/DESIGN.md` before
+proposing any build or code layout. References like "v1 DESIGN §7" in the docs here point there.
+
+## Documents
+
+- `docs/research/` -- what LogicMonitor's own vSphere (and Nutanix) suites do. Claims are tagged
+  **[doc]**, **[script]** or **[inferred]**; keep that tagging when adding to it. The vSphere
+  NetScan the user supplied is LogicMonitor's code: summarise it, never copy it in.
+- `docs/superpowers/specs/` -- the v2 architecture spec, **draft for review**. The workflow is
+  spec → spikes (§5) → plan → code; don't start a plan or code until the user approves the spec
+  and the open questions (§4, Q1–Q8) that block it are answered.
+
+Spec edits are dated and attributed to their evidence (a portal check, a live target, the user's
+stated position, a LogicMonitor doc URL); commit messages follow the same style, e.g.
+`Spec §3.6: ... (v1 portal check 2026-10-22)`.
+
+## The v2 architecture in brief
+
+The point of v2 is to model Proxmox the way LogicMonitor models vSphere, instead of v1's "every
+node, guest and storage object is an instance on the token-holding node":
+
+- **Three resource roles by category**, set by whoever creates the resource (NetScan or a manual
+  add), never inferred from whether a token works: `ProxmoxVE_Cluster` (≈ vCenter),
+  `ProxmoxVE_Node` (≈ ESXi host), `ProxmoxVE_Guest` (≈ VMwareVM, opt-in via `discover.guests`,
+  off by default). A standalone host carries both Cluster and Node categories.
+- **Cluster-wide modules stay O(1) API calls per poll** on the cluster role, which fails over
+  across `pve.api.hosts`; node modules ask only their own node and never fail over. Modules are
+  named `Proxmox_VE_Cluster_*` / `Proxmox_VE_Node_*` so they never overwrite v1's on import;
+  each starts from a v1 module (spec §3.2 maps them). Guest hypervisor metrics stay
+  instances on the cluster resource, wildvalues unchanged so a migration keeps history.
+- **An Enhanced Script NetScan** creates and groups resources (`Cluster - <name>/Nodes|Guests`,
+  never grouped by node), deduplicates against existing devices (display name, hostname, MAC),
+  and never deletes.
+- **Licensing drives defaults:** every resource is one host unit, instances are free -- hence
+  guests-as-resources is opt-in, and Q8 (dedicated cluster resource vs. a node carrying the
+  cluster role) is still open.
