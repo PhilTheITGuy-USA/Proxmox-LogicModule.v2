@@ -108,8 +108,9 @@ when a layer changes.
   replication), 2026-10-26: S2, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
   Node-B (standby) and the guest Webapp01, and a re-run adds nothing and leaves the expected
   properties; the standby takes over when corosync or pveproxy stops on the active and hands back
-  with its alerts cleared. **Not yet seen on the lab:** the guest ERI's bare-MAC key (the map
-  showed Webapp01 alone beside its vertex before it), Replication and Ceph (nothing to read),
+  with its alerts cleared. The guest ERI's bare-MAC key joins a NetScan-created guest to its
+  map vertex: Webapp01, drawn alone beside its vertex before the fix, is drawn once, under
+  Node-A (user, 2026-10-26). **Not yet seen on the lab:** Replication and Ceph (nothing to read),
   a cluster address (VIP/DNS), a large portal's one-at-a-time lookups. S3 and S7's sharing half
   are deferred (user, 2026-10-26).
 
