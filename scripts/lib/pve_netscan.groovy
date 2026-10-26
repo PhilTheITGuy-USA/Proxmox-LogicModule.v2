@@ -65,7 +65,8 @@ def pveGuestAddress = { Map guest, Map config, Object live ->
  * Whether the NetScan properties select a guest: every filter that is set must pass, and a
  * template never does. Filters are comma-separated allow-lists; vmid takes ranges.
  */
-def pveGuestSelected = { Map guest, Map props ->
+// props is the NetScan's ParamMap (get and set, not a java.util.Map) or a Map: only get is used.
+def pveGuestSelected = { Map guest, props ->
     if (guest.template?.toString() in ['1', 'true']) { return false }
     def list = { String key -> (props.get(key)?.toString() ?: '').tokenize(',')*.trim().findAll { it } }
     def vmid = guest.vmid as int

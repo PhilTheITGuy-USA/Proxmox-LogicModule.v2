@@ -1516,6 +1516,19 @@ class GroovyScriptHelper {
             [load: { String snippet, String v -> com.logicmonitor.mod.Snippets.fakes[snippet] }] }] }]
     }
 }''')
+// LogicMonitor's ParamMap, as a Collector hands it over: get and set, and not a java.util.Map.
+stubClasses.parseClass('''package com.santaba.common.util
+class ParamMap {
+    private Map values = [:]
+    String get(String key) { values[key] }
+    String get(String key, String fallback) { values.containsKey(key) ? values[key] : fallback }
+    void set(String key, String value) { values[key] = value }
+}''')
+def paramMap = { Map props ->
+    def map = stubClasses.loadClass('com.santaba.common.util.ParamMap').getDeclaredConstructor().newInstance()
+    props.each { key, value -> map.set(key, value) }
+    map
+}
 def snippetFakes = stubClasses.loadClass('com.logicmonitor.mod.Snippets').fakes
 def emitted = []
 def portalDevices = []
@@ -1533,7 +1546,7 @@ def runNetscan = { Map props ->
     Throwable thrown = null
     try {
         System.setOut(new PrintStream(out, true, 'UTF-8')); System.setErr(new PrintStream(err, true, 'UTF-8'))
-        result = new GroovyShell(stubClasses, new Binding([netscanProps: props])).evaluate(netscanFile)
+        result = new GroovyShell(stubClasses, new Binding([netscanProps: paramMap(props)])).evaluate(netscanFile)
     } catch (Throwable t) { thrown = t } finally { System.setOut(realOut); System.setErr(realErr) }
     [exit: result, thrown: thrown, stdout: new String(out.toByteArray(), 'UTF-8'), stderr: new String(err.toByteArray(), 'UTF-8'),
      resources: new ArrayList(emitted)]

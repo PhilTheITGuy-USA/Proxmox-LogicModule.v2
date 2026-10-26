@@ -64,7 +64,7 @@ arrive, so some properties from outside the NetScan do.
 | `skip.device.dedupe` | `false` | VMware's name and meaning [vmware]: `true` turns §6 off |
 | `hostname.source` | empty | VMware's name and meaning [vmware], §6: empty skips and reports a collision, `lm` adopts the existing device, `netscan` renames the new one |
 | `lmapi.timelimit.sec` | `60` | VMware's [vmware]: above this estimate, §6 queries the portal one device at a time |
-| LogicMonitor API credentials | none | read by the `lm.api` snippet itself from the NetScan's properties [vmware]; their property names are LogicMonitor's (`lmaccess.id` / `lmaccess.key` in its documentation) [unverified]; the client built by `lm.api`'s factory reads them itself (`getApiId()`, `getApiKey()`) [Collector, 2026-10-26]. They do not arrive unless entered [S2]. **Required for guest resources** (§6), optional otherwise |
+| LogicMonitor API credentials | none | read by the `lm.api` snippet itself from the NetScan's properties [vmware]; their property names are LogicMonitor's `lmaccess.id` / `lmaccess.key` -- confirmed: with them set, `lm.api` listed the portal's devices (HTTP 200), and the NetScan screen masks `lmaccess.key` although it does not end in `.credential` [lab, 2026-10-26]; the client built by `lm.api`'s factory reads them itself (`getApiId()`, `getApiKey()`) [Collector, 2026-10-26]. They do not arrive unless entered [S2]. **Required for guest resources** (§6), optional otherwise |
 | `pve.netscan.debug` | `false` | `true` makes a scheduled run print as the debug console does; the debug console is always in debug mode, so `lm.emit` masks every `.credential` value it prints |
 
 **The NetScan's "Criteria for updating Existing Resources"** decides which existing resources a

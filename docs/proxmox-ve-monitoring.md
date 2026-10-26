@@ -107,8 +107,7 @@ report says why. The token only reads: the NetScan never changes a resource thro
 3. Open the user, select **API Tokens > Add**, and choose an **LMv1** token.
 4. Copy the **Access ID** and the **Access Key**. The key is shown only once.
 5. Enter them in the NetScan's custom credentials (step 7 below) as `lmaccess.id` and
-   `lmaccess.key` *(property names not yet verified)*. Check that the NetScan screen masks the
-   key after saving.
+   `lmaccess.key`. The NetScan screen masks the key.
 
 **Note:** One token can serve every Proxmox NetScan in the portal.
 
