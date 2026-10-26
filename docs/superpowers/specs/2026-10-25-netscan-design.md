@@ -2,7 +2,9 @@
 
 Status: **draft for review**, 2026-10-25; revised the same day with the user's answers to Q6–Q9
 and with what LogicMonitor's vSphere NetScan script shows (supplied by the user 2026-10-25,
-summarised in research §2a, not copied). Part of the v2 architecture spec
+summarised in research §2a, not copied); revised again after spike S2 (2026-10-25): the cluster
+role is an active and a standby resource (§5.1), guest hostnames stay IPs (§5.3), deduplication
+compares addresses (§6). Part of the v2 architecture spec
 (`2026-10-21-proxmox-v2-architecture-design.md`, §3.3), which it details. Nothing here is built.
 Built on v1 complete at `2e0237b`.
 
@@ -47,6 +49,7 @@ resource, is [unverified, S2].
 | `pve.token.credential` | — (required) | **one token per cluster** (Q7, user 2026-10-25): the whole `user@realm!tokenid=secret`. `PVEAuditor` on `/` suffices on PVE 9, the guest-agent address included [S6]. **Not v1's `pve.api.token.credential`** (user 2026-10-25): v1's `addCategory_Proxmox_VE` tags any resource holding that exact property with `ProxmoxVE` and applies all of v1 to it [v1, `pve_common.groovy` 62–69], so a different name keeps v1 off v2's resources with no change to v1. Permanent once shipped |
 | `pve.api.insecure`, `pve.api.timeout` | `false`, `10000` | as v1; copied with the token |
 | `pve.api.concurrency` | `2` | requests in flight per node in an O(guests) loop (main spec §3.9 rule 4); copied with the token so the modules use the same bound |
+| `pve.netscan.cluster.address` | the host part of `pve.api.url` | the cluster's own address (VIP, proxy, DNS name), when it is not the API address. It decides §5.1's case |
 | `pve.netscan.rootFolder` | `Proxmox VE` | the root group of §4 |
 | `pve.netscan.nodes` | `true` | create node resources. `false` leaves only the cluster resource |
 | `pve.netscan.node.hostname` | **`ip`** (Q9, user 2026-10-25) | a node resource's hostname: `ip` (its `/cluster/status` address) or `name` (the node name, which must resolve from the Collector) |
@@ -79,8 +82,10 @@ them; whether the NetScan UI's own filter rows also apply is [unverified, S2].
 4. **Guests, only if `pve.netscan.guests`:** filter (§2), drop templates [v1], then for each
    remaining guest read its `config` (MAC, static address) and, where §5.3 says so, its live
    address. O(selected guests).
-5. **Deduplicate** each resource against the portal (§6).
-6. **Emit** the list through `lm.emit`'s `resource` call [vmware]. Each entry is a map of
+5. **The cluster role (§5.1):** decide the case from the cluster address and take the pair by
+   `nodeid`. No API call.
+6. **Deduplicate** each resource against the portal (§6).
+7. **Emit** the list through `lm.emit`'s `resource` call [vmware]. Each entry is a map of
    `hostname`, `displayname`, `hostProps` (a map, `system.categories` among them) and `groupName`
    (a list of group paths, so one resource can sit in several groups) [vmware].
 
@@ -91,8 +96,8 @@ calls an hour; with all 1,000 guests selected, about 2,018 (§12).
 
 ```
 <rootFolder>/
-  Cluster - <cluster>/          the cluster resource (§5.1)
-    Nodes/                      every node resource
+  Cluster - <cluster>/          the cluster resource, where the cluster has an address (§5.1)
+    Nodes/                      every node resource, the role nodes among them
     Guests/                     only if pve.netscan.guests
       Pool - <pool>/            with groupBy=pool; guests in no pool stay in Guests/
   Host - <node>/                a standalone host instead of Cluster - …
@@ -107,25 +112,44 @@ it. Proxmox tags become `pve.tags` for dynamic groups too.
 
 ## 5. The resources it writes
 
-### 5.1 The cluster resource (Q8: a separate resource, user 2026-10-25)
+### 5.1 The cluster role: an active and a standby resource (user, 2026-10-25)
 
-| Case | Hostname | Display name | Categories |
-|---|---|---|---|
-| a cluster | the host part of `pve.api.url`, **unless** it is a node's name or address, then the cluster name (below) | `<cluster>` | `ProxmoxVE_Cluster` |
-| a standalone host | its node hostname (§5.2) | its node name | `ProxmoxVE_Cluster,ProxmoxVE_Node`: one resource, both roles (main spec §3.1) |
+Main spec §3.1 gives the rule and why: a cluster resource without an address of its own is dead,
+and a dead resource suppresses its alerts [S2, 2026-10-25]. The NetScan decides which case a
+cluster is in, from the cluster address: `pve.netscan.cluster.address` if set (§2), else the host
+part of `pve.api.url`. If that is neither a node's name nor a node's address, it is the cluster's
+own address (a VIP, a proxy, a DNS name or a round-robin name).
 
-Properties, beside the token set of §2: `pve.cluster` = the cluster name, `pve.api.url` as given,
-`pve.api.hosts` = every node's `/cluster/status` address ordered by `nodeid`, and `pve.serial` =
-`<cluster>`. The cluster modules reach the API through `pve.api.url`, failing over through
-`pve.api.hosts`; **they never use the resource's hostname,** so the hostname only identifies it.
+| Case | Active | Standby |
+|---|---|---|
+| a cluster address | a **cluster resource**: hostname = the address, display name `<cluster>`, categories `ProxmoxVE_Cluster` | the node with the lowest `nodeid` |
+| no cluster address | the node with the lowest `nodeid` | the node with the next `nodeid` |
+| a standalone host | its one resource, `ProxmoxVE_Cluster,ProxmoxVE_Node` (main spec §3.1) | none |
+| a one-node cluster, no address | that node | none, until a second node joins |
 
-**Why the hostname rule:** without a VIP or a DNS name of its own, the address the user gives is a
-node, and that node is also a node resource. Two resources with one hostname on one Collector
-would collide in the portal and in §6's own hostname match. So the cluster resource then takes the
-cluster name as its hostname. That name may not resolve; whether the portal still counts the
-resource alive on the strength of its API modules' data, or shows it dead for want of ping, is
-[unverified, S2]. With a VIP or a cluster DNS name the question does not arise, and the install
-guide recommends one.
+- **A node carrying the role** keeps its node hostname and display name (§5.2) and gets
+  `ProxmoxVE_Node,ProxmoxVE_Cluster`.
+- **Properties on both role resources,** beside the token set of §2: `pve.cluster` = the cluster
+  name, `pve.api.url` as given, `pve.api.hosts` = every node's `/cluster/status` address ordered
+  by `nodeid`, **`pve.cluster.role`** = `active` / `standby`, and on the standby
+  **`pve.cluster.active`** = what it stands behind: the active node's name, or `address:<host>`
+  for a cluster resource. The cluster resource's `pve.serial` is `<cluster>`; a node keeps its
+  own (§5.2).
+- **The cluster modules never use a role resource's hostname;** they reach the API through
+  `pve.api.url`, failing over through `pve.api.hosts`.
+- **Stable by construction.** The pair is the lowest `nodeid`s whether those nodes are online or
+  not, so every run picks the same pair without reading the portal, LogicMonitor API credentials
+  or none: a node that is down is the standby's case, not a reason to move the role, which would
+  move every cluster instance and its history. The pair changes only when one of its nodes leaves
+  the cluster, or when a cluster address appears or goes, and the run then reports it. The
+  install guide says how to move the role by hand (before retiring a role node, say).
+- **An address that appears later** (a VIP added): the run creates the cluster resource as
+  active and makes the old active node the standby; the old standby loses the role. Its category
+  goes, so its cluster instances stop collecting; their history stays readable.
+- **The run's output states the case,** e.g. "cluster address `pve-vip.example.com`: separate
+  cluster resource, standby Node-A" or "no cluster address: active Node-A, standby
+  Node-B". For round-robin DNS it adds the warning of main spec §3.1. A round-robin name is
+  recognised by resolving to more than one node address.
 
 ### 5.2 Nodes
 
@@ -141,7 +165,7 @@ needs its place on the map and its down state):
   address; the install guide says so.
 - **Display name:** the node name.
 - **Categories:** `ProxmoxVE_Node`, always: it is what the resource *is*, and the ERI and topology
-  need nothing else.
+  need nothing else. The active and standby nodes of §5.1 add `ProxmoxVE_Cluster`.
 - **Properties:** the token set of §2, `pve.cluster`, `pve.node` = the node name (so no module has
   to infer it, and `pveTopoNodeName` has its answer [v1]), `pve.serial` =
   `<cluster>::node::<name>`, and **`pve.netscan.reachable`** = `true` / `false` from step 3, with
@@ -268,7 +292,7 @@ v1's split [v1, DESIGN §6 item 9]: everything Proxmox-specific is plain Groovy 
 and only the snippet calls are Collector-only.
 
 - **`pveNetscanPlan(status, resources, configs, addresses, props, existing)`** in the preamble — a
-  pure function returning the resource maps of §3 step 6 and the report lines. The harness drives
+  pure function returning the resource maps of §3 step 7 and the report lines. The harness drives
   it from the mock API with each `props` case: standalone, two clusters' names, offline node,
   unreachable node, the API address being a node, every filter, duplicate guest names, every
   hostname fallback, each dedupe match under each `hostname.source`.
@@ -279,7 +303,7 @@ and only the snippet calls are Collector-only.
   plan writes that an AppliesTo reads (`ProxmoxVE_Cluster`, `ProxmoxVE_Node`, `ProxmoxVE_Guest`,
   `pve.netscan.reachable`, `pve.api.hosts`) must match the module definitions.
 - **`lm_lint_module.py` does not cover a NetScan;** it is not a LogicModule. The skill gets a
-  reference note on the Enhanced Script NetScan contract (§2's binding, §3 step 6's output, §6's
+  reference note on the Enhanced Script NetScan contract (§2's binding, §3 step 7's output, §6's
   dedupe semantics) and, once S2 has run, a check.
 
 **Installing it:** Resources → Add → Advanced NetScan → Enhanced Script NetScan, paste the built
@@ -293,7 +317,8 @@ NetScan into a test group.
 
 | Spike | Settles | Method |
 |---|---|---|
-| S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group. **In progress 2026-10-25.** The script ran first in a Groovy 4 / JDK 17 container against the lab (18 calls, 0.9 s without reverse DNS), then in the portal as dry runs: properties entered as custom credentials, the token masked; every emitted entry listed, unresolvable hostnames (`Labcluster`, `Migration-Test`) included; LogicMonitor's duplicate-IP exclusion held back every entry whose IP matched an existing resource, both v1 nodes included (§6). The dry-run screen gives counts (Scanned / Found / Added), not per-device labels. The spike's resources carry no token, so v1 cannot apply to them. Still open: the real run (alive or dead for an unresolvable hostname, groups, the report property), the UI filter rows, credential inheritance, timeouts |
+| S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group. **In progress 2026-10-25.** The script ran first in a Groovy 4 / JDK 17 container against the lab (18 calls, 0.9 s without reverse DNS), then in the portal as dry runs: properties entered as custom credentials, the token masked; every emitted entry listed, unresolvable hostnames (`Labcluster`, `Migration-Test`) included; LogicMonitor's duplicate-IP exclusion held back every entry whose IP matched an existing resource, both v1 nodes included (§6). The dry-run screen gives counts (Scanned / Found / Added), not per-device labels. The spike's resources carry no token, so v1 cannot apply to them. **The real run** (filter `104,106,107`, nodes on, reverse DNS off): "Scanned 6, Found 6, Added 3", as predicted: `Labcluster`, `Webapp01` (`192.0.2.200`) and `Migration-Test` created; `.44`, `.51`, `.211` excluded as duplicates. The run record fills in over a minute or two, duplicates first. The NetScan **creates the group path** (`Proxmox VE v2 spike/Cluster - Labcluster/Guests`). On the Collector: 20 calls in 700 ms; medians config 15 ms, container interfaces 36 ms, VM agent 189 ms, node status 11–42 ms, so ~50 ms per container and ~205 ms per VM in a row. `netscanProps` carried every custom property and also `netapp.ssl`, which the user did not enter, so properties from outside the NetScan reach it; no `lmaccess.*` arrived on its own. **`Labcluster` was dead,** and nothing revived it: a script DataSource (`S2_KeepAlive`), `PingMulti-` at 0% loss to both nodes, or a loopback hostname, which instead drew the Collector's and Hyper-V's modules (main spec §3.1). A resource deleted and re-added by the NetScan came back with its old properties until it was also purged from **Recently Deleted**. Still open: the UI filter rows, credential inheritance, timeouts |
+| S8 | the standby of §5.1: takeover when the active resource is shut down; whether the standby's open alerts clear when it goes quiet; the map during the hour after a takeover (main spec §3.4) | the built cluster modules on the lab's two nodes; shut the active node down, raise an alert on the standby, start the active node again |
 | S3 | adopting a device the NetScan did not create; `system.categories` merge or replace; a portal lookup by MAC | the same NetScan with `hostname.source=lm` against the existing v1 node resources and the SNMP guest `Debian-Test` |
 | S5 | a re-run rewriting properties and moving groups; what happens to a property no longer emitted | run twice, migrating a guest and changing a NetScan property between runs |
 | S6 | the guest-agent privilege on 9.2.3; `/lxc/<vmid>/interfaces` on 9.2.3 | **Done 2026-10-25.** v1's token (`monitor@pve!logicmonitor`, privsep 0, `PVEAuditor` on `/`), from a workstation against Node-B: `/cluster/status`, `/cluster/resources`, and for each of the 7 running guests its interfaces call and `/config` — all 200. Results in §5.3. 9.2.3's `PVEAuditor` = `Datastore.Audit, Mapping.Audit, Pool.Audit, SDN.Audit, Sys.Audit, VM.Audit, VM.GuestAgent.Audit` (`pveum role list`) |
@@ -301,8 +326,8 @@ NetScan into a test group.
 ## 11. Questions
 
 All four of the user's are answered (2026-10-25): **Q6** 10 clusters of 16 nodes and 1,000 guests (§12),
-**Q7** one Proxmox API token per cluster, confirmed (§7), **Q8** a separate cluster resource
-(§5.1), **Q9** node hostnames by their `/cluster/status` address (§5.2). What remains is in §10's spikes.
+**Q7** one Proxmox API token per cluster, confirmed (§7), **Q8** first a separate cluster
+resource, then, after S2, an active and a standby resource (§5.1), **Q9** node hostnames by their `/cluster/status` address (§5.2). What remains is in §10's spikes.
 
 ## 12. At the scale of Q6
 

@@ -3,7 +3,9 @@
 Status: **draft for review**, 2026-10-21; revised 2026-10-24 with the v1 reuse decisions (§3.2,
 §3.8) and topology corrections (§2, §3.4, §3.6); revised 2026-10-25 for v1 complete at `2e0237b`,
 the NetScan spec (§3.3) and the v1-against-v2 licence comparison (§3.7); revised again 2026-10-25:
-v2 is standalone, with its own token property `pve.token.credential` (§3.2, §3.5, §3.8). Nothing here is approved or built. Research behind it:
+v2 is standalone, with its own token property `pve.token.credential` (§3.2, §3.5, §3.8);
+revised again 2026-10-25 after spike S2: the cluster role is an active and a standby resource
+(§3.1), the cluster health score (§3.2), and v1 is copied into this repository (§3.8). Nothing here is approved or built. Research behind it:
 `docs/research/2026-10-21-lm-vsphere-architecture.md`. v1 is the `Proxmox-LogicModule` repository
 (18 modules, portal-verified on a two-node lab cluster).
 
@@ -48,12 +50,74 @@ first run of v1's spike 3; the re-run on 2026-10-22 drew the cluster vertex, thr
 **Licensing decides the defaults** (§3.7): every resource costs one host unit (HU); instances
 cost none. So a guest becomes a resource only when the user asks for it.
 
-**The cluster resource is not a node** (Q8, user 2026-10-25: a separate resource). Its hostname
-is the address the user gives the NetScan, a VIP or a DNS name; where that address is a node's,
-it is the cluster name instead, so it never collides with the node resource (NetScan spec §5.1).
-It carries `pve.api.url` and `pve.api.hosts`, every node's address from `/cluster/status`, and the
-preamble fails over through that list; the cluster modules never use the hostname. This removes
-the single point of failure.
+**Where the cluster role lives: an active resource and a standby** (user, 2026-10-25, replacing
+Q8's first answer). The cluster role sits on an ordered pair of resources; the first one that is
+up collects, the other withholds its data. Which pair depends on whether the cluster has an
+address of its own:
+
+| The cluster has | Active | Standby |
+|---|---|---|
+| a VIP (keepalived), a reverse proxy or load balancer, or a DNS name for the cluster | a **separate cluster resource**, hostname = that address | the node with the lowest node ID |
+| round-robin DNS | the same, with the warning below | the same |
+| **nothing** (the common case: Proxmox ships no cluster address, research `2026-10-25-proxmox-cluster-address.md`) | the node with the lowest node ID | the node with the next one |
+
+**Why not a separate cluster resource always, as Q8 first chose.** A resource has to answer on its
+own address or it is dead, and a dead resource hides the alerts we need most. In the lab, spike
+S2 (2026-10-25) showed every step of that:
+
+- `Labcluster`, created with the cluster name as its hostname, went dead: ping and DNS fail, and
+  HostStatus's `idleInterval` climbed without stopping.
+- A script DataSource collecting every minute did not revive it. LogicMonitor documents that
+  "Data collected by script DataSources does not affect the value of the idleInterval
+  datapoint" ([HostStatus](https://www.logicmonitor.com/support/hoststatus-datasource)).
+- Neither did a `PingMulti-` DataSource with 0% loss to both nodes: replies from other addresses
+  do not count.
+- A loopback hostname (`127.0.0.2`) answers, but it made the resource a copy of the Collector's own
+  host: LogicMonitor applied its Collector modules, and WMI applied the Hyper-V modules.
+- And a dead resource silences itself: "When a host goes down, LogicMonitor does not generate a
+  new alert (except HostStatus.)" and "All other existing alert notifications from the host are
+  suppressed" (same page). Silencing HostStatus would leave every cluster alert suppressed.
+
+So the cluster role goes on resources that really answer: the cluster's own address where one
+exists, else a node, which is v1's model (the cluster as instances on a node resource) with its
+weak point removed.
+
+**How a standby knows to take over.** Every cluster module begins with one preamble check
+(§3.8), using the properties the NetScan writes (NetScan spec §5.1):
+
+- on the **active** resource: collect;
+- on a **standby node** behind an active node: collect only if `/cluster/status` reports the
+  active node offline, or the active node is not quorate;
+- on a **standby node** behind a cluster address: collect only if a connection to that
+  address's port 8006 fails, which is what a dead VIP, proxy or DNS record looks like.
+
+Otherwise the module prints nothing and exits 0, so its datapoints read No Data. No Data does not
+alert by default, so the pair never alerts twice. A node that is not quorate never counts itself
+active, so a split cluster cannot have two active nodes. Collection never stops while any node
+answers: the active resource's modules fail over through `pve.api.hosts`, and a dead resource's
+scripts keep collecting (S2: `S2_KeepAlive` recorded through the dead state). Its alerts are what
+the standby exists for.
+
+- **Cost:** no host unit (the standby is a node resource that exists anyway); every cluster
+  instance exists twice, active and standby (2,000 guest instances at 1,000 guests, free);
+  the check, one `/cluster/status` call shared through `lm.cache` per minute (S7); during an
+  outage the history sits on the standby.
+- **Only two simultaneous failures,** the active and the standby, bring back the gap.
+- **Round-robin DNS** works but is the weakest: LogicMonitor's ping may resolve the name to a
+  node that is down, so the cluster resource flaps dead (and suppressed) while the standby's own
+  lookup sees it up. The install guide supports it and recommends a VIP or a proxy.
+- **Certificates:** behind a VIP or proxy, Proxmox's per-node certificates do not name the shared
+  address; the user installs one that does (usual on a proxy) or sets `pve.api.insecure=true`.
+- **Adding an address later:** the next NetScan run creates the cluster resource and turns the
+  active node into the standby. New data lands on the cluster resource; the old history stays on
+  the node.
+- **Not yet seen:** a standby taking over when the active resource is shut down, and whether the
+  standby's open alerts clear when it goes quiet again (spike S8, §5). If they stay open, a
+  standby sends its "all clear" values once before going quiet.
+
+The pair is the lowest node IDs whether those nodes are online or not, so every NetScan run
+picks the same pair and the role never moves on its own: a node being down is the standby's case,
+and moving the role would move every cluster instance and its history (NetScan spec §5.1).
 
 **A standalone host is one resource carrying both roles**, `ProxmoxVE_Cluster,ProxmoxVE_Node`.
 This is the counterpart of vSphere's `standaloneEsxi` mode.
@@ -81,7 +145,7 @@ of a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 
 | v2 module | Role | From v1 | Change | Calls per poll |
 |---|---|---|---|---|
-| `Proxmox_VE_Cluster_Status` | Cluster | `Proxmox_VE_Cluster` | AppliesTo only. Its one instance still carries the cluster vertex key (§3.4); it includes v1's migration counts | 4 + 2 per online node (migration history) |
+| `Proxmox_VE_Cluster_Status` | Cluster | `Proxmox_VE_Cluster` | Its one instance still carries the cluster vertex key (§3.4); it includes v1's migration counts. **Gains the cluster health score** (below): `NodesOnline`, `NodesTotal`, `NodesOnlinePercent`, `HealthScore` | 4 + 2 per online node (migration history) + 1 `rrddata` per online node (health), every 5 minutes |
 | `Proxmox_VE_Cluster_Nodes` | Cluster | `Proxmox_VE_Nodes` | **Keeps only `Status`** (online). A node that is down cannot report itself down, so this stays on the cluster role; CPU, memory and uptime move to `Proxmox_VE_Node_Detail` | O(1) |
 | `Proxmox_VE_Cluster_GuestStatus` | Cluster | `Proxmox_VE_GuestStatus` | AppliesTo only. Instance ERIs (guest MACs) unchanged | O(1), plus the hourly guest-config read in discovery |
 | `Proxmox_VE_Cluster_GuestPerformance` | Cluster | `Proxmox_VE_GuestPerformance` | AppliesTo only | O(1) |
@@ -91,7 +155,7 @@ of a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 | `Proxmox_VE_Cluster_Backups` | Cluster | `Proxmox_VE_Backups` | AppliesTo only. Keeps its loop over nodes for vzdump tasks: the view is cluster-wide | O(jobs + nodes) |
 | `Proxmox_VE_Cluster_Snapshots` | Cluster | `Proxmox_VE_Snapshots` | AppliesTo only. Hourly, with v1's per-node circuit breaker | 2 + 1 per guest on an online node, hourly |
 | `Proxmox_VE_Cluster_Topology` | Cluster | `Proxmox_VE_Topology` | AppliesTo only (§3.4) | O(1), plus the hourly guest-config read |
-| `Proxmox_VE_Node_Detail` | Node | `Proxmox_VE_NodeDetail` | Single-instance; asks its own node. **Gains `CPUUsagePercent`, `CPUCount`, the memory trio and `UpTimeSeconds`** from the same `/nodes/{node}/status` call, so a node's performance alerts are raised on the node (the reason for this section) and each datapoint still lives in one module, as v1 DESIGN §4 requires | O(1) per node |
+| `Proxmox_VE_Node_Detail` | Node | `Proxmox_VE_NodeDetail` | Single-instance; asks its own node. **Gains `CPUUsagePercent`, `CPUCount`, the memory trio and `UpTimeSeconds`** from the same `/nodes/{node}/status` call, so a node's performance alerts are raised on the node (the reason for this section) and each datapoint still lives in one module, as v1 DESIGN §4 requires. **Also gains** the node's pressure figures (`PressureCPUSomePercent`, `PressureIOSomePercent`, `PressureIOFullPercent`, `PressureMemorySomePercent`, `PressureMemoryFullPercent`, from `/nodes/{node}/rrddata`) and **its own view of the cluster** (`Quorate`, `NodesOnline`, from its `/cluster/status`), so quorum loss and a node going offline alert from every surviving node, whichever resource is dead | 3 per node |
 | `Proxmox_VE_Node_Disks` | Node | `Proxmox_VE_Disks` | Fan-out removed; asks its own node | O(1) per node |
 | `Proxmox_VE_Node_Services` | Node | `Proxmox_VE_NodeServices` | Fan-out removed | O(1) per node |
 | `Proxmox_VE_Node_Certificates` | Node | `Proxmox_VE_Certificates` | Fan-out removed | O(1) per node |
@@ -104,6 +168,33 @@ of a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 
 Node-local storage stays in `Proxmox_VE_Cluster_StorageCapacity`, which already reads every store,
 local or shared, in its one call.
+
+**Cluster modules apply wherever the cluster role is,** `hasCategory("ProxmoxVE_Cluster")`: on the
+cluster resource, and on the active and standby nodes, which carry `ProxmoxVE_Node,ProxmoxVE_Cluster`
+(§3.1). Each starts with the preamble's role check and prints nothing unless it is the resource
+that should collect.
+
+**The cluster health score** (user's proposal, 2026-10-25; inputs checked on the lab's API the
+same day). `/cluster/resources` gives each node's `cpu`, `maxcpu`, `mem`, `maxmem` and `status` in
+one call, but no load or IO wait; `/nodes/{node}/status`'s `cpu` and `wait` are one-moment samples
+(both read `0` on the lab); `/nodes/{node}/rrddata` gives per-minute averages including Linux
+pressure stall information, in percent of time stalled (Node-A: CPU 2.5, IO 0.37; Node-B:
+CPU 0, IO 0.29). Pressure replaces load per core and IO wait as the node input: it is already
+relative to the machine's size, and load average already counts tasks waiting on IO, so weighting
+both would count one stall twice.
+
+```
+node score     = 0 if the node is offline,
+                 else 1 − max(cpu some, io some, memory some pressure) / 100
+HealthScore    = 0 if the cluster is not quorate,
+                 else 100 × (NodesOnline ÷ NodesTotal) × mean(node scores)
+```
+
+`max` keeps one starved resource from being averaged away; an offline node lowers the score twice,
+in the ratio and in the mean, as it does for its guests. **`Quorate` and `NodesOnlinePercent`
+carry the alerts; `HealthScore` a warning threshold only,** since a blended number cannot say what
+is wrong. The weights are a starting point to tune. Whether Proxmox VE 8 returns the pressure
+fields is [unverified]; without them a node's input falls back to load average ÷ cores.
 
 **How a node module finds its own node:** the `local` row of `/cluster/status`, which
 `pveTopoClusterName` already reads in v1, so no property is set by hand; a NetScan-created node
@@ -153,6 +244,12 @@ documents "Manually Assigning Properties to Resources".
   `proxmoxve--<cluster>`, type `Cluster`, and the map draws it with Cluster edges to every node
   (v1 spike 3 re-run, 2026-10-22). This holds whichever resource carries the cluster role, so Q8
   does not affect the map, and no cluster ERI PropertySource is needed.
+- **With a standby (§3.1),** discovery runs on both resources, so the standby already holds every
+  instance when it has to collect: a standby whose discovery printed nothing would have no
+  instances until its next discovery, up to an hour later. Only the active resource's discovery
+  stamps the cluster key on its instance, and only the active resource's TopologySource prints, so
+  the map keeps one cluster vertex. After a takeover the key moves at the standby's next
+  discovery. How the map draws the hour in between is [unverified, S8].
 
 ### 3.5 Upgrade from v1
 
@@ -186,7 +283,7 @@ The user's position (2026-10-21): a guest needs to be a resource only for what c
 inside it — an application, a service, a process, events or logs. Checked against LogicMonitor's
 documentation:
 
-| Need | An instance on the cluster resource | A guest resource | Source |
+| Need | An instance on the cluster role | A guest resource | Source |
 |---|---|---|---|
 | Hypervisor-side metrics (CPU, memory, disk and network I/O, status) | yes | no extra | v1, 0 HU |
 | In-guest monitoring (applications, services, processes, logs, events) | no | **yes** | the user's point |
@@ -220,12 +317,13 @@ ping — is the user's choice, per guest or per filter.
 - **Nodes:** 1 HU each. They are resources in v1 already, since the map needs them.
 - **Guests as instances:** 0 HU. This is the default.
 - **Guest resources:** 1 HU each, so opt-in only.
-- **The dedicated cluster resource of §3.1 is one new HU per cluster** that v1 does not spend:
-  v1's token-holding node doubles as the cluster. The alternative is to put the cluster role on a
-  node resource, as v1 does, and fail over through `pve.api.hosts` from there. That costs 0 HU.
-  The catch: the cluster-level instances then live on a node resource, and leave with it if that
-  node is retired. **Chosen: the dedicated resource** (Q8, user 2026-10-25), so v2 is the right-hand
-  column below.
+- **A separate cluster resource is one new HU per cluster** that v1 does not spend: v1's
+  token-holding node doubles as the cluster. Since S2 (§3.1) it exists **only where the cluster
+  has an address of its own**; without one, the cluster role sits on an active and a standby node,
+  0 HU, as in v1. The catch of the node columns: the cluster-level instances live on node
+  resources, and leave with them if those nodes are retired (the install guide says how to move
+  the role first). So v2 is the middle column for a cluster without an address, the right-hand
+  column for one with a VIP, proxy or DNS name.
 
 #### v1 against v2, in host units (2026-10-25)
 
@@ -235,7 +333,7 @@ through SNMP, WMI or SSH. Those *A* cost 1 HU each under both versions alike, an
 deduplication adopts them, so selecting them adds nothing; the rows below take them to be among
 the selected.
 
-| Deployment | v1 | v2, cluster role on a node (Q8 `node`) | v2, dedicated cluster resource (Q8 `dedicated`) |
+| Deployment | v1 | v2, no cluster address: role on two nodes | v2, cluster address: separate cluster resource |
 |---|---|---|---|
 | Standalone host | 1 | 1 | 1 (a standalone host never has a dedicated resource) |
 | Cheapest possible, per cluster | **1**: the token holder alone collects everything, node-level modules included, by fan-out; only the other nodes are missing from the map | **1** (`pve.netscan.nodes=false`): cluster-level data and each node's online state only. **No node-level modules** (disks, certificates, services, detail), since they apply only to node resources | 2 |
@@ -246,13 +344,14 @@ the selected.
 | Target, 10 guests already SNMP, 50 selected (those 10 among them) | 12 + 10 = 22 | 12 + 50 = 62 | 63 |
 | Target, 10 guests already SNMP, every guest selected | 22 | 12 + 500 = 512 | 513 |
 
-**At its defaults v2 costs exactly what v1 costs as documented**, or one more per cluster with a
-dedicated cluster resource. The licence cost of v2 is **opt-in**, and is entirely guests: *S*
-minus *A*, the guests already monitored.
+**At its defaults v2 costs exactly what v1 costs as documented**, or one more per cluster that
+has its own address. The licence cost of v2 is **opt-in**, and is entirely guests: *S* minus *A*,
+the guests already monitored.
 
 **At the scale target (Q6: 10 clusters of 16 nodes and 1,000 guests):** 160 HU under v1 as
-documented and **170 under v2** with guests off — ten more in all, one per cluster resource. Every
-guest selected adds up to 10,000 HU, less the guests already monitored: 10,170 with every guest.
+documented; **160 under v2** with guests off and no cluster addresses, up to **170** if all ten
+have a VIP, proxy or DNS name. Every guest selected adds up to 10,000 HU, less the guests already
+monitored.
 
 **Why one might be preferred:**
 
@@ -286,7 +385,8 @@ not shown (v1 DESIGN §7). v1 keeps its own history; a later v1 fix reaches v2 o
 
 - `scripts/lib/pve_common.groovy`: properties, TLS, HTTP, `pveWildValue`, the emit and discovery
   helpers, the topology key and guest MAC helpers. The token is read from `pve.token.credential`
-  (§3.5); the other `pve.api.*` names stay, since v1 keys on none of them. One addition: failover across `pve.api.hosts`,
+  (§3.5); the other `pve.api.*` names stay, since v1 keys on none of them. A second addition: the
+  role check every cluster module begins with (§3.1). One addition: failover across `pve.api.hosts`,
   used by the cluster role only (§3.2); per-node requests addressed to the owning node, bounded
   concurrency and a time budget for the O(guests) loops (§3.9).
 - `build/` (`build.py`, `dashboards.py`, `groovylint.py`), `tests/` (the Docker compile job, the
@@ -306,8 +406,9 @@ cluster per hour:
 
 | Where | Calls/hour | Of which O(guests), hourly |
 |---|---|---|
-| Cluster resource | ~2,550 (with the shared config read below; ~3,550 without) | ~2,000: one guest-config read (GuestStatus discovery and Topology together) and one snapshot read per guest |
-| Each node resource | ~31, to itself | 0 |
+| Active cluster role (the cluster resource or a node) | ~2,550 (with the shared config read below; ~3,550 without), + 192 for the health score's `rrddata` reads at 16 nodes | ~2,000: one guest-config read (GuestStatus discovery and Topology together) and one snapshot read per guest |
+| Standby (§3.1) | ~60: the role check, one `/cluster/status` a minute shared through `lm.cache`; the hourly discoveries of the cluster modules (~1,000 config reads at 1,000 guests, unless the shared read of rule 1 covers both resources) | up to ~1,000 |
+| Each node resource | ~31, to itself, + 24 for the health and quorum reads of `Node_Detail` | 0 |
 | 16 nodes | ~490 | 0 |
 | NetScan, guests off | 18 | 0 (up to ~2,000 with every guest selected) |
 | **One cluster** | **~3,050, 0.85 a second** | |
@@ -373,7 +474,10 @@ answered (2026-10-25).
 - **Q7. Where the token lives: answered** — one Proxmox API token per cluster (user, confirmed
   2026-10-25), held by that cluster's NetScan and written onto its cluster and node resources
   (NetScan spec §7).
-- **Q8. The cluster role: answered** — a separate cluster resource (§3.1, §3.7).
+- **Q8. The cluster role: answered, then revised** — first a separate cluster resource (user,
+  2026-10-25); after S2 showed such a resource is dead without an address of its own, an active
+  and a standby resource: the cluster resource and a node where the cluster has a VIP, proxy or
+  DNS name, two nodes where it has none (user, 2026-10-25; §3.1, §3.7).
 - **Q9. Node hostnames: answered** — the node's `/cluster/status` address by default, the name
   as an option (NetScan spec §5.2).
 
@@ -382,11 +486,12 @@ answered (2026-10-25).
 | Spike | Answers | Method | Cost |
 |---|---|---|---|
 | S1 | Q1 | read the VMware VM modules' AppliesTo | **done** 2026-10-25, from LogicMonitor's exports |
-| S2 | Q2 | a throwaway NetScan against the lab cluster that creates resources in a test group; detail in NetScan spec §10 | one import, one run, then delete the group |
+| S2 | Q2 | a throwaway NetScan against the lab cluster that creates resources in a test group; detail in NetScan spec §10. **Run 2026-10-25:** resources and groups created; a cluster resource without an address is dead whatever collects on it (§3.1) | one import, one run, then delete the group |
 | S3 | Q3 | the same NetScan run against the v1 node resources and a guest already monitored over SNMP | the same run |
 | S5, S6 | NetScan re-runs; guest-address privileges (S6 done 2026-10-25: `PVEAuditor` suffices on 9.2.3) | NetScan spec §10 | two runs; API calls from a workstation |
 | S7 | Q4 | a throwaway TopologySource and DataSource on one Collector, one writing an `lm.cache` key and the other reading it | one import each, then deleted |
 | S4 | failover; `/nodes/localhost` | the preamble with two addresses, the first unreachable; and one `GET /nodes/localhost/status` over HTTPS | harness plus one Collector debug run |
+| S8 | the standby (§3.1): does it take over when the active node is shut down, and do its open alerts clear when it goes quiet again? | the built `Cluster_Status` on the lab's two nodes; shut down the active one, raise an alert on the standby, start the active one again | one import, one node restart |
 
 ## 6. Not in scope
 

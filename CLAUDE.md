@@ -33,6 +33,15 @@ v2's token property is **`pve.token.credential`**, never v1's `pve.api.token.cre
   **[unverified]** with the spike that settles each, or **[S<n>]** when a spike has seen it in the
   lab cluster `Labcluster` (PVE 9.2.3).
 
+- `docs/proxmox-ve-monitoring.md` -- the user-facing product page, in the outline and table
+  formats of LogicMonitor's [VMware vSphere Monitoring](https://www.logicmonitor.com/support/vmware-vsphere-monitoring)
+  article (user, 2026-10-25): Technology Type, Compatibility, Setup Requirements, Add Resources
+  (numbered NetScan steps with `Property | Value | Example | Required` tables), Manually Assigning
+  Properties, Considerations, Troubleshooting, NetScan Troubleshooting, LogicModules in Package
+  (`Display Name | Type | Description | Replaces`), Migration from Legacy Modules. Keep that
+  outline, write the wording ourselves, and keep it in step with the specs; *(not yet verified)*
+  marks design intent no lab run has confirmed.
+
 Spec edits are dated and attributed to their evidence (a portal check, a live target, the user's
 stated position, a LogicMonitor doc URL); commit messages follow the same style, e.g.
 `Spec §3.6: ... (v1 portal check 2026-10-22)`.
@@ -50,10 +59,14 @@ node, guest and storage object is an instance on the token-holding node":
   across `pve.api.hosts`; node modules ask only their own node and never fail over. Modules are
   named `Proxmox_VE_Cluster_*` / `Proxmox_VE_Node_*` so they never overwrite v1's on import;
   each starts from a v1 module (spec §3.2 maps them). Guest hypervisor metrics stay
-  instances on the cluster resource, wildvalues unchanged so a migration keeps history.
+  instances on the cluster role, wildvalues unchanged so a migration keeps history.
 - **An Enhanced Script NetScan** creates and groups resources (`Cluster - <name>/Nodes|Guests`,
   never grouped by node), deduplicates against existing devices (display name, hostname, MAC),
   and never deletes.
 - **Licensing drives defaults:** every resource is one host unit, instances are free -- hence
-  guests-as-resources is opt-in, and the cluster is its own resource (Q8, user 2026-10-25: 1 HU
-  per cluster, so cluster monitoring survives any one node being down).
+  guests-as-resources is opt-in.
+- **The cluster role is an active and a standby resource** (spec §3.1, after spike S2): a cluster
+  resource plus a standby node where the cluster has its own address (VIP, proxy, DNS name), else
+  the two lowest-ID nodes. A resource without an answering address is dead in LogicMonitor, and a
+  dead resource suppresses its alerts; script data never keeps it alive. The standby collects
+  only while the resource ahead of it is down.
