@@ -20,6 +20,69 @@ def pveNsHost = { String value ->
     host?.replaceAll(/^\[|\]$/, '')?.toLowerCase()
 }
 
+// key=value pairs of a Proxmox net0 / ipconfig0 string.
+def pveNsPairs = { String value ->
+    (value ?: '').tokenize(',').collect { it.split('=', 2) }.findAll { it.size() == 2 }
+        .collectEntries { [(it[0].trim()): it[1].trim()] }
+}
+def PVE_NS_MAC = /(?i)^([0-9a-f]{2}:){5}[0-9a-f]{2}$/
+
+// The MAC of a guest's first NIC, lower case, from its config: lxc's hwaddr=, qemu's
+// <model>=<mac>.
+def pveNsNet0Mac = { Map config ->
+    pveNsPairs(config?.net0?.toString()).values().find { it ==~ PVE_NS_MAC }?.toLowerCase()
+}
+
+/*
+ * A guest's address for its hostname (N§5.3), or null:
+ * 1. live -- the container's interfaces list, or the guest agent's network-get-interfaces
+ *    answer -- on the interface whose MAC is net0's: its first IPv4, else its first IPv6
+ *    that is not link-local. Never the first address the guest reports: guests list Docker
+ *    bridges, VPN tunnels, loopback and link-local beside the real one, often first;
+ * 2. the static address in the config: a container's ip= on net0, a VM's cloud-init
+ *    ipconfig0, unless dhcp or manual.
+ */
+def pveGuestAddress = { Map guest, Map config, Object live ->
+    def mac = pveNsNet0Mac(config)
+    def bare = { String ip -> ip?.replaceAll(/\/\d+$/, '')?.trim() }
+    if (mac && live != null) {
+        def interfaces = live instanceof Map ? (live.result ?: []) : (live ?: [])
+        def own = interfaces.find { (it.hwaddr ?: it.get('hardware-address'))?.toString()?.toLowerCase() == mac }
+        def ips = own == null ? [] : own.containsKey('ip-addresses') ?
+            own.get('ip-addresses').collect { it.get('ip-address')?.toString() } :
+            [own.inet, own.inet6].findAll { it }.collect { it.toString() }
+        ips = ips.collect { bare(it) }.findAll { it }
+        def ip = ips.find { it.contains('.') } ?: ips.find { it.contains(':') && !it.toLowerCase().startsWith('fe80') }
+        if (ip) { return [ip: ip, source: 'live'] }
+    }
+    def fixed = guest?.type?.toString() == 'lxc' ? pveNsPairs(config?.net0?.toString()).ip :
+                                                   pveNsPairs(config?.ipconfig0?.toString()).ip
+    if (fixed && !(fixed in ['dhcp', 'manual'])) { return [ip: bare(fixed), source: 'config'] }
+    return null
+}
+
+/*
+ * Whether the NetScan properties select a guest: every filter that is set must pass, and a
+ * template never does. Filters are comma-separated allow-lists; vmid takes ranges.
+ */
+def pveGuestSelected = { Map guest, Map props ->
+    if (guest.template?.toString() in ['1', 'true']) { return false }
+    def list = { String key -> (props.get(key)?.toString() ?: '').tokenize(',')*.trim().findAll { it } }
+    def vmid = guest.vmid as int
+    def vmids = list('pve.netscan.guests.filter.vmid')
+    def tags = (guest.tags?.toString() ?: '').tokenize(';, ')
+    def pass = { String key, Object value -> def allowed = list(key); !allowed || value?.toString() in allowed }
+    return pass('pve.netscan.guests.filter.pool', guest.pool) &&
+           pass('pve.netscan.guests.filter.node', guest.node) &&
+           pass('pve.netscan.guests.filter.type', guest.type) &&
+           pass('pve.netscan.guests.filter.status', guest.status) &&
+           (!list('pve.netscan.guests.filter.tag') || tags.any { it in list('pve.netscan.guests.filter.tag') }) &&
+           (!vmids || vmids.any { range ->
+               def ends = range.tokenize('-')
+               ends.size() == 2 ? vmid >= (ends[0] as int) && vmid <= (ends[1] as int) : vmid == (range as int)
+           })
+}
+
 /*
  * input:
  *   status    /cluster/status rows
@@ -109,6 +172,54 @@ def pveNetscanPlan = { Map input ->
                           'pve.netscan.reachable': api ? 'true' : 'false',
                           'pve.netscan.status'   : why],
                       groupName: [standalone ? root + '/Host - ' + name : root + '/Cluster - ' + cluster + '/Nodes']]
+    }
+
+    /*
+     * Guests (N§5.3), only when asked for, and only with LogicMonitor API credentials: without
+     * them the run cannot see existing resources, so every guest already monitored, and every
+     * guest whose address changes, would become a second resource.
+     */
+    if (prop('pve.netscan.guests', 'false') == 'true') {
+        if (input.existing == null) {
+            report << 'guests not created: no LogicMonitor API credentials, so existing resources cannot be checked'
+        } else {
+            def byGuestName = prop('pve.netscan.guest.hostname', 'ip') == 'name'
+            def unaddressed = prop('pve.netscan.guests.unaddressed', 'false') == 'true'
+            def selected = (input.resources ?: []).findAll { it.type in ['qemu', 'lxc'] && it.vmid != null }
+                                                 .findAll { pveGuestSelected(it, props) }
+                                                 .sort { it.vmid as int }
+            def created = []
+            selected.each { guest ->
+                def vmid = guest.vmid as int
+                def found = (input.addresses ?: [:])[vmid]
+                if (!found && !byGuestName && !unaddressed) {
+                    report << ('guest ' + vmid + ' ' + guest.name + ': no address, not created')
+                    return
+                }
+                created << [guest: guest, hostname: byGuestName || !found ? guest.name?.toString() : found.ip]
+            }
+            def sharedNames = created.countBy { it.guest.name?.toString() }.findAll { it.value > 1 }.keySet()
+            def guestGroup = standalone ? root + '/Host - ' + cluster + '/Guests' : root + '/Cluster - ' + cluster + '/Guests'
+            created.each { entry ->
+                def guest = entry.guest
+                def name = guest.name?.toString()
+                resources << [hostname: entry.hostname,
+                              displayname: name in sharedNames ? name + ' (' + guest.vmid + ')' : name,
+                              hostProps: [
+                                  'system.categories' : 'ProxmoxVE_Guest',
+                                  'pve.cluster'       : cluster,
+                                  'pve.node'          : guest.node?.toString(),
+                                  'pve.vmid'          : guest.vmid.toString(),
+                                  'pve.guest.type'    : guest.type.toString(),
+                                  'pve.pool'          : guest.pool?.toString() ?: 'none',
+                                  'pve.tags'          : guest.tags?.toString() ?: 'none',
+                                  'pve.guest.mac'     : pveNsNet0Mac((input.configs ?: [:])[guest.vmid as int]) ?: 'none',
+                                  'netscan.powerstate': guest.status?.toString() ?: 'unknown',
+                                  'pve.serial'        : cluster + '::' + guest.vmid,
+                                  'pve.netscan.status': 'ok'],
+                              groupName: [guestGroup]]
+            }
+        }
     }
     return [resources: resources, report: report]
 }

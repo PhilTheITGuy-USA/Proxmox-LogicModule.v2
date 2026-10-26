@@ -1361,6 +1361,75 @@ note('ns-nodes-off', p4.resources*.hostname.sort() == ['192.168.10.11', 'pve-vip
 note('ns-report', p1.report.any { it.contains('no cluster address') && it.contains('active pve1') && it.contains('standby pve2') },
      "the run did not say which case it found: ${p1.report}")
 
+// --------------------------------------------- the NetScan plan: guests (N§5.3)
+
+def guestAddr = { Map guest, Map config, Object live ->
+    def run = runSource(preamble + '\n' + netscanLib + '\nreturn pveGuestAddress(guest, config, live)',
+        [netscanProps: [:], guest: guest, config: config, live: live])
+    run.thrown ? "threw ${run.thrown}" : run.exit
+}
+// The lab's nvr01 container (S6): Docker bridges beside the real interface.
+note('ns-addr-lxc', guestAddr([type: 'lxc', status: 'running'],
+        [net0: 'name=eth0,bridge=vmbr0,gw=192.0.2.1,hwaddr=BC:24:11:0E:00:03,ip=192.0.2.60/24,type=veth'],
+        [[name: 'lo', hwaddr: '00:00:00:00:00:00', inet: '127.0.0.1/8'],
+         [name: 'docker0', hwaddr: '82:47:92:0e:00:0a', inet: '172.17.0.1/16'],
+         [name: 'eth0', hwaddr: 'bc:24:11:0e:00:03', inet: '192.0.2.60/24']]) == [ip: '192.0.2.60', source: 'live'],
+     'the container address was not the one on net0\'s interface')
+// The lab's automation01 VM: Tailscale first, the LAN address after a link-local one.
+note('ns-addr-agent', guestAddr([type: 'qemu', status: 'running'], [net0: 'virtio=DC:A6:32:0E:00:08,bridge=vmbr0'],
+        [result: [[name: 'lo', 'hardware-address': '00:00:00:00:00:00', 'ip-addresses': [['ip-address': '127.0.0.1', 'ip-address-type': 'ipv4']]],
+                  [name: 'tailscale0', 'hardware-address': '00:00:00:00:00:00', 'ip-addresses': [['ip-address': '100.64.0.15', 'ip-address-type': 'ipv4']]],
+                  [name: 'enp0s18', 'hardware-address': 'dc:a6:32:0e:00:08', 'ip-addresses': [['ip-address': 'fe80::a:b:c:d', 'ip-address-type': 'ipv6'],
+                                                                                               ['ip-address': '192.0.2.44', 'ip-address-type': 'ipv4']]]]]) ==
+     [ip: '192.0.2.44', source: 'live'], 'the VM address was not the IPv4 on net0\'s interface')
+note('ns-addr-none', guestAddr([type: 'lxc', status: 'running'], [net0: 'name=eth0,bridge=vmbr0,hwaddr=BC:24:11:0E:00:07,type=veth'],
+        [[name: 'lo', hwaddr: '00:00:00:00:00:00', inet: '127.0.0.1/8']]) == null,
+     'a DHCP container with no address got one')
+note('ns-addr-static', guestAddr([type: 'lxc', status: 'stopped'], [net0: 'name=eth0,hwaddr=BC:24:11:AA:00:01,ip=192.0.2.200/24,type=veth'], null) ==
+     [ip: '192.0.2.200', source: 'config'], 'a stopped container did not fall back to its static address')
+note('ns-addr-dhcp', guestAddr([type: 'qemu', status: 'stopped'], [net0: 'virtio=DC:A6:32:00:00:01', ipconfig0: 'ip=dhcp'], null) == null,
+     'ip=dhcp was taken as an address')
+
+def nsGuests = [
+    [id: 'qemu/101', type: 'qemu', vmid: 101, name: 'web', node: 'pve1', status: 'running', pool: 'prod', tags: 'a;b'],
+    [id: 'lxc/102', type: 'lxc', vmid: 102, name: 'web', node: 'pve1', status: 'running'],
+    [id: 'lxc/103', type: 'lxc', vmid: 103, name: 'dhcp-ct', node: 'pve1', status: 'running'],
+    [id: 'qemu/999', type: 'qemu', vmid: 999, name: 'tmpl', node: 'pve1', status: 'stopped', template: 1],
+]
+def nsGuestBase = nsBase + [resources: nsGuests,
+    configs: [101: [net0: 'virtio=BC:24:11:00:01:01,bridge=vmbr0'], 102: [net0: 'name=eth0,hwaddr=BC:24:11:00:01:02,type=veth'],
+              103: [net0: 'name=eth0,hwaddr=BC:24:11:00:01:03,type=veth']],
+    addresses: [101: [ip: '192.0.2.101', source: 'live'], 102: [ip: '192.0.2.102', source: 'config']],
+    props: nsBase.props + ['pve.netscan.guests': 'true']]
+def noCreds = plan(nsGuestBase + [existing: null])
+note('ns-guests-nocreds', !noCreds.resources.any { it.hostProps['system.categories'] == 'ProxmoxVE_Guest' } &&
+                          noCreds.report.any { it.contains('no LogicMonitor API credentials') },
+     "guests were created without LM API credentials, or silently: ${noCreds.report}")
+def withGuests = plan(nsGuestBase)
+def gByHost = withGuests.resources.findAll { it.hostProps['system.categories'] == 'ProxmoxVE_Guest' }.collectEntries { [(it.hostname): it] }
+note('ns-guests', gByHost.keySet() == ['192.0.2.101', '192.0.2.102'] as Set &&
+                  withGuests.report.any { it.contains('103') && it.contains('no address') },
+     "guests were ${gByHost.keySet()} / ${withGuests.report}")
+note('ns-guest-names', gByHost['192.0.2.101']?.displayname == 'web (101)' && gByHost['192.0.2.102']?.displayname == 'web (102)',
+     "duplicate names were ${gByHost.values()*.displayname}")
+note('ns-guest-props', gByHost['192.0.2.101']?.hostProps?.subMap(['pve.vmid', 'pve.guest.type', 'pve.pool', 'pve.tags', 'pve.guest.mac', 'pve.serial', 'pve.node', 'netscan.powerstate']) ==
+         ['pve.vmid': '101', 'pve.guest.type': 'qemu', 'pve.pool': 'prod', 'pve.tags': 'a;b', 'pve.guest.mac': 'bc:24:11:00:01:01',
+          'pve.serial': 'pve-cluster::101', 'pve.node': 'pve1', 'netscan.powerstate': 'running'] &&
+     gByHost['192.0.2.102']?.hostProps?.get('pve.pool') == 'none' && gByHost['192.0.2.102']?.hostProps?.get('pve.tags') == 'none' &&
+     !gByHost['192.0.2.101']?.hostProps?.containsKey('pve.token.credential') &&
+     gByHost['192.0.2.101']?.groupName == ['Proxmox VE/Cluster - pve-cluster/Guests'],
+     "guest properties were ${gByHost['192.0.2.101']?.hostProps} / ${gByHost['192.0.2.102']?.hostProps}")
+def unaddr = plan(nsGuestBase + [props: nsGuestBase.props + ['pve.netscan.guests.unaddressed': 'true']])
+note('ns-guests-unaddressed', unaddr.resources.any { it.hostname == 'dhcp-ct' }, 'unaddressed=true did not create the guest by name')
+def byGuestName = plan(nsGuestBase + [props: nsGuestBase.props + ['pve.netscan.guest.hostname': 'name']])
+note('ns-guest-hostname', byGuestName.resources.findAll { it.hostProps['system.categories'] == 'ProxmoxVE_Guest' }*.hostname.sort() == ['dhcp-ct', 'web', 'web'],
+     "guest.hostname=name gave ${byGuestName.resources*.hostname}")
+def filtered = plan(nsGuestBase + [props: nsGuestBase.props + ['pve.netscan.guests.filter.vmid': '100-101', 'pve.netscan.guests.filter.type': 'qemu']])
+note('ns-guest-filter', filtered.resources.findAll { it.hostProps['system.categories'] == 'ProxmoxVE_Guest' }*.hostname == ['192.0.2.101'],
+     "the filters let through ${filtered.resources*.hostname}")
+def offGuests = plan(nsGuestBase + [props: nsGuestBase.props + ['pve.netscan.guests': 'false']])
+note('ns-guests-off', !offGuests.resources.any { it.hostProps['system.categories'] == 'ProxmoxVE_Guest' }, 'guests were created with guests off')
+
 // ------------------------------- scale: 16 nodes, 1,000 guests (A§3.9, Q6)
 //
 // The design's call budgets, asserted per script, so a change that adds an O(guests) or an
