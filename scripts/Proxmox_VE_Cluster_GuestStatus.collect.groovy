@@ -8,6 +8,10 @@ if (pveConfigError) {
     System.err.println(pveConfigError)
     return 2
 }
+// Only the resource that holds the cluster role now collects; the other prints nothing.
+if (!pveRole().collect) {
+    return 0
+}
 
 // HA states that mean the cluster is actively unhappy about this guest, as opposed to
 // merely having it stopped on purpose.

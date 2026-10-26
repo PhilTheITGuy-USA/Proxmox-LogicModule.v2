@@ -183,6 +183,69 @@ def pveNodeGet = { String path ->
     pveGetAt(pveSelfBase, path)
 }
 
+// --------------------------------------------------------------- cluster role
+
+/*
+ * The cluster role sits on an active and a standby resource, named by pve.cluster.role and,
+ * on the standby, pve.cluster.active (the active node's name, or address:<host> for a
+ * cluster resource). Only one of the pair collects: the other prints nothing, so its
+ * datapoints read No Data, which does not alert, and the pair never alerts twice.
+ *
+ * A node that has lost quorum never counts itself active, so a split cluster cannot have
+ * two collecting resources. Where its own view cannot be read, an active resource collects
+ * anyway, so the failure surfaces as a failed collection; a standby stays quiet.
+ */
+def pveAddressDown = { String host ->
+    def url = new URI(pveHostUrl(host))
+    def address = url.host.replaceAll(/^\[|\]$/, '')
+    try {
+        if (!InetAddress.getByName(address).isReachable(pveTimeout)) { return true }
+        new Socket().withCloseable { it.connect(new InetSocketAddress(address, url.port), pveTimeout) }
+        return false
+    } catch (IOException unreachable) {
+        return true
+    }
+}
+
+def pveQuorate = { List status ->
+    def clusterRow = status.find { it.type?.toString() == 'cluster' }
+    clusterRow == null || clusterRow.quorate?.toString() == '1'
+}
+
+def pveRoleResult = null
+def pveRole = { ->
+    if (pveRoleResult != null) { return pveRoleResult }
+    def role = pveHostProp('pve.cluster.role')
+    def active = pveHostProp('pve.cluster.active')
+    def ownStatus = { -> pveNodeGet('/cluster/status') ?: [] }
+    def result
+    try {
+        if (role == null) {
+            // A standalone host added by hand: no cluster, so it is the cluster.
+            def standalone = !(pveGet('/cluster/status') ?: []).any { it.type?.toString() == 'cluster' }
+            result = [collect: standalone, why: standalone ? 'standalone host' : 'no cluster role']
+        } else if (role == 'active') {
+            def isNode = pveHostProp('pve.node') != null
+            def quorate = !isNode || pveQuorate(ownStatus())
+            result = [collect: quorate, why: quorate ? 'active' : 'active, but this node has no quorum']
+        } else if (role == 'standby' && active?.startsWith('address:')) {
+            def down = pveAddressDown(active.substring('address:'.length()))
+            result = [collect: down, why: down ? 'standby, cluster address down' : 'standby, cluster address answers']
+        } else if (role == 'standby' && active) {
+            def status = ownStatus()
+            def row = status.find { it.type?.toString() == 'node' && it.name?.toString() == active }
+            def takeOver = pveQuorate(status) && (row == null || row.online?.toString() != '1')
+            result = [collect: takeOver, why: takeOver ? 'standby, ' + active + ' is offline' : 'standby, ' + active + ' is collecting']
+        } else {
+            result = [collect: false, why: 'no cluster role']
+        }
+    } catch (Exception unreadable) {
+        result = [collect: role == 'active', why: 'cluster role check failed: ' + unreadable.message]
+    }
+    pveRoleResult = result + [role: role]
+    return pveRoleResult
+}
+
 // -------------------------------------------------------------------- output
 
 /*

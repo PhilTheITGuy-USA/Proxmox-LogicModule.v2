@@ -29,7 +29,8 @@ try {
      * same; with either set the TopologySource's keys change and these would silently stop
      * matching, so the feature steps aside and says why.
      */
-    def wanted = true
+    // Only the collecting resource stamps instance ERIs: a standby's would double every key.
+    def wanted = pveRole().collect
     def blocking = ['topo.namespace', 'topo.blacklist'].findAll { pveHostProp(it) }
     if (blocking) {
         System.err.println('Guest instance ERIs skipped: ' + blocking.join(' and ') +

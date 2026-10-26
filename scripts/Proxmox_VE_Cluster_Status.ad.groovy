@@ -29,7 +29,7 @@ try {
      * topo.blacklist would rewrite the TopologySource's key, so the feature steps aside.
      */
     def raw = [:]
-    if (clusterRow) {
+    if (clusterRow && pveRole().collect) {
         def blocking = ['topo.namespace', 'topo.blacklist'].findAll { pveHostProp(it) }
         if (blocking) {
             System.err.println('Cluster instance ERI skipped: ' + blocking.join(' and ') +

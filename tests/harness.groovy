@@ -609,6 +609,52 @@ return ['10.0.0.5', '10.0.0.5:8443', 'fd00::12', '[fd00::12]', 'pve1.example.com
 note('hosturl-ipv6', urls.exit == ['https://10.0.0.5:8006', 'https://10.0.0.5:8443', 'https://[fd00::12]:8006',
                                    'https://[fd00::12]:8006', 'https://pve1.example.com:8006'],
      "pveHostUrl gave ${urls.exit} / ${urls.thrown}")
+
+// ------------------------------------------------------- the cluster role (A§3.1)
+
+def statusWith = { Map pve1, Map pve2, Integer quorate ->
+    [[type: 'cluster', name: 'pve-cluster', quorate: quorate, nodes: 2],
+     [type: 'node', name: 'pve1', nodeid: 1, online: 1, local: 1, ip: '127.0.0.1'] + pve1,
+     [type: 'node', name: 'pve2', nodeid: 2, online: 1, ip: 'fd00::12'] + pve2]
+}
+def roleOf = { Map props -> runSource(preamble + '\nreturn pveRole()', [hostProps: hostProps + props]).exit }
+def nodeProps = ['pve.node': 'pve2', 'system.hostname': '127.0.0.1:' + server.address.port]
+withFixtures(['/cluster/status': statusWith([:], [:], 1)]) {
+    note('role-active-node', roleOf(nodeProps + ['pve.cluster.role': 'active'])?.collect == true, 'a quorate active node did not collect')
+    note('role-standby-quiet', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == false,
+         'a standby collected while the active node was online')
+}
+withFixtures(['/cluster/status': statusWith([online: 0], [:], 1)]) {
+    note('role-standby-takeover', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == true,
+         'a standby did not take over from an offline active node')
+}
+withFixtures(['/cluster/status': statusWith([online: 0], [:], 0)]) {
+    note('role-minority', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == false &&
+                          roleOf(nodeProps + ['pve.cluster.role': 'active'])?.collect == false,
+         'a node without quorum collected')
+}
+note('role-address-down', roleOf(['pve.cluster.role': 'standby', 'pve.cluster.active': 'address:127.0.0.1:1'])?.collect == true,
+     'a standby behind an unreachable address did not take over')
+note('role-address-up', roleOf(['pve.cluster.role': 'standby', 'pve.cluster.active': 'address:127.0.0.1:' + server.address.port])?.collect == false,
+     'a standby collected while its cluster address answered')
+withFixtures(['/cluster/status': [[type: 'node', name: 'pve-a', nodeid: 1, online: 1, local: 1]]]) {
+    note('role-standalone', roleOf(['pve.cluster.role': 'active', 'pve.node': 'pve-a',
+                                    'system.hostname': '127.0.0.1:' + server.address.port])?.collect == true,
+         'a standalone host did not collect')
+}
+// Every cluster collect script is silent, and exits 0, where it should not collect.
+scriptsDir.listFiles().findAll { it.name ==~ /Proxmox_VE_Cluster_.*\.collect\.groovy/ }.sort { it.name }.each { f ->
+    def silent = runScript(f, [hostProps: hostProps + ['pve.cluster.role': 'none']])
+    note('role-silent', silent.exit == 0 && silent.stdout.trim().isEmpty(),
+         "${f.name} printed or failed with role none: ${silent.exit} / ${silent.stdout.take(80)}")
+}
+// Only the collecting resource stamps instance ERIs: a standby's would double every key.
+withFixtures(['/cluster/status': statusWith([:], [:], 1)]) {
+    def standbyAd = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_GuestStatus.ad.groovy'),
+        [hostProps: hostProps + nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1']])
+    note('role-eri', standbyAd.exit == 0 && standbyAd.stdout.trim() && !standbyAd.stdout.contains('predef.'),
+         "a standby's discovery stamped ERIs or found nothing: ${standbyAd.exit} / ${standbyAd.stdout.take(120)}")
+}
 def helpers = runSource(preamble + """
 return [
     cluster : pveTopoKey('pve-cluster', null),

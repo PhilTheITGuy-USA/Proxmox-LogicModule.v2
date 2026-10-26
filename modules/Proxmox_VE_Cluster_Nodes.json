@@ -5,7 +5,7 @@
   "group": "Proxmox VE",
   "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
   "searchKeywords": "proxmox,pve,node,hypervisor,host,virtualization",
-  "technicalNotes": "BatchScript: one /cluster/resources?type=node call per interval regardless of cluster size.\n\nInstance IDs are the Proxmox resource id (node/<name>). Load average, swap and root filesystem are not available from this endpoint and are collected by Proxmox VE Node Detail.",
+  "technicalNotes": "BatchScript: one /cluster/resources?type=node call per interval regardless of cluster size.\n\nInstance IDs are the Proxmox resource id (node/<name>). Load average, swap and root filesystem are not available from this endpoint and are collected by Proxmox VE Node Detail.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice.",
   "collectionMethod": "batchscript",
   "collectionInterval": "5m",
   "multiInstance": true,

@@ -5,7 +5,7 @@
   "group": "Proxmox VE",
   "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
   "searchKeywords": "proxmox,pve,storage,datastore,capacity,ceph,nfs,zfs,virtualization",
-  "technicalNotes": "BatchScript: one /cluster/resources?type=storage call per interval.\n\nA shared storage is visible from every node and is therefore discovered once per node, with instance ID storage/<node>/<name>. That is intentional rather than duplication: availability and free space are reported from the perspective of the node doing the asking, and a shared store can be reachable from one node and not another. Group instances by the pve_shared instance property if you would rather alert on shared storage once.",
+  "technicalNotes": "BatchScript: one /cluster/resources?type=storage call per interval.\n\nA shared storage is visible from every node and is therefore discovered once per node, with instance ID storage/<node>/<name>. That is intentional rather than duplication: availability and free space are reported from the perspective of the node doing the asking, and a shared store can be reachable from one node and not another. Group instances by the pve_shared instance property if you would rather alert on shared storage once.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice.",
   "collectionMethod": "batchscript",
   "collectionInterval": "10m",
   "multiInstance": true,
