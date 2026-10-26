@@ -439,6 +439,15 @@ def pveGuestEriMac = { ->
 }
 
 /*
+ * The ERI keys a guest resource carries. The bare MAC is the key the TopologySource's guest
+ * vertex and GuestStatus's instance are built from; a guest monitored from inside already has
+ * it through net.l2, but one the NetScan created is only pinged and has no other, so without
+ * it the edge stops at the instance and the resource is drawn alone (lab map, 2026-10-26).
+ * proxmoxve--vm--<mac> carries the VirtualMachineResource type at a priority that wins.
+ */
+def pveGuestEriKeys = { String mac -> [mac, 'proxmoxve--vm--' + mac] }
+
+/*
  * The cluster's own name, which /cluster/status reports as the single row of type
  * "cluster". A standalone host has no such row, so it falls back to the local node's
  * name -- the vertex still has to be unique across a portal that monitors several of

@@ -4,25 +4,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-The second generation of the Proxmox VE LogicModule suite. **The code is still v1's:** all of v1
-at commit `2e0237b` (19 modules, portal-verified on a two-node lab) was copied in verbatim on
-2026-10-25, so every v2 change shows as a diff against it (spec §3.8). None of the v2 design is
-built yet. v1 itself lives on in the sibling repo `..\Proxmox-LogicModule`.
+The second generation of the Proxmox VE LogicModule suite, **built**: 19 modules and an Enhanced
+Script NetScan, on branch `v2-implementation` (plan `docs/superpowers/plans/2026-10-25-proxmox-v2.md`,
+executed 2026-10-26). It began as a verbatim copy of v1 at `2e0237b`, so `git diff 2e0237b` shows
+every v2 change; v1 itself lives on in the sibling repo `..\Proxmox-LogicModule`.
 
-**v2 is standalone** (user, 2026-10-25): it never requires v1 to be installed and never changes
-v1; it customises its own copy.
+**v2 is standalone** (user, 2026-10-25): it never requires v1, never changes v1, and **there is no
+migration from v1** -- no one runs either version, so nothing is planned or built for one. Module
+names (`Proxmox_VE_Cluster_*`, `Proxmox_VE_Node_*`, `addERI_Proxmox_VE_*`) and the token property
+**`pve.token.credential`** (never v1's `pve.api.token.credential`) differ from v1's only so the two
+never collide in a portal.
 
-Layout, as v1's (read `docs/v1/CLAUDE.md` and `docs/v1/DESIGN.md` before changing the build or
-code layout; references like "v1 DESIGN §7" point there):
+## Layout
 
-- `modules/*.json` -- module definitions; `scripts/*.groovy` -- their scripts, each prepended with
-  the shared preamble `scripts/lib/pve_common.groovy` at build; `dashboards/*.py` -- dashboard
-  sources; `build/` -- `build.py` (assembles `dist/`, with its cross-checks), `dashboards.py`,
-  `groovylint.py`; `tests/` -- the Docker compile job, `harness.groovy` and its mock API fixture.
-- `dist/` is generated and gitignored: never edit or commit it.
-- `docs/v1/` -- v1's own CLAUDE.md, README, DESIGN, INSTALL and specs, as copied.
+- `modules/*.json` -- module definitions. `scripts/*.groovy` -- their scripts; the build prepends
+  the shared preamble `scripts/lib/pve_common.groovy` to each.
+- `scripts/Proxmox_VE_NetScan.groovy` -- the NetScan body: the Collector-only reads (Proxmox, the
+  `lm.api` portal lookup) and the emit. Its decisions live in `scripts/lib/pve_netscan.groovy`'s
+  pure `pveNetscanPlan(input)`, so the harness tests them without a Collector.
+- `dashboards/*.py` -- dashboard sources. **Don't edit them:** the user is reworking the dashboards
+  in the portal, and their exports will replace these generators (then validate the exports with
+  `lm_dashboards.py check`).
+- `build/build.py` -- assembles `dist/` and runs its cross-checks; `dashboards.py`, `groovylint.py`.
+- `tests/` -- the Docker compile job, `harness.groovy` (mock Proxmox API, stand-in snippets for
+  the NetScan smoke test) and `fixtures/` (including `scale.groovy`: 16 nodes, 1,000 guests).
+- `tools/Import-Modules.ps1` -- imports `dist\*.json` through the Logic.Monitor PowerShell module
+  (pwsh 7, a token whose role can manage modules). It cannot import PropertySources: it lists
+  them for the portal's own import.
+- `dist/` is generated and gitignored: never edit or commit it. `dist/netscan/` holds the NetScan
+  script and a `.console.groovy` copy with a property block for the Collector debug console.
 
-Commands (from the repo root; the workspace `..\CLAUDE.md` has the PowerShell forms of the lint):
+## Commands
+
+From the repo root; the workspace `..\CLAUDE.md` has the PowerShell forms of the lint.
 
 ```sh
 python build/build.py                                        # build dist/ and run its checks
@@ -32,66 +46,88 @@ python ../logicmonitor-modules-skill/skill/scripts/lm_lint_module.py dist
 python ../logicmonitor-modules-skill/skill/scripts/lm_dashboards.py check dist/dashboards/*.json --modules modules
 ```
 
-At the copy, the build output was byte-identical to v1's and to the skill's
-`tests/fixtures/proxmox/`; the compile job passed, the harness passed all 1,378 checks, the lint
-gave 0 errors and 5 warnings (v1's own), and both dashboards checked clean (2026-10-25).
+The harness has no single-test filter: redirect its output to a file and read the `FAILED`
+lines (`note('<name>', ...)` names each check). Rebuild before running it -- it reads `dist/`.
 
-v2's token property is **`pve.token.credential`**, never v1's `pve.api.token.credential`: v1's
-`addCategory_Proxmox_VE` applies all of v1 to any resource holding that one (spec §3.5).
+## Build rules that bite
 
-## Documents
-
-- `docs/research/` -- what LogicMonitor's own vSphere (and Nutanix) suites do. Claims are tagged
-  **[doc]**, **[script]** or **[inferred]**; keep that tagging when adding to it. The vSphere
-  NetScan the user supplied is LogicMonitor's code: summarise it, never copy it in (its contract
-  is summarised in research §2a).
-- `docs/superpowers/specs/` -- the v2 architecture spec and the NetScan spec it points to (§3.3),
-  both **approved by the user 2026-10-25**. The workflow is spec → spikes (§5) → plan → code; the
-  plan is `docs/superpowers/plans/2026-10-25-proxmox-v2.md`, and spec changes from here on need
-  the user's approval again. The NetScan spec tags claims **[v1]**, **[vmware]**,
-  **[unverified]** with the spike that settles each, or **[S<n>]** when a spike has seen it in the
-  lab cluster `Labcluster` (PVE 9.2.3).
-
-- `docs/proxmox-ve-monitoring.md` -- the user-facing product page, in the outline and table
-  formats of LogicMonitor's [VMware vSphere Monitoring](https://www.logicmonitor.com/support/vmware-vsphere-monitoring)
-  article (user, 2026-10-25): Technology Type, Compatibility, Setup Requirements, Add Resources
-  (numbered NetScan steps with `Property | Value | Example | Required` tables), Manually Assigning
-  Properties, Considerations, Troubleshooting, NetScan Troubleshooting, LogicModules in Package
-  (`Display Name | Type | Description | Replaces`). LogicMonitor's "Migration from Legacy
-  Modules" section is left out: no one runs either version, so there is no migration (user,
-  2026-10-25). Keep that
-  outline, write the wording ourselves, and keep it in step with the specs; *(not yet verified)*
-  marks design intent no lab run has confirmed.
-
-Spec edits are dated and attributed to their evidence (a portal check, a live target, the user's
-stated position, a LogicMonitor doc URL); commit messages follow the same style, e.g.
-`Spec §3.6: ... (v1 portal check 2026-10-22)`.
+- **Each module ships only the preamble it reaches, without comments** (`shake_preamble`,
+  `strip_comments`): an embedded script is capped at **49,135 characters** (portal API, 2026-10-26),
+  checked by `check_script_lengths`. A preamble closure must be defined before the closures that
+  use it (a Groovy closure can't see a later script variable), and the shaker finds references
+  by name, so don't call a closure through a dynamic name.
+- **The NetScan is about 200 bytes under LogicMonitor's recommended 32 KB** (harness
+  `netscan-size`): the next addition to it needs a trim.
+- Collector objects are not Java collections: `hostProps` and `netscanProps` are
+  `com.santaba.common.util.ParamMap` (`get` / `set`, no `put`, not a `Map`). Never type a
+  parameter that receives them as `Map`.
+- Most sources are CRLF. When a Bash heredoc or `sed` must write a backslash, use the Edit tool instead:
+  the Bash tool collapses doubled backslashes.
 
 ## The v2 architecture in brief
 
-The point of v2 is to model Proxmox the way LogicMonitor models vSphere, instead of v1's "every
-node, guest and storage object is an instance on the token-holding node":
+The specs (`docs/superpowers/specs/`, approved 2026-10-25; changes need the user's approval) are
+the authority; this is the map.
 
-- **Three resource roles by category**, set by whoever creates the resource (NetScan or a manual
-  add), never inferred from whether a token works: `ProxmoxVE_Cluster` (≈ vCenter),
-  `ProxmoxVE_Node` (≈ ESXi host), `ProxmoxVE_Guest` (≈ VMwareVM, opt-in via `pve.netscan.guests`,
-  off by default). A standalone host carries both Cluster and Node categories.
-- **Cluster-wide modules stay O(1) API calls per poll** on the cluster role, which fails over
-  across `pve.api.hosts`; node modules ask only their own node and never fail over. Modules are
-  named `Proxmox_VE_Cluster_*` / `Proxmox_VE_Node_*` so they never overwrite v1's on import;
-  each starts from a v1 module (spec §3.2 maps them). Guest hypervisor metrics stay
-  instances on the cluster role, wildvalues unchanged so a migration keeps history.
-- **An Enhanced Script NetScan** creates and groups resources (`Cluster - <name>/Nodes|Guests`),
-  deduplicates against existing devices (display name, hostname, address, MAC), and never
-  deletes.
-- **Licensing drives defaults:** every resource is one host unit, instances are free -- hence
-  guests-as-resources is opt-in.
-- **The cluster role is an active and a standby resource** (spec §3.1, after spike S2): a cluster
-  resource plus a standby node where the cluster has its own address (VIP, proxy, DNS name), else
-  the two lowest-ID nodes. A resource without an answering address is dead in LogicMonitor, and a
-  dead resource suppresses its alerts; script data never keeps it alive. The standby collects
-  only while the resource ahead of it is down. The role is the property `pve.cluster.role`, never a
-  category.
-- **A NetScan re-run overwrites and adds, never removes** (spike S5): so every property is sent
-  every run with an explicit value (`none`, `ok`), categories mark only what a resource is, and the
-  NetScan writes only groups whose membership never changes; pools and tags are dynamic groups.
+- **Three resource roles by category**, set by whoever creates the resource, never inferred:
+  `ProxmoxVE_Cluster` (≈ vCenter), `ProxmoxVE_Node` (≈ ESXi host), `ProxmoxVE_Guest` (≈ VMwareVM,
+  opt-in via `pve.netscan.guests`, off by default: every resource is a host unit, instances are
+  free). A standalone host carries both Cluster and Node categories.
+- **The cluster role is an active and a standby resource** (A§3.1), the property
+  `pve.cluster.role`, never a category. With a cluster address of its own (VIP, proxy, DNS name):
+  a cluster resource plus the lowest-ID node as standby; otherwise the two lowest-ID nodes. A
+  resource that doesn't answer on its own address is dead in LogicMonitor and silences its own
+  alerts, so the standby collects only while the one ahead of it is down. `pveRole()` decides on
+  each poll: an active node collects only with its own corosync running and quorum (or a
+  two-node cluster); nodes read their own API first; a standby that stops collecting runs once
+  more to clear its alerts (the hand-back, kept in `lm.cache`).
+- **Cluster modules stay O(1) API calls per poll** and fail over across `pve.api.hosts` (on 5xx
+  and connection errors, never 4xx; a `/nodes/<name>` path tries two addresses at most). **Node
+  modules ask only their own node** and never fail over. O(guests) loops go to the owning node,
+  with a per-node breaker, `pve.api.concurrency` and the `pve.api.budget.ms` budget.
+- **The NetScan** creates and groups resources (`Cluster - <name>/Nodes|Guests`), sends every
+  property with an explicit value on every run (a re-run overwrites and adds, never removes),
+  deduplicates through `lm.api` (`pve.serial` first, then display name, hostname, address), and
+  never deletes: it reports orphans and address changes in `pve.netscan.report` on the active
+  resource, since the portal shows a NetScan's stderr nowhere. LogicMonitor plans to move
+  deduplication into the platform; until then `lm.api` stays, kept in one place of the body.
+- **Topology:** guest vertices are keyed by the bare MAC of the first NIC, which GuestStatus
+  instances and `addERI_Proxmox_VE_GuestResource` also carry; node keys are synthesised from name
+  and corosync address and stamped by `addERI_Proxmox_VE_Node`.
+
+## Verification -- the one record
+
+What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
+when a layer changes.
+
+- **Local checks** (2026-10-26, after the lab map fix): build clean; compile job passed; harness
+  1,483 of 1,483; lint 0 errors, 4 warnings; both dashboards check clean.
+- **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
+  portal for the PropertySources; the NetScan runs on the Collector.
+- **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
+  replication), 2026-10-26: S2, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
+  Node-B (standby) and the guest Webapp01, and a re-run adds nothing and leaves the expected
+  properties; the standby takes over when corosync or pveproxy stops on the active and hands back
+  with its alerts cleared. **Not yet seen on the lab:** the guest ERI's bare-MAC key (the map
+  showed Webapp01 alone beside its vertex before it), Replication and Ceph (nothing to read),
+  a cluster address (VIP/DNS), a large portal's one-at-a-time lookups. S3 and S7's sharing half
+  are deferred (user, 2026-10-26).
+
+## Documents
+
+- `docs/proxmox-ve-monitoring.md` -- the user-facing product page, in the outline and table
+  formats of LogicMonitor's [VMware vSphere Monitoring](https://www.logicmonitor.com/support/vmware-vsphere-monitoring)
+  article (user, 2026-10-25), without its "Migration from Legacy Modules" section. Keep that
+  outline, write the wording ourselves, keep it in step with the specs, and mark design intent no
+  lab run has confirmed *(not yet verified)*.
+- `docs/superpowers/specs/` -- the architecture spec (A) and the NetScan spec (N). N tags claims
+  **[v1]**, **[vmware]**, **[unverified]** with the spike that settles each, or **[S<n>]** once a
+  spike has seen it on the lab.
+- `docs/research/` -- what LogicMonitor's own vSphere (and Nutanix) suites do. Claims are tagged
+  **[doc]**, **[script]** or **[inferred]**; keep that tagging. The vSphere NetScan the user
+  supplied is LogicMonitor's code: summarise it, never copy it in.
+- `docs/v1/` -- v1's own documentation, as copied; "v1 DESIGN §7" and the like point there.
+
+Spec edits are dated and attributed to their evidence (a portal check, a live target, the user's
+stated position, a LogicMonitor doc URL, a review); commit messages follow the same style, e.g.
+`Spec §3.6: ... (v1 portal check 2026-10-22)`.

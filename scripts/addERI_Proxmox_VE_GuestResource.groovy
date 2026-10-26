@@ -17,9 +17,11 @@
  * Why priority 3. The resource type comes from the highest-priority ERI entry ACROSS
  * categories, and the built-in net.l2 entry is priority 2: at priority 1 this key merges
  * but the type stays PhysicalServer. Keys from every category still merge into the ID,
- * so this key adds to the guest's MAC-based ERIs rather than replacing them. The key joins
- * nothing -- the guest already meets its map vertex through the MAC net.l2 holds -- it
- * exists to carry the type at a priority that wins.
+ * so these keys add to the guest's MAC-based ERIs rather than replacing them.
+ * proxmoxve--vm--<mac> joins nothing; it carries the type at a priority that wins. The bare
+ * MAC is the guest's map vertex: a guest monitored from inside has it through net.l2
+ * already, but one the NetScan created is only pinged and has nothing else, and without it
+ * that resource was drawn alone beside its own vertex (pveGuestEriKeys, lab map 2026-10-26).
  *
  * Why it never reads pveConfigError. A guest carries no API token, so the preamble always
  * sets pveConfigError here; returning on it would make this module a no-op on every
@@ -49,8 +51,7 @@ try {
     def keyNamespace = pveHostProp('topo.namespace') ? pveHostProp(pveHostProp('topo.namespace')) : ''
     def keyBlacklist = (pveHostProp('topo.blacklist') ?: '').tokenize(',')
 
-    def keys = []
-    keys << 'proxmoxve--vm--' + mac
+    def keys = pveGuestEriKeys(mac)
 
     def eriArray = new JSONArray()
     lmtopo.emitEri('virt.proxmoxve', 3, keys, 'VirtualMachineResource', eriArray)

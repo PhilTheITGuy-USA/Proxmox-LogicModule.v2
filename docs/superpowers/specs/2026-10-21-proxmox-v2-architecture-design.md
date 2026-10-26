@@ -348,7 +348,9 @@ guest a resource.
 resource through SNMP, SSH or WMI is adopted by deduplication, not duplicated. A NetScan-created
 guest resource carries its MAC from the guest config (`pve.guest.mac`), and
 `addERI_Proxmox_VE_GuestResource` stamps it, so the map's guest vertex opens that resource rather than
-the instance, with no in-guest access needed. Its cost, 1 HU, is the user's choice, per guest or
+the instance, with no in-guest access needed. It stamps the bare MAC, the vertex's own key, beside
+`proxmoxve--vm--<mac>`: the first version stamped only the latter, and on the lab map the NetScan's
+`Webapp01` stood alone beside its instance vertex (lab map, 2026-10-26). Its cost, 1 HU, is the user's choice, per guest or
 per filter. **A guest the NetScan finds no address for is not created by default** (user, 2026-10-25, spec review): its
 hostname would be its name, which does not answer, so it would be dead from the start, as S2's
 `Migration-Test` was. The run reports it instead; `pve.netscan.guests.unaddressed=true` creates

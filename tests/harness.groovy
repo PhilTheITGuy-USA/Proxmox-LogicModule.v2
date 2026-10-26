@@ -1074,6 +1074,13 @@ note('guest-eri-mac', eriMac(['pve.guest.mac': 'BC:24:11:AA:BB:CC', 'auto.networ
                       eriMac(['auto.network.mac_address': 'bc:24:11:00:00:01']) == 'bc:24:11:00:00:01' &&
                       eriMac(['auto.network.mac_address': '00:50:56:00:00:01']) == null,
      'pveGuestEriMac did not prefer pve.guest.mac, or matched a non-Proxmox MAC')
+// A guest the NetScan created is only pinged, so it has no net.l2 MAC ERI: unless this module
+// stamps the bare MAC the topology's guest vertex is keyed by, the edge stops at the
+// GuestStatus instance and the resource is drawn alone (lab map, 2026-10-26).
+def eriKeys = runSource(preamble + '\nreturn pveGuestEriKeys("bc:24:11:00:01:04")', [hostProps: [:]]).exit
+note('guest-eri-bare-mac', eriKeys == ['bc:24:11:00:01:04', 'proxmoxve--vm--bc:24:11:00:01:04'] &&
+                           guestEriScript.contains('pveGuestEriKeys(mac)'),
+     "the guest ERI keys were ${eriKeys}: the topology vertex's bare MAC is missing")
 note('addERI-guest', guestEriScript.contains("lmtopo.emitEri('virt.proxmoxve', 3,") &&
                      guestEriScript.contains("'VirtualMachineResource'") &&
                      guestEriScript.contains('lmtopo.printEriArray('),
