@@ -1,12 +1,11 @@
 /*
- * PropertySource: identify Proxmox VE hosts and tag them with a system category.
+ * PropertySource: version facts for a Proxmox VE cluster or node resource.
  *
- * Every module in the suite uses AppliesTo hasCategory("ProxmoxVE"), so this is what
- * makes the suite self-applying. Without it a user has to hand-set a property on every
- * resource, which is not how a published module behaves.
+ * Applies only to resources that already carry a Proxmox role category, which whoever created
+ * the resource set (the NetScan, or a user adding it by hand). It sets no category itself:
+ * categories mark what a resource is, and nothing here decides that.
  *
- * Emits nothing at all when the host is not Proxmox, or when credentials are absent --
- * a PropertySource that guesses would apply the whole suite to unrelated Linux hosts.
+ * Emits nothing at all when credentials are absent or the API does not answer.
  */
 if (pveConfigError) {
     // Not an error: most resources in a portal are not Proxmox and have no token set.
@@ -23,7 +22,6 @@ try {
     // LogicMonitor stores every property a PropertySource sets, except system.categories, with
     // auto. prepended: these land as auto.pve.version, auto.pve.release and auto.pve.clustered.
     // Reference them by those names in AppliesTo and docs; the output itself stays bare.
-    println 'system.categories=ProxmoxVE'
     println 'pve.version=' + version.version
     if (version.release) { println 'pve.release=' + version.release }
 
@@ -32,7 +30,7 @@ try {
     try {
         def clusterRow = (pveGet('/cluster/status') ?: []).find { it.type == 'cluster' }
         println 'pve.clustered=' + (clusterRow != null)
-        // The exact name Proxmox_VE_Topology keys the cluster on, published for the optional
+        // The exact name Proxmox_VE_Cluster_Topology keys the cluster on, published for the optional
         // pve.topology.cluster; the name-plus-IP node key needs no cluster name.
         if (clusterRow?.name) { println 'pve.cluster.name=' + clusterRow.name }
     } catch (Exception clusterException) {

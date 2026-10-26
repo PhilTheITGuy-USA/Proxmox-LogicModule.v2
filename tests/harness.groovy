@@ -114,11 +114,12 @@ def hostProps = [
     'system.hostname': '127.0.0.1',
     'pve.api.url'    : baseUrl,
     'pve.token.credential'  : TOKEN,
+    'pve.cluster.role'      : 'active',
     'pve.api.timeout': '5000',
 ]
 
 // Modules whose collection calls each guest's own node, so a guest on an offline node reports nothing.
-def GUEST_NODE_READ_MODULES = ['Proxmox_VE_Snapshots']
+def GUEST_NODE_READ_MODULES = ['Proxmox_VE_Cluster_Snapshots']
 def AD_LINE = ~/^([A-Za-z0-9_.\-]+)##([^#]*)##([^#]*)####(.*)$/
 def BATCH_LINE = ~/^([A-Za-z0-9_.\-]+)\.([A-Za-z0-9_]+)=(.*)$/
 def PLAIN_LINE = ~/^([A-Za-z0-9_]+)=(.*)$/
@@ -126,7 +127,7 @@ def isNumeric = { String v -> v ==~ /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/ }
 
 // Instance properties a Collector supplies for per-instance Script collection.
 def instanceBindings = [
-    'Proxmox_VE_NodeDetail': ['auto.pve_node': 'pve1', 'auto.pve_id': 'node/pve1'],
+    'Proxmox_VE_Node_Detail': ['auto.pve_node': 'pve1', 'auto.pve_id': 'node/pve1'],
 ]
 
 def modulesDir = new File(ROOT, 'modules')
@@ -269,7 +270,7 @@ modulesDir.listFiles({ f -> f.name.endsWith('.json') } as FileFilter).sort { it.
 
 // ------------------------------------- assertions that pin the design decisions
 
-def guestAdFile = new File(scriptsDir, 'Proxmox_VE_GuestPerformance.ad.groovy')
+def guestAdFile = new File(scriptsDir, 'Proxmox_VE_Cluster_GuestPerformance.ad.groovy')
 def guestAd = runScript(guestAdFile, [hostProps: hostProps])
 def guestIds = guestAd.stdout.readLines().findAll { it.trim() }.collect { it.split('##')[0] }
 
@@ -280,7 +281,7 @@ note('instance-id', guestIds.contains('qemu-101'),
 note('instance-id', guestIds.every { !it.contains('pve1') && !it.contains('pve2') },
      "guest instance ids embed a node name and would break on migration: ${guestIds}")
 
-def guestCollect = runScript(new File(scriptsDir, 'Proxmox_VE_GuestPerformance.collect.groovy'),
+def guestCollect = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_GuestPerformance.collect.groovy'),
                              [hostProps: hostProps])
 def keysFor = { String prefix ->
     guestCollect.stdout.readLines().findAll { it.startsWith(prefix + '.') }
@@ -293,7 +294,7 @@ note('lxc-disk', keysFor('lxc-200').contains('DiskUsedGB'),
 
 // An unreachable API must fail loudly rather than report zeroes, so that LogicMonitor
 // keeps existing instances instead of tearing them down during an outage.
-def dead = runScript(new File(scriptsDir, 'Proxmox_VE_Nodes.collect.groovy'),
+def dead = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Nodes.collect.groovy'),
                      [hostProps: hostProps + ['pve.api.url': 'http://127.0.0.1:1']])
 note('api-down', dead.exit == 2, "expected exit 2 when the API is unreachable, got ${dead.exit}")
 note('api-down', dead.stdout.trim().isEmpty(), 'emitted datapoints while the API was unreachable')
@@ -305,7 +306,7 @@ note('api-auth', badAuth.exit == 2, "expected exit 2 on HTTP 401, got ${badAuth.
 note('api-auth', badAuth.stderr.contains('token'), 'did not mention the token on stderr')
 
 // Missing configuration must be a clean, explained failure rather than an exception.
-def unconfigured = runScript(new File(scriptsDir, 'Proxmox_VE_Nodes.collect.groovy'),
+def unconfigured = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Nodes.collect.groovy'),
                              [hostProps: ['system.hostname': 'pve.example.com']])
 note('unconfigured', unconfigured.exit == 2, "expected exit 2 with no token, got ${unconfigured.exit}")
 note('unconfigured', unconfigured.stderr.contains('pve.token.credential'),
@@ -313,14 +314,14 @@ note('unconfigured', unconfigured.stderr.contains('pve.token.credential'),
 
 // ------------------------------------------------------------ PropertySource
 
-def propertySource = new File(scriptsDir, 'addCategory_Proxmox_VE.groovy')
+def propertySource = new File(scriptsDir, 'Proxmox_VE_Info.groovy')
 
 def detected = runScript(propertySource, [hostProps: hostProps])
 def detectedProps = detected.stdout.readLines().findAll { it.trim() }
                         .collectEntries { [(it.split('=', 2)[0]): it.split('=', 2)[1]] }
 note('propertysource', detected.exit == 0, "exit was ${detected.exit}, expected 0")
-note('propertysource', detectedProps['system.categories'] == 'ProxmoxVE',
-     "did not set the category that every module's AppliesTo depends on: ${detectedProps}")
+note('info-no-category', !detectedProps.containsKey('system.categories'),
+     "Proxmox_VE_Info set a category; categories are set by whoever creates the resource: ${detectedProps}")
 note('propertysource', detectedProps['pve.version'] == '8.2.2',
      "did not report the Proxmox version: ${detectedProps}")
 note('propertysource', detectedProps['pve.clustered'] == 'true',
@@ -344,8 +345,8 @@ note('propertysource', notProxmox.stdout.trim().isEmpty(),
 // TopologySource draws it under. It must discover exactly the shared guest discovery's
 // instances, and where it can add no keys its output must be the shared discovery's.
 
-def statusAd = new File(scriptsDir, 'Proxmox_VE_GuestStatus.ad.groovy')
-def perfAd = new File(scriptsDir, 'Proxmox_VE_GuestPerformance.ad.groovy')
+def statusAd = new File(scriptsDir, 'Proxmox_VE_Cluster_GuestStatus.ad.groovy')
+def perfAd = new File(scriptsDir, 'Proxmox_VE_Cluster_GuestPerformance.ad.groovy')
 
 // Run a discovery script and return the run plus only the requests it made.
 def discoverWith = { File file, Map props ->
@@ -490,10 +491,10 @@ note('guest-eri-perf', perfOn.exit == 0 &&
 
 // ---------------------------------------------------- Cluster instance ERI
 //
-// Proxmox_VE_Cluster discovers one instance, the cluster, and on a cluster it carries the key the TopologySource draws the cluster vertex with (DESIGN section 7, spike
+// Proxmox_VE_Cluster_Status discovers one instance, the cluster, and on a cluster it carries the key the TopologySource draws the cluster vertex with (DESIGN section 7, spike
 // 3 re-run). The wildvalue is fixed, so renaming the cluster orphans nothing.
 
-def clusterAd = new File(scriptsDir, 'Proxmox_VE_Cluster.ad.groovy')
+def clusterAd = new File(scriptsDir, 'Proxmox_VE_Cluster_Status.ad.groovy')
 def clusterOff = discoverWith(clusterAd, hostProps)
 def clusterOffAd = parseAd(clusterOff.stdout)
 note('cluster-eri-default', clusterOff.thrown == null && clusterOff.exit == 0,
@@ -543,7 +544,7 @@ note('cluster-eri-down', clusterDown.exit == 2 && clusterDown.stdout.trim().isEm
 
 // --------------------------------------------------------------- topology
 //
-// Proxmox_VE_Topology itself cannot run here. It works through Collector-only snippet
+// Proxmox_VE_Cluster_Topology itself cannot run here. It works through Collector-only snippet
 // classes, which is the whole reason build.py emits it outside dist/scripts/. What can
 // be tested is the half that is ours: the two preamble helpers that decide a vertex's
 // identity. Get either wrong and the map draws vertices that resolve to nothing, which
@@ -573,7 +574,7 @@ def runSource = { String source, Map bindings ->
 def preamble = new File(ROOT, 'scripts/lib/pve_common.groovy').text
 
 // v1's property must not configure v2: a resource carrying only it is unconfigured.
-def v1Only = runScript(new File(scriptsDir, 'Proxmox_VE_Nodes.collect.groovy'),
+def v1Only = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Nodes.collect.groovy'),
     [hostProps: ['pve.api.url': baseUrl, 'pve.api.token.credential': TOKEN]])
 note('token-v2', v1Only.exit == 2 && v1Only.stderr.contains('pve.token.credential'),
      "v1's token property configured a v2 module: ${v1Only.exit} / ${v1Only.stderr}")
@@ -600,7 +601,7 @@ def helper = helpers.exit ?: [:]
 note('topo-helpers', helper.cluster == 'proxmoxve--pve-cluster',
      "cluster vertex key was ${helper.cluster}")
 // Folded to the ERI-safe alphabet: a node is routinely an FQDN and a cluster name can
-// carry spaces, and neither may reach a key that addERI_Proxmox_VE has to reproduce.
+// carry spaces, and neither may reach a key that addERI_Proxmox_VE_Node has to reproduce.
 note('topo-helpers', helper.node == 'proxmoxve--pve-cluster--pve1-example-com',
      "node vertex key was ${helper.node}")
 
@@ -662,7 +663,7 @@ note('topo-identity', identityOf(['system.hostname': 'pve2']) == null,
      'produced an identity with no pve.topology.cluster')
 
 // The second node key needs no cluster name: the node's name plus an address it holds.
-// The TopologySource takes both from /cluster/status; addERI_Proxmox_VE takes the name
+// The TopologySource takes both from /cluster/status; addERI_Proxmox_VE_Node takes the name
 // from the resource and the address from system.ips, which LogicMonitor writes with IPv6
 // uncompressed. The two must meet byte for byte, or a token-less node is not drawn.
 def ipKey = runSource(preamble + """
@@ -768,7 +769,7 @@ note('guest-mac', gm.cluster == 'pve-cluster', "cluster name was ${gm.cluster}")
 note('guest-mac', gm.single == 'pve-a', "standalone cluster name was ${gm.single}")
 note('guest-mac', gm.empty == 'standalone', "empty status cluster name was ${gm.empty}")
 // The fallback key must be built from the same cluster name in both places.
-note('guest-mac', new File(ROOT, 'scripts/Proxmox_VE_Topology.topo.groovy').text.contains('pveTopoClusterName('),
+note('guest-mac', new File(ROOT, 'scripts/Proxmox_VE_Cluster_Topology.topo.groovy').text.contains('pveTopoClusterName('),
      'the TopologySource derives its cluster name without pveTopoClusterName')
 
 def discoverRaw = runSource(preamble + "pveDiscover('qemu/1', 'n', 'd', [a: 'x'], " +
@@ -786,8 +787,8 @@ note('discover-raw', discoverRaw.thrown == null && discoverRaw.stdout.trim() ==
 // halves must derive the node key from pveTopoKey. If either ever inlines its own
 // version, they can drift apart and every node vertex stops matching its resource --
 // with nothing failing anywhere, because each half is individually correct.
-def eriScript = new File(ROOT, 'scripts/addERI_Proxmox_VE.groovy').text
-def topoScript = new File(ROOT, 'scripts/Proxmox_VE_Topology.topo.groovy').text
+def eriScript = new File(ROOT, 'scripts/addERI_Proxmox_VE_Node.groovy').text
+def topoScript = new File(ROOT, 'scripts/Proxmox_VE_Cluster_Topology.topo.groovy').text
 
 note('addERI', eriScript.contains('pveTopoKey('),
      'the ERI PropertySource builds its node key without pveTopoKey')
@@ -806,7 +807,7 @@ note('addERI', eriScript.contains('lmtopo.emitEri(') &&
                eriScript.contains('lmtopo.printEriArray('),
      'the ERI PropertySource does not use the documented emitEri/printEriArray pair')
 
-// Silence is the contract addCategory_Proxmox_VE also keeps: most resources in a portal
+// Silence is the contract Proxmox_VE_Info also keeps: most resources in a portal
 // are not Proxmox, and a PropertySource that prints on one it does not understand
 // corrupts that resource's properties. Asserted by reading the guard, since the script
 // cannot be executed here.
@@ -824,8 +825,8 @@ note('addERI', eriScript.contains('pveTopoNodeIdentity()') &&
 // the wiring. Priority 3 is the finding of spec spike 1: the resource type comes from
 // the highest-priority ERI across categories, and the built-in net.l2 entry is 2, so
 // anything lower leaves a guest drawn as PhysicalServer with nothing failing anywhere.
-def guestEriScript = new File(ROOT, 'scripts/addERI_Proxmox_VE_Guest.groovy').text
-def guestEriDefn = new JsonSlurper().parse(new File(ROOT, 'modules/addERI_Proxmox_VE_Guest.json'))
+def guestEriScript = new File(ROOT, 'scripts/addERI_Proxmox_VE_GuestResource.groovy').text
+def guestEriDefn = new JsonSlurper().parse(new File(ROOT, 'modules/addERI_Proxmox_VE_GuestResource.json'))
 
 note('addERI-guest', guestEriScript.contains('pveGuestMacMatch('),
      'the guest ERI PropertySource matches the MAC without pveGuestMacMatch')
@@ -843,8 +844,8 @@ note('addERI-guest', guestEriScript.contains("pveHostProp('auto.network.mac_addr
                      guestEriScript.contains("pveHostProp('pve.guest.mac_prefix')"),
      'the guest ERI PropertySource does not read the MAC and the prefix override')
 note('addERI-guest', guestEriDefn.appliesTo ==
-         '(auto.network.mac_address =~ "^[bB][cC]:24:11" || pve.guest.mac_prefix) && ' +
-         '(isLinux() || isWindows())',
+         'pve.guest.mac || ((auto.network.mac_address =~ "^[bB][cC]:24:11" || pve.guest.mac_prefix) && ' +
+         '(isLinux() || isWindows()))',
      "the guest ERI PropertySource AppliesTo is ${guestEriDefn.appliesTo}")
 // Always on: labelling a guest correctly is not something an end user should opt into.
 note('addERI-guest', !guestEriDefn.containsKey('optional'),
@@ -852,20 +853,18 @@ note('addERI-guest', !guestEriDefn.containsKey('optional'),
 
 // Never optional: an ERI module cannot be turned off cleanly, because keys it stamped stay in
 // predef.externalResourceID after it stops applying, and the portal refuses to delete them
-// (DESIGN section 7). addERI_Proxmox_VE finds a node by the token, by pve.topology.node, or
+// (DESIGN section 7). addERI_Proxmox_VE_Node finds a node by the token, by pve.topology.node, or
 // by a Proxmox kernel in system.sysinfo; an LXC guest reports its host's kernel, so the
 // guest MAC prefix and its override keep containers out.
-def topoDefn = new JsonSlurper().parse(new File(ROOT, 'modules/Proxmox_VE_Topology.json'))
-def eriDefn = new JsonSlurper().parse(new File(ROOT, 'modules/addERI_Proxmox_VE.json'))
+def topoDefn = new JsonSlurper().parse(new File(ROOT, 'modules/Proxmox_VE_Cluster_Topology.json'))
+def eriDefn = new JsonSlurper().parse(new File(ROOT, 'modules/addERI_Proxmox_VE_Node.json'))
 [topoDefn, eriDefn].each { defn ->
     note('topology-never-optional', !defn.containsKey('optional'),
          "${defn.name} is marked optional")
 }
-note('topology-applies-to', topoDefn.appliesTo == 'hasCategory("ProxmoxVE")',
+note('topology-applies-to', topoDefn.appliesTo == 'pve.cluster.role == "active" || pve.cluster.role == "standby"',
      "the TopologySource AppliesTo is ${topoDefn.appliesTo}")
-note('topology-applies-to', eriDefn.appliesTo ==
-         'hasCategory("ProxmoxVE") || pve.topology.node || (system.sysinfo =~ "-pve" && ' +
-         '!(auto.network.mac_address =~ "^[bB][cC]:24:11") && !pve.guest.mac_prefix)',
+note('topology-applies-to', eriDefn.appliesTo == 'hasCategory("ProxmoxVE_Node")',
      "the node ERI PropertySource AppliesTo is ${eriDefn.appliesTo}")
 
 // ------------------------------------------------------------------- Backups
@@ -874,8 +873,8 @@ note('topology-applies-to', eriDefn.appliesTo ==
 // backups and failures come from vzdump run logs, read newest first until every job guest
 // has a success, and matched to a job by the run's --storage.
 
-def backupsAd = new File(scriptsDir, 'Proxmox_VE_Backups.ad.groovy')
-def backupsCollect = new File(scriptsDir, 'Proxmox_VE_Backups.collect.groovy')
+def backupsAd = new File(scriptsDir, 'Proxmox_VE_Cluster_Backups.ad.groovy')
+def backupsCollect = new File(scriptsDir, 'Proxmox_VE_Cluster_Backups.collect.groovy')
 def backupLog = { int n -> String.format('/nodes/pve1/tasks/UPID:pve1:0000%04X:00F00D00:6AD0%04X:vzdump::root@pam:/log?start=0&limit=1000', n, n) }
 def parseBatch = { String stdout ->
     def data = [:].withDefault { [:] }
@@ -993,17 +992,17 @@ def adRows = { String module ->
         .collect { AD_LINE.matcher(it) }.findAll { it.matches() }
         .collect { [name: it.group(2), description: it.group(3)] }
 }
-def storageNames = adRows('Proxmox_VE_StorageCapacity')*.name
+def storageNames = adRows('Proxmox_VE_Cluster_StorageCapacity')*.name
 note('sizes', storageNames.contains('local on pve1 (107 GB)') && storageNames.contains('ceph-vm on pve1 (11.0 TB)') &&
               storageNames.contains('backup.nfs on pve2'),
      "storage names were ${storageNames}")
-def osdNames = adRows('Proxmox_VE_CephOSD')*.name
+def osdNames = adRows('Proxmox_VE_Cluster_CephOSD')*.name
 // An OSD whose tree entry reports no size keeps its bare name.
 note('sizes', osdNames.count { it ==~ /osd\.\d+ \(4\.0 TB\)/ } == 2 && osdNames.contains('osd.2'), "OSD names were ${osdNames}")
-def guestDescriptions = adRows('Proxmox_VE_GuestStatus')*.description
+def guestDescriptions = adRows('Proxmox_VE_Cluster_GuestStatus')*.description
 note('sizes', guestDescriptions.any { it.endsWith(', root disk 54 GB') } && guestDescriptions.any { it.endsWith(', root disk 8.6 GB') },
      "guest descriptions were ${guestDescriptions}")
-def nodeDescriptions = adRows('Proxmox_VE_NodeDetail')*.description + adRows('Proxmox_VE_Nodes')*.description
+def nodeDescriptions = adRows('Proxmox_VE_Node_Detail')*.description + adRows('Proxmox_VE_Cluster_Nodes')*.description
 note('sizes', nodeDescriptions.count { it.endsWith('pve1, root filesystem 101 GB') } == 2 &&
               nodeDescriptions.any { it.endsWith('pve2') },
      "node descriptions were ${nodeDescriptions}")
@@ -1013,7 +1012,7 @@ note('sizes', nodeDescriptions.count { it.endsWith('pve1, root filesystem 101 GB
 // Running migrations from /cluster/tasks; finished ones from each online node's vzmigrate and
 // qmigrate history over the last hour. Times are relative to now, so they are built here.
 
-def clusterCollect = new File(scriptsDir, 'Proxmox_VE_Cluster.collect.groovy')
+def clusterCollect = new File(scriptsDir, 'Proxmox_VE_Cluster_Status.collect.groovy')
 long nowSec = System.currentTimeMillis().intdiv(1000L)
 def migTask = { String type, String id, long ago, String status ->
     def task = [upid: "UPID:pve1:00000000:00000000:00000000:${type}:${id}:root@pam:".toString(), node: 'pve1',
@@ -1055,7 +1054,7 @@ note('migrations', migPartial.exit == 0 && partialData.MigrationsRunning == 1 &&
      "an unread history reported ${partialData}")
 
 // Guest Status: Migrating follows Proxmox's migrate lock, and only that lock.
-def statusCollect = new File(scriptsDir, 'Proxmox_VE_GuestStatus.collect.groovy')
+def statusCollect = new File(scriptsDir, 'Proxmox_VE_Cluster_GuestStatus.collect.groovy')
 def migratingVms = fixtures['/cluster/resources?type=vm'].collect { guest ->
     guest.vmid == 101 ? guest + [lock: 'migrate'] : guest
 }
@@ -1076,7 +1075,7 @@ note('call-efficiency', !requested.any { it.contains('rrddata') },
 // One instance per guest. Proxmox's "current" entry is never counted, ages are relative to
 // now, RAM snapshots are VM-only, and one unreadable list stops that node's reads this run.
 
-def snapCollect = new File(scriptsDir, 'Proxmox_VE_Snapshots.collect.groovy')
+def snapCollect = new File(scriptsDir, 'Proxmox_VE_Cluster_Snapshots.collect.groovy')
 long snapNow = System.currentTimeMillis().intdiv(1000L)
 def snapCurrent = [description: 'You are here!', digest: 'abc', name: 'current', running: 1]
 def snapAt = { String name, double daysAgo, Integer vmstate = null ->

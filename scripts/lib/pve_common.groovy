@@ -194,7 +194,7 @@ def pveTopoFold = { List parts ->
  * The synthesised topology key for a Proxmox vertex, used for the cluster and for every
  * node. Proxmox exposes no hardware identifier for a node anywhere in its API, so the node
  * vertex cannot be matched on something it already has the way a guest is matched on its
- * MAC. addERI_Proxmox_VE stamps the identical key on the node's own resource, and this is
+ * MAC. addERI_Proxmox_VE_Node stamps the identical key on the node's own resource, and this is
  * the only place its shape is defined -- change it here and there together or the two stop
  * matching, which shows up as a map full of vertices that resolve to nothing.
  */
@@ -206,9 +206,7 @@ def pveTopoKey = { String cluster, String node ->
 /*
  * Which node, and for pveTopoNodeIdentity which cluster, a resource stands for, read from
  * its properties alone -- for a node resource that carries no API token, and so cannot
- * ask /cluster/status. Giving every node the token would make every DataSource collect
- * the whole cluster once per node, which is the duplication docs/INSTALL.md 4.1 warns
- * against.
+ * ask /cluster/status.
  *
  * The node name is pve.topology.node when set to a name, and otherwise the short form of
  * system.sysname or system.hostname: Proxmox requires a node's name to be its hostname,
@@ -243,7 +241,7 @@ def pveTopoNodeIdentity = { ->
  * One address in the form both sides of the node IP key agree on, or null.
  *
  * The TopologySource reads a node's address from /cluster/status, which may write IPv6
- * compressed (fd00::12); addERI_Proxmox_VE reads system.ips, where LogicMonitor writes it
+ * compressed (fd00::12); addERI_Proxmox_VE_Node reads system.ips, where LogicMonitor writes it
  * in full (fd00:0:0:0:0:0:0:12). InetAddress settles both to the full form. It is handed
  * only a literal: given anything else Java resolves it as a hostname, and a PropertySource
  * that runs on every opted-in resource must not make DNS lookups. A dotted quad is checked
@@ -318,7 +316,7 @@ def pveGuestMac = { config ->
 
 /*
  * Whether a resource's MAC is one Proxmox itself assigned to a guest. This is what the
- * label PropertySource, addERI_Proxmox_VE_Guest, matches with; the topology edges and
+ * label PropertySource, addERI_Proxmox_VE_GuestResource, matches with; the topology edges and
  * GuestStatus's instance ERIs read the MAC from the guest config and do not use it.
  * Proxmox generates guest MACs under BC:24:11 by default. A guest with a hand-set MAC (a
  * passed-through or migrated NIC) is somebody else's hardware identity and must not be
@@ -414,7 +412,7 @@ def pvePercent = { used, total ->
 }
 
 /*
- * The instances Proxmox_VE_Backups discovers and collects: one per guest per backup job,
+ * The instances Proxmox_VE_Cluster_Backups discovers and collects: one per guest per backup job,
  * and one per guest no job covers. Discovery and collection both build them here, so the
  * two always agree on the wildvalues.
  *

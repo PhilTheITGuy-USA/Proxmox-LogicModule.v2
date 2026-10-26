@@ -1,0 +1,10 @@
+{
+  "name": "Proxmox_VE_Info",
+  "moduleType": "propertysource",
+  "description": "Reads the Proxmox VE version, release and cluster membership of a cluster or node resource. Sets no category.",
+  "group": "Proxmox VE",
+  "appliesTo": "hasCategory(\"ProxmoxVE_Cluster\") || hasCategory(\"ProxmoxVE_Node\")",
+  "searchKeywords": "proxmox,pve,category,discovery,groovy4",
+  "collectScript": "Proxmox_VE_Info.groovy",
+  "technicalNotes": "Applies to resources that carry ProxmoxVE_Cluster or ProxmoxVE_Node, the categories the NetScan (or a user adding a resource by hand) sets. It sets no category itself, and calls /version and /cluster/status with the configured token.\n\nIt sets auto.pve.version, auto.pve.release where present, auto.pve.clustered and auto.pve.cluster.name. The script prints the keys without the auto. prefix; LogicMonitor adds it to every property a PropertySource sets, so an AppliesTo must use the auto. names.\n\nSilent -- exit 0, no output -- when the token is missing or the API does not answer, so a resource that cannot be read gets no stale facts.\n\nUnlike addERI_Proxmox_VE_Node this is a plain PropertySource: no propertySourceType and no collectionInterval, matching a published addCategory_* export. It uses no Collector-only classes, so it compiles and runs in the test harness like the DataSources."
+}

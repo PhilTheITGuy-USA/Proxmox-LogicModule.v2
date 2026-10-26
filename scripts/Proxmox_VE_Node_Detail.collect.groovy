@@ -1,6 +1,6 @@
 /*
  * Script collection (per node instance): the node metrics that /cluster/resources omits.
- * CPU count, memory and uptime are in that bulk call, so Proxmox_VE_Nodes reports them.
+ * CPU count, memory and uptime are in that bulk call, so Proxmox_VE_Cluster_Nodes reports them.
  *
  * This is the one module in the Tier 1 set that cannot be a BatchScript, because
  * loadavg / swap / rootfs are only exposed per node at /nodes/{node}/status. Node counts

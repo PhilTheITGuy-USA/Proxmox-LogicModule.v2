@@ -1,10 +1,10 @@
 /*
  * Active Discovery: QEMU virtual machines and LXC containers, cluster-wide, for
- * Proxmox_VE_GuestStatus alone. Same instances and wildvalues as Proxmox_VE_Guests.ad,
+ * Proxmox_VE_Cluster_GuestStatus alone. Same instances and wildvalues as Proxmox_VE_Cluster_Guests.ad,
  * which GuestPerformance uses, so a guest's status and performance instances match.
  *
  * What it adds: each guest's instance carries the key
- * Proxmox_VE_Topology draws that guest under, so the map can resolve every guest to an
+ * Proxmox_VE_Cluster_Topology draws that guest under, so the map can resolve every guest to an
  * instance -- including guests with no LogicMonitor resource of their own. The key is the
  * MAC of the first virtual NIC, or for a guest with no NIC the same pveTopoKey fallback
  * the TopologySource emits. Only this module carries it, as only VMware's status module

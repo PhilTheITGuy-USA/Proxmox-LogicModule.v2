@@ -1,7 +1,7 @@
 /*
  * Active Discovery: online nodes.
  *
- * Distinct from Proxmox_VE_Nodes.ad.groovy, which discovers every node including offline
+ * Distinct from Proxmox_VE_Cluster_Nodes.ad.groovy, which discovers every node including offline
  * ones so their down state can be alerted on. This body is for modules that reach into a
  * node's own API: an offline node cannot answer, and an instance that can never collect is
  * worse than no instance. Instances already discovered survive a node going offline,

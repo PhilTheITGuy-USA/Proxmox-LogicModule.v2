@@ -1,6 +1,6 @@
 /*
  * BatchScript collection: node headline metrics, cluster-wide, in one API call.
- * Load average, swap and root filesystem live in Proxmox_VE_NodeDetail because they
+ * Load average, swap and root filesystem live in Proxmox_VE_Node_Detail because they
  * require a per-node call that /cluster/resources cannot serve.
  */
 if (pveConfigError) {

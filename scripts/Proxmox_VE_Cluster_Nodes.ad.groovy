@@ -1,6 +1,6 @@
 /*
  * Active Discovery: Proxmox VE cluster nodes.
- * Used by Proxmox_VE_Nodes only. Modules that call a node's own API discover through
+ * Used by Proxmox_VE_Cluster_Nodes only. Modules that call a node's own API discover through
  * Proxmox_VE_OnlineNodes.ad.groovy instead.
  */
 if (pveConfigError) {

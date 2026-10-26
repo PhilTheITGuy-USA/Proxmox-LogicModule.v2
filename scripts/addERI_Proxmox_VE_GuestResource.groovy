@@ -26,7 +26,7 @@
  * resource it applies to. It makes no API call at all.
  *
  * The match itself is pveGuestMacMatch in the preamble, so the harness can test it: this
- * script, like addERI_Proxmox_VE, imports Collector-only classes and cannot run there.
+ * script, like addERI_Proxmox_VE_Node, imports Collector-only classes and cannot run there.
  *
  * Silent on no match and on any failure: the AppliesTo is deliberately broad where
  * pve.guest.mac_prefix is set on a group, and a PropertySource that prints on a resource

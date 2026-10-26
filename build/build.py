@@ -295,10 +295,61 @@ def check_field_lengths(path: Path, defn: dict) -> list[str]:
             if isinstance(value, str) and len(value) > MAX_FIELD_CHARS]
 
 
+# v2 resource roles (spec A§3.1, A§3.2). Every module applies by the role of the resource it
+# runs on, and nothing applies by v1's category or token: a module that did would run on v1's
+# resources, and v1's addCategory_Proxmox_VE tags any resource holding v1's token property.
+APPLIES_TO = {
+    "cluster": 'pve.cluster.role == "active" || pve.cluster.role == "standby"',
+    "node": 'hasCategory("ProxmoxVE_Node") && pve.netscan.reachable != "false"',
+    "info": 'hasCategory("ProxmoxVE_Cluster") || hasCategory("ProxmoxVE_Node")',
+    "eri_node": 'hasCategory("ProxmoxVE_Node")',
+    "eri_guest": ('pve.guest.mac || ((auto.network.mac_address =~ "^[bB][cC]:24:11" || '
+                  'pve.guest.mac_prefix) && (isLinux() || isWindows()))'),
+}
+APPLIES_TO_BY_NAME = {
+    "Proxmox_VE_Info": "info",
+    "addERI_Proxmox_VE_Node": "eri_node",
+    "addERI_Proxmox_VE_GuestResource": "eri_guest",
+}
+V1_TOKEN = "pve.api.token.credential"
+
+
+def check_appliesto(path: Path, defn: dict) -> list[str]:
+    name = defn.get("name", "")
+    if name.startswith("Proxmox_VE_Cluster_"):
+        role = "cluster"
+    elif name.startswith("Proxmox_VE_Node_"):
+        role = "node"
+    else:
+        role = APPLIES_TO_BY_NAME.get(name)
+    if role is None:
+        return [f"{path.name}: {name!r} is not a v2 module name (Proxmox_VE_Cluster_*, "
+                f"Proxmox_VE_Node_*, or one of {sorted(APPLIES_TO_BY_NAME)})"]
+    if defn.get("appliesTo") != APPLIES_TO[role]:
+        return [f"{path.name}: appliesTo must be the {role} selector {APPLIES_TO[role]!r}, "
+                f"not {defn.get('appliesTo')!r}"]
+    return []
+
+
+def check_v1_names(path: Path, defn: dict) -> list[str]:
+    problems = []
+    applies = defn.get("appliesTo", "")
+    if '"ProxmoxVE")' in applies or V1_TOKEN in applies:
+        problems.append(f"{path.name}: appliesTo uses v1's category or token property")
+    for key in ("collectScript", "discoveryScript"):
+        script = SCRIPTS / defn[key] if key in defn else None
+        if script and script.exists() and V1_TOKEN in read(script):
+            problems.append(f"{script.name}: reads v1's token property {V1_TOKEN}")
+    return problems
+
+
 def check_definition(path: Path, defn: dict) -> list[str]:
     too_long = check_field_lengths(path, defn)
     if too_long:
         return too_long
+    role_problems = check_appliesto(path, defn) + check_v1_names(path, defn)
+    if role_problems:
+        return role_problems
     kind = module_type(defn)
     if kind not in (DATASOURCE, TOPOLOGYSOURCE, PROPERTYSOURCE):
         return [f"{path.name}: unknown moduleType {kind!r}"]

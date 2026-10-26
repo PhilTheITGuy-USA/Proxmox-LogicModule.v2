@@ -18,7 +18,7 @@
  *   node   -- Proxmox exposes no hardware UUID or MAC for a node anywhere in its API
  *             (/cluster/status gives name, ip, nodeid; /nodes/{node}/status gives none;
  *             /nodes/{node}/network has no hwaddr). So the node keys are synthesised,
- *             and addERI_Proxmox_VE stamps the identical keys on each node's own
+ *             and addERI_Proxmox_VE_Node stamps the identical keys on each node's own
  *             resource. The vertex carries one: pveTopoNodeKey(node, ip), which needs only
  *             the node's name and the address /cluster/status reports for it -- among
  *             the resource's system.ips, so a token-less node matches with no property
@@ -27,7 +27,7 @@
  *             then matches only a resource carrying all of them. A node whose resource
  *             lacks the key is not drawn: the portal
  *             renders only vertices that match a resource or a DataSource instance.
- *   cluster - synthesised, pveTopoKey(cluster, null). Proxmox_VE_Cluster's one instance
+ *   cluster - synthesised, pveTopoKey(cluster, null). Proxmox_VE_Cluster_Status's one instance
  *             carries the same key as type Cluster, and an instance
  *             vertex takes edges from every matched node, so the cluster is drawn above all
  *             its nodes. A standalone host has no
@@ -43,7 +43,7 @@ if (pveConfigError) {
 
 def debug = false
 def log = false
-def logCacheContext = 'Proxmox_VE_Topology'
+def logCacheContext = 'Proxmox_VE_Cluster_Topology'
 
 // Namespacing and the key blacklist are host properties LogicMonitor's own topology
 // scripts honour; a portal with duplicate keys across environments relies on them.

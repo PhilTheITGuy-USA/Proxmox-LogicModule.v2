@@ -1,5 +1,5 @@
 /*
- * Active Discovery: backup jobs and their guests, for Proxmox_VE_Backups.
+ * Active Discovery: backup jobs and their guests, for Proxmox_VE_Cluster_Backups.
  *
  * One instance per guest per job, grouped by job: auto.pve_backup_job is the job's comment,
  * or its id when it has none. A guest in two jobs has an instance under each. Guests that

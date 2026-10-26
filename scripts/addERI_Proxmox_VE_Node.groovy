@@ -1,6 +1,6 @@
 /*
  * ERI PropertySource: give a Proxmox node's own resource an ERI key that
- * Proxmox_VE_Topology can construct independently, so a node vertex on the map resolves to
+ * Proxmox_VE_Cluster_Topology can construct independently, so a node vertex on the map resolves to
  * the real resource rather than floating unattached.
  *
  * Why this module has to exist. LogicMonitor matches topology vertices on ERI keys, and a
@@ -13,7 +13,7 @@
  * ESXi host's hardware UUID, which addERI_Vcenter puts on the host's resource.
  *
  * So the key is synthesised on both sides, and pveTopoKey in the preamble is its single
- * definition -- this script and Proxmox_VE_Topology both call it, which is what keeps them
+ * definition -- this script and Proxmox_VE_Cluster_Topology both call it, which is what keeps them
  * from drifting apart. They must produce byte-identical keys or every node vertex silently
  * stops matching its resource.
  *
@@ -41,7 +41,7 @@
  * so build.py emits this outside dist/scripts/ where the compile job cannot reach it, and
  * the harness asserts pveTopoKey instead.
  *
- * Silence on any failure, exactly like addCategory_Proxmox_VE: this runs against hosts that
+ * Silence on any failure, exactly like Proxmox_VE_Info: this runs against hosts that
  * may not be Proxmox at all, and a PropertySource that prints on a host it does not
  * understand corrupts that resource's properties.
  */

@@ -1,7 +1,7 @@
 /*
  * Active Discovery: QEMU virtual machines and LXC containers, cluster-wide.
- * Used by Proxmox_VE_GuestPerformance and Proxmox_VE_Snapshots. Proxmox_VE_GuestStatus has its own discovery
- * (Proxmox_VE_GuestStatus.ad) and shares only the preamble helpers, pveGuestList and
+ * Used by Proxmox_VE_Cluster_GuestPerformance and Proxmox_VE_Cluster_Snapshots. Proxmox_VE_Cluster_GuestStatus has its own discovery
+ * (Proxmox_VE_Cluster_GuestStatus.ad) and shares only the preamble helpers, pveGuestList and
  * pveGuestDiscover, so both modules still discover the same instances.
  */
 if (pveConfigError) {

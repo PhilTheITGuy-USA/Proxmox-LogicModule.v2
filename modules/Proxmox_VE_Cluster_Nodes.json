@@ -1,17 +1,17 @@
 {
-  "name": "Proxmox_VE_Nodes",
-  "displayedAs": "Proxmox VE Nodes",
+  "name": "Proxmox_VE_Cluster_Nodes",
+  "displayedAs": "Proxmox VE Cluster Nodes",
   "description": "CPU, memory, uptime and availability for every node in a Proxmox VE cluster, collected cluster-wide in a single API call.",
   "group": "Proxmox VE",
-  "appliesTo": "hasCategory(\"ProxmoxVE\")",
+  "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
   "searchKeywords": "proxmox,pve,node,hypervisor,host,virtualization",
   "technicalNotes": "BatchScript: one /cluster/resources?type=node call per interval regardless of cluster size.\n\nInstance IDs are the Proxmox resource id (node/<name>). Load average, swap and root filesystem are not available from this endpoint and are collected by Proxmox VE Node Detail.",
   "collectionMethod": "batchscript",
   "collectionInterval": "5m",
   "multiInstance": true,
   "useWildValueAsUniqueIdentifier": true,
-  "collectScript": "Proxmox_VE_Nodes.collect.groovy",
-  "discoveryScript": "Proxmox_VE_Nodes.ad.groovy",
+  "collectScript": "Proxmox_VE_Cluster_Nodes.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Cluster_Nodes.ad.groovy",
   "discoveryInterval": "60m",
   "datapoints": [
     {

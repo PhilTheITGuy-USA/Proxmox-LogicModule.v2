@@ -23,12 +23,12 @@ from dashboards import Dashboard, module_ref
 
 # Addressed as "<displayedAs> (<name>)". build.py checks each of these resolves to a
 # real module with the datapoints used below, because nothing in the portal would.
-CLUSTER = module_ref("Proxmox VE Cluster", "Proxmox_VE_Cluster")
-NODES = module_ref("Proxmox VE Nodes", "Proxmox_VE_Nodes")
-NODE_DETAIL = module_ref("Proxmox VE Node Detail", "Proxmox_VE_NodeDetail")
-GUEST_PERF = module_ref("Proxmox VE Guest Performance", "Proxmox_VE_GuestPerformance")
-GUEST_STATUS = module_ref("Proxmox VE Guest Status", "Proxmox_VE_GuestStatus")
-STORAGE = module_ref("Proxmox VE Storage Capacity", "Proxmox_VE_StorageCapacity")
+CLUSTER = module_ref("Proxmox VE Cluster Status", "Proxmox_VE_Cluster_Status")
+NODES = module_ref("Proxmox VE Cluster Nodes", "Proxmox_VE_Cluster_Nodes")
+NODE_DETAIL = module_ref("Proxmox VE Node Detail", "Proxmox_VE_Node_Detail")
+GUEST_PERF = module_ref("Proxmox VE Cluster Guest Performance", "Proxmox_VE_Cluster_GuestPerformance")
+GUEST_STATUS = module_ref("Proxmox VE Cluster Guest Status", "Proxmox_VE_Cluster_GuestStatus")
+STORAGE = module_ref("Proxmox VE Cluster Storage Capacity", "Proxmox_VE_Cluster_StorageCapacity")
 
 
 def build() -> Dashboard:

@@ -28,14 +28,14 @@ from dashboards import Dashboard, module_ref
 
 # Addressed as "<displayedAs> (<name>)". build.py checks each of these resolves to a
 # real module with the datapoints used below, because nothing in the portal would.
-CEPH = module_ref("Proxmox VE Ceph", "Proxmox_VE_Ceph")
-CEPH_OSD = module_ref("Proxmox VE Ceph OSD", "Proxmox_VE_CephOSD")
-BACKUP = module_ref("Proxmox VE Backups", "Proxmox_VE_Backups")
-CERTS = module_ref("Proxmox VE Certificates", "Proxmox_VE_Certificates")
-SERVICES = module_ref("Proxmox VE Node Services", "Proxmox_VE_NodeServices")
-DISKS = module_ref("Proxmox VE Disks", "Proxmox_VE_Disks")
-REPLICATION = module_ref("Proxmox VE Replication", "Proxmox_VE_Replication")
-SUBSCRIPTION = module_ref("Proxmox VE Subscription", "Proxmox_VE_Subscription")
+CEPH = module_ref("Proxmox VE Cluster Ceph", "Proxmox_VE_Cluster_Ceph")
+CEPH_OSD = module_ref("Proxmox VE Cluster Ceph OSD", "Proxmox_VE_Cluster_CephOSD")
+BACKUP = module_ref("Proxmox VE Cluster Backups", "Proxmox_VE_Cluster_Backups")
+CERTS = module_ref("Proxmox VE Node Certificates", "Proxmox_VE_Node_Certificates")
+SERVICES = module_ref("Proxmox VE Node Services", "Proxmox_VE_Node_Services")
+DISKS = module_ref("Proxmox VE Node Disks", "Proxmox_VE_Node_Disks")
+REPLICATION = module_ref("Proxmox VE Node Replication", "Proxmox_VE_Node_Replication")
+SUBSCRIPTION = module_ref("Proxmox VE Node Subscription", "Proxmox_VE_Node_Subscription")
 
 
 def build() -> Dashboard:
@@ -83,7 +83,7 @@ def build() -> Dashboard:
     ], description="Totals across every guest: guests no backup job covers, guests "
                    "whose backup has failed since their last good one, and the size of "
                    "each guest's latest backup added up (Proxmox Backup Server runs log "
-                   "no size). Per guest and per job, see Proxmox VE Backups on the "
+                   "no size). Per guest and per job, see Proxmox VE Cluster Backups on the "
                    "resource holding the API token.")
 
     d.graph(4, 5, 4, 3, "Ceph Raw Utilisation",
