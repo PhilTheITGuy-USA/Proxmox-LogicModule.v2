@@ -96,7 +96,7 @@ report says why. The token only reads: the NetScan never changes a resource thro
 
 | Permission | Access | Why |
 |---|---|---|
-| Resources | **View**, on all resource groups | A duplicate can be in any group, for example a guest someone added over SNMP elsewhere. A role that sees only some groups misses those and lets the NetScan add a second resource |
+| Resources | **View**, on all resource groups *(not yet verified as sufficient)* | A duplicate can be in any group, for example a guest someone added over SNMP elsewhere. A role that sees only some groups misses those and lets the NetScan add a second resource |
 | Everything else | None | Not used |
 
 1. In LogicMonitor, navigate to **Settings > Users and Roles > Roles**, select **Add**, name the
@@ -107,7 +107,8 @@ report says why. The token only reads: the NetScan never changes a resource thro
 3. Open the user, select **API Tokens > Add**, and choose an **LMv1** token.
 4. Copy the **Access ID** and the **Access Key**. The key is shown only once.
 5. Enter them in the NetScan's custom credentials (step 7 below) as `lmaccess.id` and
-   `lmaccess.key`. Check that the NetScan screen masks the key after saving.
+   `lmaccess.key` *(property names not yet verified)*. Check that the NetScan screen masks the
+   key after saving.
 
 **Note:** One token can serve every Proxmox NetScan in the portal.
 
