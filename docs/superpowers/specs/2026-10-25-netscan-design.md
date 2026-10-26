@@ -41,7 +41,8 @@ each ([LM doc](https://www.logicmonitor.com/support/enhanced-script-netscan)); t
 reads them through `netscanProps` [S2]. That screen masks a `.credential` value [S2, user
 2026-10-25]. The same section offers "Inherit credentials from Device / Device Group"; whether
 inherited properties reach `netscanProps`, which would let an install reuse a token already on a
-resource, is [unverified, S2].
+resource, is [unverified]; S2 saw at least one property the user never entered (`netapp.ssl`)
+arrive, so some properties from outside the NetScan do.
 
 | Property | Default | Meaning |
 |---|---|---|
@@ -51,16 +52,17 @@ resource, is [unverified, S2].
 | `pve.api.concurrency` | `2` | requests in flight per node in an O(guests) loop (main spec §3.9 rule 4); copied with the token so the modules use the same bound |
 | `pve.netscan.cluster.address` | the host part of `pve.api.url` | the cluster's own address (VIP, proxy, DNS name), when it is not the API address. It decides §5.1's case |
 | `pve.netscan.rootFolder` | `Proxmox VE` | the root group of §4 |
-| `pve.netscan.nodes` | `true` | create node resources. `false` leaves only the cluster resource |
+| `pve.netscan.nodes` | `true` | create every node resource. `false` creates only the cluster role's resources (§5.1): the cluster resource and its standby node, or the two role nodes (user, 2026-10-25, spec review) |
 | `pve.netscan.node.hostname` | **`ip`** (Q9, user 2026-10-25) | a node resource's hostname: `ip` (its `/cluster/status` address) or `name` (the node name, which must resolve from the Collector) |
 | `pve.netscan.node.maxfailures` | `10` | node reachability checks (§3 step 3) that may fail in one run before the rest are skipped, as VMware's `esx.maxloginfailures` [vmware] |
 | `pve.netscan.guests` | `false` | create guest resources. Off by default: each is 1 HU (main spec §3.7) |
 | `pve.netscan.guests.filter.pool`, `.tag`, `.node`, `.vmid`, `.type`, `.status` | none | comma-separated allow-lists; a guest must pass every one that is set. `.vmid` takes ranges (`100-199`), `.type` is `qemu` / `lxc`, `.status` is `running` / `stopped` |
+| `pve.netscan.guests.unaddressed` | `false` | `true` also creates selected guests the run found no address for, with their name as hostname; they do not answer ping, so LogicMonitor shows them dead (§5.3) (user, 2026-10-25, spec review) |
 | `pve.netscan.guests.groupBy` | `pool` | `pool` groups guests under `Guests/Pool - <pool>`; `none` keeps them flat. Never by node (§4) |
 | `skip.device.dedupe` | `false` | VMware's name and meaning [vmware]: `true` turns §6 off |
 | `hostname.source` | empty | VMware's name and meaning [vmware], §6: empty skips and reports a collision, `lm` adopts the existing device, `netscan` renames the new one |
 | `lmapi.timelimit.sec` | `60` | VMware's [vmware]: above this estimate, §6 queries the portal one device at a time |
-| LogicMonitor API credentials | none | read by the `lm.api` snippet itself from the NetScan's properties [vmware]; their property names are LogicMonitor's (`lmaccess.id` / `lmaccess.key` in its documentation), confirmed in S2 |
+| LogicMonitor API credentials | none | read by the `lm.api` snippet itself from the NetScan's properties [vmware]; their property names are LogicMonitor's (`lmaccess.id` / `lmaccess.key` in its documentation) [unverified]. They do not arrive unless entered [S2] |
 
 **The LogicMonitor-side properties keep VMware's names** so that anyone who has run the vSphere
 NetScan already knows them. **Filters are properties the script reads,** so the harness can test
@@ -78,7 +80,11 @@ them; whether the NetScan UI's own filter rows also apply is [unverified, S2].
 3. **Node reachability:** for each online node, `GET /nodes/<name>/status` **sent to that node's
    own hostname** (§5.2), with the token: the one thing the node modules need that the API
    address cannot prove. O(nodes), like VMware's per-host login [vmware], capped by
-   `pve.netscan.node.maxfailures`.
+   `pve.netscan.node.maxfailures`. **And a ping** to the same hostname, and to the cluster address
+   if there is one (user, 2026-10-25, spec review): a resource that does not answer ping is dead in LogicMonitor whatever
+   its modules collect (main spec §3.1). A failure is written to `pve.netscan.status` and the run's
+   output; it does not stop the resource being written. The ping is `InetAddress.isReachable`, a
+   real ICMP echo only with the privilege for one [inferred], so it is a hint, not proof.
 4. **Guests, only if `pve.netscan.guests`:** filter (§2), drop templates [v1], then for each
    remaining guest read its `config` (MAC, static address) and, where §5.3 says so, its live
    address. O(selected guests).
@@ -168,8 +174,9 @@ needs its place on the map and its down state):
   need nothing else. The active and standby nodes of §5.1 add `ProxmoxVE_Cluster`.
 - **Properties:** the token set of §2, `pve.cluster`, `pve.node` = the node name (so no module has
   to infer it, and `pveTopoNodeName` has its answer [v1]), `pve.serial` =
-  `<cluster>::node::<name>`, and **`pve.netscan.reachable`** = `true` / `false` from step 3, with
-  `pve.netscan.status` carrying the reason when `false`.
+  `<cluster>::node::<name>`, and **`pve.netscan.reachable`** = `true` / `false` from step 3's API
+  check, with `pve.netscan.status` carrying the reason when `false`, and a failed ping from step 3
+  whatever `pve.netscan.reachable` says.
 - **The node API modules apply only where `pve.netscan.reachable` is not `false`.** A node the
   Collector cannot reach keeps its resource, its ERI and its place on the map, and raises no
   collection errors; the next run that reaches it switches them on. VMware instead adds such a host
@@ -198,7 +205,10 @@ needs its place on the map and its down state):
   2. a static address in the config (a container's `ip=` on `net0`, a VM's cloud-init
      `ipconfig0`). Only containers have one in the lab; the VM has none, and a DHCP container has
      neither [S6];
-  3. the guest's name, as VMware falls back to the display name [vmware].
+  3. none: **the guest is not created** and the run reports it (user, 2026-10-25, spec review). Its name, VMware's fallback
+     [vmware], does not answer ping, so the resource would be dead from the start, as
+     `Migration-Test` was [S2]. `pve.netscan.guests.unaddressed=true` creates it anyway, with its
+     name as hostname.
 - **Display name:** the guest name; if two selected guests share one, ` (<vmid>)` is appended to
   both, every run, so the pair's names do not depend on which was seen first.
 - **Categories:** `ProxmoxVE_Guest`.
@@ -300,24 +310,26 @@ and only the snippet calls are Collector-only.
   §3, call `lm.api` and `lm.emit`. Built to `dist/netscan/`, outside `groovyc` and the harness, as
   v1 does for its Collector-only scripts [v1].
 - **A build cross-check,** in the spirit of v1's dashboard check: every category and property the
-  plan writes that an AppliesTo reads (`ProxmoxVE_Cluster`, `ProxmoxVE_Node`, `ProxmoxVE_Guest`,
-  `pve.netscan.reachable`, `pve.api.hosts`) must match the module definitions.
-- **`lm_lint_module.py` does not cover a NetScan;** it is not a LogicModule. The skill gets a
-  reference note on the Enhanced Script NetScan contract (§2's binding, §3 step 7's output, §6's
-  dedupe semantics) and, once S2 has run, a check.
+  plan writes that an AppliesTo or the preamble's role check reads (`ProxmoxVE_Cluster`,
+  `ProxmoxVE_Node`, `ProxmoxVE_Guest`, `pve.netscan.reachable`, `pve.api.hosts`,
+  `pve.cluster.role`, `pve.cluster.active`) must match the module definitions and the preamble.
+- **`lm_lint_module.py` does not cover a NetScan;** it is not a LogicModule. The skill's
+  `suite-design.md` §11 now carries what S2 showed of the Enhanced Script NetScan; a lint check
+  waits until the script exists to check.
 
-**Installing it:** Resources → Add → Advanced NetScan → Enhanced Script NetScan, paste the built
-script, set §2's properties, schedule hourly; one per cluster.
+**Installing it:** Settings → NetScans → Add → Add Advanced NetScan, Discovery Method *Enhanced
+Script NetScan*, §2's properties as custom credentials, the built script embedded, schedule
+hourly; one per cluster ([LM doc](https://www.logicmonitor.com/support/enhanced-script-netscan)).
 
 ## 10. Spikes, run together with the user
 
-Each is a throwaway against the lab cluster `Labcluster`, with its output deleted afterwards. Run
-order: S6 (done), then S2 from the Collector debug console (§2), then S2/S3/S5 as a real
-NetScan into a test group.
+Each is a throwaway against the lab cluster `Labcluster`, with its output deleted afterwards. S6
+and S2 are done; S3, S5 (and the architecture spec's S7) run before the plan; S8 needs the built
+cluster modules, so it runs during implementation.
 
 | Spike | Settles | Method |
 |---|---|---|
-| S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group. **In progress 2026-10-25.** The script ran first in a Groovy 4 / JDK 17 container against the lab (18 calls, 0.9 s without reverse DNS), then in the portal as dry runs: properties entered as custom credentials, the token masked; every emitted entry listed, unresolvable hostnames (`Labcluster`, `Migration-Test`) included; LogicMonitor's duplicate-IP exclusion held back every entry whose IP matched an existing resource, both v1 nodes included (§6). The dry-run screen gives counts (Scanned / Found / Added), not per-device labels. The spike's resources carry no token, so v1 cannot apply to them. **The real run** (filter `104,106,107`, nodes on, reverse DNS off): "Scanned 6, Found 6, Added 3", as predicted: `Labcluster`, `Webapp01` (`192.0.2.200`) and `Migration-Test` created; `.44`, `.51`, `.211` excluded as duplicates. The run record fills in over a minute or two, duplicates first. The NetScan **creates the group path** (`Proxmox VE v2 spike/Cluster - Labcluster/Guests`). On the Collector: 20 calls in 700 ms; medians config 15 ms, container interfaces 36 ms, VM agent 189 ms, node status 11–42 ms, so ~50 ms per container and ~205 ms per VM in a row. `netscanProps` carried every custom property and also `netapp.ssl`, which the user did not enter, so properties from outside the NetScan reach it; no `lmaccess.*` arrived on its own. **`Labcluster` was dead,** and nothing revived it: a script DataSource (`S2_KeepAlive`), `PingMulti-` at 0% loss to both nodes, or a loopback hostname, which instead drew the Collector's and Hyper-V's modules (main spec §3.1). A resource deleted and re-added by the NetScan came back with its old properties until it was also purged from **Recently Deleted**. Still open: the UI filter rows, credential inheritance, timeouts |
+| S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group. **Done 2026-10-25, except the items still open at the end.** The script ran first in a Groovy 4 / JDK 17 container against the lab (18 calls, 0.9 s without reverse DNS), then in the portal as dry runs: properties entered as custom credentials, the token masked; every emitted entry listed, unresolvable hostnames (`Labcluster`, `Migration-Test`) included; LogicMonitor's duplicate-IP exclusion held back every entry whose IP matched an existing resource, both v1 nodes included (§6). The dry-run screen gives counts (Scanned / Found / Added), not per-device labels. The spike's resources carry no token, so v1 cannot apply to them. **The real run** (filter `104,106,107`, nodes on, reverse DNS off): "Scanned 6, Found 6, Added 3", as predicted: `Labcluster`, `Webapp01` (`192.0.2.200`) and `Migration-Test` created; `.44`, `.51`, `.211` excluded as duplicates. The run record fills in over a minute or two, duplicates first. The NetScan **creates the group path** (`Proxmox VE v2 spike/Cluster - Labcluster/Guests`). On the Collector: 20 calls in 700 ms; medians config 15 ms, container interfaces 36 ms, VM agent 189 ms, node status 11–42 ms, so ~50 ms per container and ~205 ms per VM in a row. `netscanProps` carried every custom property and also `netapp.ssl`, which the user did not enter, so properties from outside the NetScan reach it; no `lmaccess.*` arrived on its own. **`Labcluster` was dead,** and nothing revived it: a script DataSource (`S2_KeepAlive`), `PingMulti-` at 0% loss to both nodes, or a loopback hostname, which instead drew the Collector's and Hyper-V's modules (main spec §3.1). A resource deleted and re-added by the NetScan came back with its old properties until it was also purged from **Recently Deleted**. Still open: the UI filter rows, credential inheritance, timeouts |
 | S8 | the standby of §5.1: takeover when the active resource is shut down; whether the standby's open alerts clear when it goes quiet; the map during the hour after a takeover (main spec §3.4) | the built cluster modules on the lab's two nodes; shut the active node down, raise an alert on the standby, start the active node again |
 | S3 | adopting a device the NetScan did not create; `system.categories` merge or replace; a portal lookup by MAC | the same NetScan with `hostname.source=lm` against the existing v1 node resources and the SNMP guest `Debian-Test` |
 | S5 | a re-run rewriting properties and moving groups; what happens to a property no longer emitted | run twice, migrating a guest and changing a NetScan property between runs |
@@ -338,8 +350,10 @@ on each.
 With all 1,000 guests selected a run is about 2,000 Proxmox calls (config and address per guest).
 Its guest loop follows the main spec §3.9's rules like every O(guests) loop: each guest's reads go
 to the node it runs on, with a per-node circuit breaker, `pve.api.concurrency` in flight, and a
-time budget below the NetScan's timeout. The run time at that count is unmeasured: S2 times the
-lab's run per guest. If 1,000 guests would not finish well inside the hour, guest addresses are
+time budget below the NetScan's timeout. S2 measured ~50 ms per container and ~205 ms per VM,
+one at a time [S2]: 1,000 VMs is ~3½ minutes in a row, or ~7 s at 2 in flight on each of 16
+nodes if the guests are spread evenly [inferred]. If a cluster would still not finish well inside
+the hour, guest addresses are
 cached between runs through `lm.cache` (as the vSphere script caches its own lookups [vmware]) and
 refreshed for a share of the guests each run; a guest not refreshed keeps the address the previous
 run wrote, so nothing is lost.

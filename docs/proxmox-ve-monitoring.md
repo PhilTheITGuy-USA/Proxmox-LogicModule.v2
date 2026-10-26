@@ -40,6 +40,9 @@ Designed for up to 10 clusters of 16 nodes and 1,000 guests each.
 - A Collector at version 32.400 or later, which the Enhanced Script NetScan requires
 - HTTPS access from that Collector to port 8006 on **every** node, not only the API address:
   each node's modules ask that node directly
+- **Ping (ICMP) from that Collector to every node**, and to the cluster address if you use one.
+  The modules collect through the API, but LogicMonitor decides whether a resource is up from
+  ping: a node it cannot ping shows as down, and its alerts are held back
 - One Proxmox VE API token per cluster, with the permissions below
 - Optionally, an address for the cluster as a whole (see
   [Giving the Cluster One Address](#giving-the-cluster-one-address-optional))
@@ -82,7 +85,7 @@ NetScan uses it for a separate cluster resource:
 
 | Method | What it is | Notes |
 |---|---|---|
-| Virtual IP | keepalived (VRRP) on the nodes moves one IP between them | Not supported by the Proxmox team. Use a free static IP; community reports advise one outside the nodes' subnet |
+| Virtual IP | keepalived (VRRP) on the nodes moves one IP between them; it must answer ping and port 8006 | Not supported by the Proxmox team. Use a free static IP; community reports advise one outside the nodes' subnet |
 | Reverse proxy or load balancer | HAProxy, nginx or a commercial balancer in front of every node's port 8006 | Keeps extra software off the hypervisors; give it a certificate that names the proxy |
 | DNS name | a name pointing at a VIP or proxy | As for the address it points to |
 | Round-robin DNS | one name, one record per node | Works, but not recommended: LogicMonitor's ping can land on a node that is down, which flaps the cluster resource |
@@ -156,10 +159,11 @@ resource either way.
    | `pve.api.timeout` | Connect and read timeout, ms | `20000` | `10000` |
    | `pve.api.concurrency` | Requests in flight per node in per-guest loops | `4` | `2` |
    | `pve.netscan.rootFolder` | Root group name | `Datacenter East/Proxmox` | `Proxmox VE` |
-   | `pve.netscan.nodes` | `false` creates the cluster resource only | `false` | `true` |
+   | `pve.netscan.nodes` | `false` creates only the two resources that carry the cluster modules | `false` | `true` |
    | `pve.netscan.node.hostname` | `ip`: the node's cluster address; `name`: its node name, which must resolve | `name` | `ip` |
    | `pve.netscan.node.maxfailures` | Node checks that may fail in one run before the rest are skipped | `5` | `10` |
    | `pve.netscan.guests` | `true` adds guests as resources (one host unit each) | `true` | `false` |
+   | `pve.netscan.guests.unaddressed` | `true` also adds selected guests with no address the NetScan can read; they show as down | `true` | `false` |
    | `pve.netscan.guests.groupBy` | `pool` or `none` | `none` | `pool` |
    | `skip.device.dedupe` | `true` turns duplicate checking off | `true` | `false` |
    | `hostname.source` | On a duplicate: empty skips it and reports it; `lm` adopts the existing resource; `netscan` adds a second one | `lm` | empty |
@@ -198,7 +202,8 @@ address: active pve1, standby pve2".
 
 A guest resource's hostname is the guest's live IP address, read from the container's interfaces
 or the VM's guest agent on the interface that carries `net0`'s MAC address; else the static
-address in its configuration; else its name. It is never replaced by a DNS name, so that
+address in its configuration. A guest with neither is not added, and the run reports it: its name
+would not answer ping, so it would show as down. It is never replaced by a DNS name, so that
 LogicMonitor's duplicate-IP check recognises a guest you already monitor.
 
 ## Manually Assigning Properties to Resources
@@ -278,8 +283,12 @@ resources the NetScan creates.
 - **A resource you deleted comes back with its old properties:** LogicMonitor keeps deleted
   resources under Recently Deleted, and a NetScan run restores one from there. Purge it from
   Recently Deleted as well.
-- **A guest resource is named rather than addressed:** it has no address the NetScan could read.
-  The NetScan's run output names the source used for each guest.
+- **A node shows as down although its modules collect:** the Collector cannot ping it.
+  LogicMonitor judges a resource up from ping, not from API data; allow ICMP from the Collector.
+  The NetScan's output and the node's `pve.netscan.status` report a failed ping.
+- **A selected guest was not added:** the NetScan found no address for it (no live address, no
+  static one in its configuration) and its run output says so. Give the guest an address, or set
+  `pve.netscan.guests.unaddressed=true` to add it by name; it will then show as down.
 
 | User | Permissions |
 |---|---|
