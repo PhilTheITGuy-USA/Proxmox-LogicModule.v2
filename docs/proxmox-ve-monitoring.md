@@ -44,6 +44,8 @@ Designed for up to 10 clusters of 16 nodes and 1,000 guests each.
   The modules collect through the API, but LogicMonitor decides whether a resource is up from
   ping: a node it cannot ping shows as down, and its alerts are held back
 - One Proxmox VE API token per cluster, with the permissions below
+- A LogicMonitor API token for the NetScan, required for guest resources and recommended otherwise
+  (see [Creating a LogicMonitor API Token for the NetScan](#creating-a-logicmonitor-api-token-for-the-netscan))
 - Optionally, an address for the cluster as a whole (see
   [Giving the Cluster One Address](#giving-the-cluster-one-address-optional))
 
@@ -76,6 +78,38 @@ exactly its user's rights instead.
 
 The value LogicMonitor needs is the whole token string, `user@realm!tokenid=secret`, for example
 `monitor@pve!logicmonitor=<secret>`.
+
+### Creating a LogicMonitor API Token for the NetScan
+
+The NetScan reads your portal's existing resources through the LogicMonitor API. It uses that
+read to:
+
+- check whether the portal already monitors a node or guest before adding it, by display name,
+  hostname or address, so it never adds a duplicate (each duplicate costs a host unit);
+- recognise a guest it added before by its cluster and VMID (`pve.serial`), so a guest whose IP
+  address changes stays one resource instead of becoming two;
+- report resources whose node or guest no longer exists in Proxmox.
+
+**Guest resources are created only with this token.** Without it the NetScan cannot tell a new
+guest from one already monitored, so it adds nodes and the cluster role but no guests, and its
+report says why. The token only reads: the NetScan never changes a resource through it.
+
+| Permission | Access | Why |
+|---|---|---|
+| Resources | **View**, on all resource groups | A duplicate can be in any group, for example a guest someone added over SNMP elsewhere. A role that sees only some groups misses those and lets the NetScan add a second resource |
+| Everything else | None | Not used |
+
+1. In LogicMonitor, navigate to **Settings > Users and Roles > Roles**, select **Add**, name the
+   role (for example `NetScan Read`), and give it **View** on **Resources** for all resource
+   groups. Nothing else.
+2. Under **Users**, add an API-only user (for example `netscan-proxmox`) with that role. The
+   built-in **readonly** role also works, but grants more than the NetScan needs.
+3. Open the user, select **API Tokens > Add**, and choose an **LMv1** token.
+4. Copy the **Access ID** and the **Access Key**. The key is shown only once.
+5. Enter them in the NetScan's custom credentials (step 7 below) as `lmaccess.id` and
+   `lmaccess.key`. Check that the NetScan screen masks the key after saving.
+
+**Note:** One token can serve every Proxmox NetScan in the portal.
 
 ### Giving the Cluster One Address (Optional)
 
@@ -150,7 +184,8 @@ resource either way.
    |---|---|---|---|
    | `pve.api.url` | The API address of any node, a VIP or a DNS name for the cluster | `https://pve1.example.com:8006` | Yes |
    | `pve.token.credential` | The whole token string | `monitor@pve!logicmonitor=<secret>` | Yes |
-   | LogicMonitor API ID and key | For duplicate checking against existing resources; names fixed at build | — | Required with `pve.netscan.guests=true`; recommended otherwise |
+   | `lmaccess.id` | The LogicMonitor API token's Access ID (see [Creating a LogicMonitor API Token for the NetScan](#creating-a-logicmonitor-api-token-for-the-netscan)) | `a1b2c3d4e5f6` | Required with `pve.netscan.guests=true`; recommended otherwise |
+   | `lmaccess.key` | The token's Access Key | `<key>` | With `lmaccess.id` |
    | `pve.netscan.cluster.address` | The cluster's own address, if it is not the address in `pve.api.url` | `pve-vip.example.com` | No |
 
    Optional settings:
@@ -332,6 +367,16 @@ where it cannot, leaves the old one and sets `pve.netscan.status` to `address ch
 now <new>`. Change the hostname under **Manage** to follow it. A NetScan never changes a hostname
 by sending a new one: LogicMonitor would create a second resource instead, named
 `<hostname>#<collector id>` if the display name is taken.
+
+**The report on the cluster's active resource** (`pve.netscan.report`, also written to the run's
+log) says what each run did: which resources carry the cluster role, collisions, orphans, address
+changes, and refusals. Two lines concern the LogicMonitor API token:
+
+- **"no LogicMonitor API credentials: duplicate checking is off"** — `lmaccess.id` or
+  `lmaccess.key` is missing or empty.
+- **"LogicMonitor API unavailable, no duplicate checking: …"** — the token was refused or the
+  call failed; the message gives the reason. A role without **View** on **Resources** is the usual
+  cause.
 
 ## Proxmox VE LogicModules in Package
 
