@@ -633,10 +633,23 @@ withFixtures(['/cluster/status': statusWith([online: 0], [:], 1)]) {
     note('role-standby-takeover', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == true,
          'a standby did not take over from an offline active node')
 }
+// A two-node cluster loses quorum whenever one node is down, so its standby takes over
+// without quorum; the active node still stops without it (user, 2026-10-26).
 withFixtures(['/cluster/status': statusWith([online: 0], [:], 0)]) {
+    note('role-two-node', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == true &&
+                          roleOf(nodeProps + ['pve.cluster.role': 'active'])?.collect == false,
+         'in a two-node cluster the standby did not take over, or the active node collected without quorum')
+}
+// Three nodes or more: a standby without quorum waits, since the majority side may still collect.
+def threeNodes = { Map pve1, Integer quorate -> statusWith(pve1, [:], quorate) + [[type: 'node', name: 'pve3', nodeid: 3, online: 1, ip: '10.0.0.3']] }
+withFixtures(['/cluster/status': threeNodes([online: 0], 0)]) {
     note('role-minority', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == false &&
                           roleOf(nodeProps + ['pve.cluster.role': 'active'])?.collect == false,
-         'a node without quorum collected')
+         'a node without quorum in a 3-node cluster collected')
+}
+withFixtures(['/cluster/status': threeNodes([online: 0], 1)]) {
+    note('role-three-node-takeover', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == true,
+         'a quorate standby in a 3-node cluster did not take over')
 }
 note('role-address-down', roleOf(['pve.cluster.role': 'standby', 'pve.cluster.active': 'address:127.0.0.1:1'])?.collect == true,
      'a standby behind an unreachable address did not take over')

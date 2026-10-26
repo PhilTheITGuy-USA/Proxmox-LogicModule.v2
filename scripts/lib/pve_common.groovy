@@ -631,7 +631,9 @@ def pveHealthScore = { List statusRows, Map stallByNode ->
  * datapoints read No Data, which does not alert, and the pair never alerts twice.
  *
  * A node that has lost quorum never counts itself active, so a split cluster cannot have
- * two collecting resources. Where its own view cannot be read, an active resource collects
+ * two collecting resources. A standby takes over only with quorum, except in a two-node
+ * cluster, which loses quorum whenever either node is down: there the active node has
+ * stopped without quorum, so the standby collecting leaves one collector either way. Where its own view cannot be read, an active resource collects
  * anyway, so the failure surfaces as a failed collection; a standby stays quiet.
  */
 def pveAddressDown = { String host ->
@@ -668,7 +670,10 @@ def pveRole = { ->
         } else if (role == 'standby' && active) {
             def status = ownStatus()
             def row = status.find { it.type?.toString() == 'node' && it.name?.toString() == active }
-            def takeOver = pveQuorate(status) && (row == null || row.online?.toString() != '1')
+            // A two-node cluster loses quorum whenever either node is down, so there the standby
+            // takes over without it; the active node, without quorum, has already stopped.
+            def twoNode = status.count { it.type?.toString() == 'node' } == 2
+            def takeOver = (pveQuorate(status) || twoNode) && (row == null || row.online?.toString() != '1')
             result = [collect: takeOver, why: takeOver ? 'standby, ' + active + ' is offline' : 'standby, ' + active + ' is collecting']
         } else {
             result = [collect: false, why: 'no cluster role']

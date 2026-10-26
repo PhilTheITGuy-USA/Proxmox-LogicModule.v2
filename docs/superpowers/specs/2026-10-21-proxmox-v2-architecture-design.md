@@ -87,7 +87,11 @@ weak point removed.
 
 - on the **active** resource: collect;
 - on a **standby node** behind an active node: collect only if `/cluster/status` reports the
-  active node offline, or the active node is not quorate;
+  active node offline, and the standby is quorate **or the cluster has two nodes** (user,
+  2026-10-26). A two-node cluster loses quorum whenever either node is down, so requiring quorum
+  there would leave no collector at all, as the two-node lab showed when S8 was planned. One
+  collector either way: an active node without quorum has stopped. With three nodes or more, a
+  standby cut off from the majority waits, since the majority side's active node still collects;
 - on a **standby node** behind a cluster address: collect if that address fails to answer
   **either** a ping **or** a connection to its port 8006 (user, 2026-10-25, spec review). LogicMonitor judges the cluster
   resource alive by ping, so checking 8006 alone would leave a VIP whose ICMP is blocked dead,
@@ -98,7 +102,9 @@ weak point removed.
 
 Otherwise the module prints nothing and exits 0, so its datapoints read No Data. No Data does not
 alert by default, so the pair never alerts twice. A node that is not quorate never counts itself
-active, so a split cluster cannot have two active nodes. Collection never stops while any node
+active, so a split cluster cannot have two active nodes. A three-node-or-larger cluster split so
+that the standby is alone with the active node unreachable has the standby waiting (no quorum)
+and the active node collecting (quorum): one collector. Collection never stops while any node
 answers: the active resource's modules fail over through `pve.api.hosts`, and a dead resource's
 scripts keep collecting (S2: `S2_KeepAlive` recorded through the dead state). Its alerts are what
 the standby exists for.
