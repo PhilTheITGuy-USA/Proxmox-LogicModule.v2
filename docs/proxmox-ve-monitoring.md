@@ -96,14 +96,15 @@ report says why. The token only reads: the NetScan never changes a resource thro
 
 | Permission | Access | Why |
 |---|---|---|
-| Resources | **View**, on all resource groups *(not yet verified as sufficient)* | A duplicate can be in any group, for example a guest someone added over SNMP elsewhere. A role that sees only some groups misses those and lets the NetScan add a second resource |
+| Resources | **View**, on all resource groups | A duplicate can be in any group, for example a guest someone added over SNMP elsewhere. A role that sees only some groups misses those and lets the NetScan add a second resource |
 | Everything else | None | Not used |
 
 1. In LogicMonitor, navigate to **Settings > Users and Roles > Roles**, select **Add**, name the
    role (for example `NetScan Read`), and give it **View** on **Resources** for all resource
    groups. Nothing else.
 2. Under **Users**, add an API-only user (for example `netscan-proxmox`) with that role. The
-   built-in **readonly** role also works, but grants more than the NetScan needs.
+   built-in **readonly** role is known to work; a role with only View on Resources should, but is
+   *(not yet verified)*.
 3. Open the user, select **API Tokens > Add**, and choose an **LMv1** token.
 4. Copy the **Access ID** and the **Access Key**. The key is shown only once.
 5. Enter them in the NetScan's custom credentials (step 7 below) as `lmaccess.id` and
