@@ -1,7 +1,7 @@
 {
   "name": "Proxmox_VE_Node_Certificates",
   "displayedAs": "Proxmox VE Node Certificates",
-  "description": "TLS certificate expiry for every certificate on every online node in a Proxmox VE cluster.",
+  "description": "TLS certificate expiry for every certificate on this Proxmox VE node, asked of the node itself.",
   "group": "Proxmox VE",
   "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
   "searchKeywords": "proxmox,pve,certificate,tls,ssl,expiry,pveproxy,acme",

@@ -2,7 +2,7 @@
   "name": "addERI_Proxmox_VE_GuestResource",
   "moduleType": "propertysource",
   "eri": true,
-  "description": "Labels a Proxmox VE guest that is monitored as its own resource as a VirtualMachineResource, from its Proxmox MAC prefix. Needs no API token.",
+  "description": "Labels a Proxmox VE guest that is monitored as its own resource as a VirtualMachineResource, from the MAC the NetScan wrote (pve.guest.mac) or its Proxmox MAC prefix. Needs no API token.",
   "group": "ERI",
   "appliesTo": "pve.guest.mac || ((auto.network.mac_address =~ \"^[bB][cC]:24:11\" || pve.guest.mac_prefix) && (isLinux() || isWindows()))",
   "searchKeywords": "proxmox,pve,eri,topology,guest,vm,lxc,groovy4",

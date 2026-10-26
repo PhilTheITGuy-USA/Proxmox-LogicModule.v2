@@ -1,7 +1,7 @@
 {
   "name": "Proxmox_VE_Node_Subscription",
   "displayedAs": "Proxmox VE Node Subscription",
-  "description": "Proxmox subscription status and renewal date for every online node.",
+  "description": "This Proxmox VE node's subscription status and renewal date.",
   "group": "Proxmox VE",
   "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
   "searchKeywords": "proxmox,pve,subscription,licence,license,support,renewal",

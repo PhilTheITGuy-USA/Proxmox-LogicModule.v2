@@ -1,7 +1,7 @@
 {
   "name": "Proxmox_VE_Node_Services",
   "displayedAs": "Proxmox VE Node Services",
-  "description": "systemd state of the Proxmox-managed services on every online node: pveproxy, pvedaemon, pve-cluster, corosync and the rest.",
+  "description": "systemd state of this node's Proxmox-managed services: pveproxy, pvedaemon, pve-cluster, corosync and the rest.",
   "group": "Proxmox VE",
   "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
   "searchKeywords": "proxmox,pve,service,systemd,pveproxy,pvedaemon,corosync,pve-cluster",

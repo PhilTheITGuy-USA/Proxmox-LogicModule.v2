@@ -1,7 +1,7 @@
 {
   "name": "Proxmox_VE_Node_Disks",
   "displayedAs": "Proxmox VE Node Disks",
-  "description": "Physical disk SMART health, size and SSD life remaining for every disk on every online node.",
+  "description": "SMART health, size and SSD life remaining of this Proxmox VE node's physical disks, asked of the node itself.",
   "group": "Proxmox VE",
   "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
   "searchKeywords": "proxmox,pve,disk,smart,health,wearout,ssd,nvme,hardware",

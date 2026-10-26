@@ -1,7 +1,7 @@
 {
   "name": "Proxmox_VE_Node_Replication",
   "displayedAs": "Proxmox VE Node Replication",
-  "description": "Storage replication job health: failures, replica staleness and run duration for every replication job in a Proxmox VE cluster.",
+  "description": "Storage replication job health -- failures, replica staleness and run duration -- for the replication jobs this Proxmox VE node runs.",
   "group": "Proxmox VE",
   "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
   "searchKeywords": "proxmox,pve,replication,zfs,replica,dr,disaster recovery",

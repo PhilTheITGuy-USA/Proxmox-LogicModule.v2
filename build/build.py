@@ -423,6 +423,13 @@ def check_v1_names(path: Path, defn: dict) -> list[str]:
         script = SCRIPTS / defn[key] if key in defn else None
         if script and script.exists() and V1_TOKEN in read(script):
             problems.append(f"{script.name}: reads v1's token property {V1_TOKEN}")
+    # A node module covers only its own node (spec A§3.2); v1's descriptions said otherwise.
+    if defn.get("name", "").startswith("Proxmox_VE_Node_"):
+        for key in ("description", "technicalNotes"):
+            text = defn.get(key, "").lower()
+            if "every online node" in text or "every node" in text or "per online node" in text:
+                problems.append(f"{path.name}: {key} says the module covers every node; a node module "
+                                f"covers only its own")
     return problems
 
 

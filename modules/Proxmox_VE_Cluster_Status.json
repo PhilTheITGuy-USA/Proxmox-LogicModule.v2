@@ -1,7 +1,7 @@
 {
   "name": "Proxmox_VE_Cluster_Status",
   "displayedAs": "Proxmox VE Cluster Status",
-  "description": "Corosync quorum and HA manager health for a Proxmox VE cluster. Reports safely on a standalone host by withholding the quorum datapoints rather than reporting them as healthy.",
+  "description": "Corosync quorum, HA manager health, nodes online and a cluster health score for a Proxmox VE cluster. Reports safely on a standalone host by withholding the quorum datapoints rather than reporting them as healthy.",
   "group": "Proxmox VE",
   "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
   "searchKeywords": "proxmox,pve,cluster,quorum,corosync,ha,virtualization",
