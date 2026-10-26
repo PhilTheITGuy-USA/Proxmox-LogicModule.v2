@@ -24,12 +24,14 @@ def fixtures = new JsonSlurper().parse(new File(ROOT, 'tests/fixtures/pve_api.js
 def requested = [] as Set
 // Every request in order, duplicates kept, so a case can look at only what it caused.
 def requestLog = Collections.synchronizedList([])
-def server = HttpServer.create(new InetSocketAddress('127.0.0.1', 0), 0)
-server.createContext('/api2/json') { exchange ->
+// A second address serving the same fixtures, standing in for another node: failover and
+// owner-node requests go there, and its own log shows which requests did.
+def server2Requests = Collections.synchronizedList([])
+def serve = { exchange, List log ->
     def uri = exchange.requestURI
     def key = uri.path.replaceFirst('^/api2/json', '') + (uri.query ? '?' + uri.query : '')
     requested << key
-    requestLog << key
+    log << key
 
     String body
     int status
@@ -50,7 +52,12 @@ server.createContext('/api2/json') { exchange ->
     exchange.sendResponseHeaders(status, bytes.length)
     exchange.responseBody.withStream { it.write(bytes) }
 }
+def server = HttpServer.create(new InetSocketAddress('127.0.0.1', 0), 0)
+server.createContext('/api2/json') { exchange -> serve(exchange, requestLog) }
 server.executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+def server2 = HttpServer.create(new InetSocketAddress('127.0.0.1', 0), 0)
+server2.createContext('/api2/json') { exchange -> serve(exchange, server2Requests) }
+server2.executor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
 /*
  * Run body with some fixtures replaced. A null value removes that key, so the mock
@@ -72,6 +79,7 @@ def withFixtures = { Map overrides, Closure body ->
     }
 }
 server.start()
+server2.start()
 def baseUrl = 'http://127.0.0.1:' + server.address.port
 
 // ------------------------------------------------------------------- runner
@@ -583,6 +591,24 @@ def nsProps = runSource(preamble + '\nreturn [pveToken, pveHostProp("pve.api.url
     [netscanProps: ['pve.api.url': baseUrl, 'pve.token.credential': TOKEN]])
 note('props-netscan', nsProps.thrown == null && nsProps.exit == [TOKEN, baseUrl],
      "preamble under netscanProps gave ${nsProps.exit} / ${nsProps.thrown}")
+
+// ------------------------------------------------------------- failover (A§3.1)
+
+def failoverProps = hostProps + ['pve.api.url': 'http://127.0.0.1:1',
+                                 'pve.api.hosts': '127.0.0.1:1,127.0.0.1:' + server2.address.port]
+def fo = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Nodes.collect.groovy'), [hostProps: failoverProps])
+note('failover', fo.exit == 0 && !fo.stdout.trim().isEmpty(), "did not fail over: ${fo.exit} / ${fo.stderr}")
+server2Requests.clear()
+def fo401 = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Nodes.collect.groovy'),
+    [hostProps: failoverProps + ['pve.api.url': baseUrl, 'pve.token.credential': 'bad@pam!x=y']])
+note('failover-401', fo401.exit == 2 && fo401.stderr.contains('token') && server2Requests.isEmpty(),
+     "a rejected token failed over or did not name the token: ${fo401.stderr} / ${server2Requests}")
+def urls = runSource(preamble + '''
+return ['10.0.0.5', '10.0.0.5:8443', 'fd00::12', '[fd00::12]', 'pve1.example.com'].collect { pveHostUrl(it) }''',
+    [hostProps: ['pve.api.url': 'https://vip.example.com:8006', 'pve.token.credential': TOKEN]])
+note('hosturl-ipv6', urls.exit == ['https://10.0.0.5:8006', 'https://10.0.0.5:8443', 'https://[fd00::12]:8006',
+                                   'https://[fd00::12]:8006', 'https://pve1.example.com:8006'],
+     "pveHostUrl gave ${urls.exit} / ${urls.thrown}")
 def helpers = runSource(preamble + """
 return [
     cluster : pveTopoKey('pve-cluster', null),
@@ -1114,6 +1140,7 @@ def snapDead = withFixtures(['/cluster/resources?type=vm': null]) { discoverWith
 note('snapshots', snapDead.exit == 2, "an unreadable guest list exited ${snapDead.exit}")
 
 server.stop(0)
+server2.stop(0)
 
 // -------------------------------------------------------------------- report
 

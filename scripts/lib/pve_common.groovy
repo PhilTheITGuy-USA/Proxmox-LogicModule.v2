@@ -88,14 +88,41 @@ if (pveHostProp('pve.api.insecure', 'false').toBoolean()) {
 }
 
 /*
- * GET an /api2/json path and return the unwrapped "data" payload.
+ * A base URL for one address: the scheme and port of pve.api.url (https and pve.api.port,
+ * default 8006, without it). An address that carries its own port keeps it; a bare IPv6
+ * address is bracketed, as a URL requires.
+ */
+def pveUrlScheme = { -> pveBaseUrl ? (new URI(pveBaseUrl).scheme ?: 'https') : 'https' }
+def pveUrlPort = { ->
+    def port = pveBaseUrl ? new URI(pveBaseUrl).port : -1
+    port > 0 ? port : (pveHostProp('pve.api.port', '8006') as int)
+}
+def pveHostUrl = { String host ->
+    def address = host?.trim()
+    if (!address) { return null }
+    def prefix = pveUrlScheme() + '://'
+    if (address.startsWith('[')) { return prefix + (address.contains(']:') ? address : address + ':' + pveUrlPort()) }
+    if (address.count(':') > 1) { return prefix + '[' + address + ']:' + pveUrlPort() }
+    if (address.contains(':')) { return prefix + address }
+    return prefix + address + ':' + pveUrlPort()
+}
+
+// Every address the cluster API can be asked at, in order: pve.api.url, then pve.api.hosts.
+def pveApiBases = { ->
+    ([pveBaseUrl?.replaceAll('/+$', '')] +
+        pveHostProp('pve.api.hosts', '').tokenize(',').collect { pveHostUrl(it) })
+        .findAll { it }.unique()
+}
+
+/*
+ * GET an /api2/json path at one base URL and return the unwrapped "data" payload.
  *
  * 401/403 is called out separately because Proxmox returns it when the token exists
  * but lacks an ACL entry, which is the single most common misconfiguration and is
  * otherwise indistinguishable from a genuinely empty result.
  */
-def pveGet = { String path ->
-    def connection = new URL(pveBaseUrl.replaceAll('/+$', '') + '/api2/json' + path).openConnection()
+def pveGetAt = { String base, String path ->
+    def connection = new URL(base.replaceAll('/+$', '') + '/api2/json' + path).openConnection()
     connection.setRequestMethod('GET')
     connection.setConnectTimeout(pveTimeout)
     connection.setReadTimeout(pveTimeout)
@@ -115,6 +142,45 @@ def pveGet = { String path ->
     def payload = new JsonSlurper().parse(connection.inputStream)
     connection.disconnect()
     return payload?.data
+}
+
+// The HTTP status a pveGetAt failure carries, or null for a connection failure or timeout.
+def pveFailureStatus = { Exception failure ->
+    def match = failure.message =~ /^HTTP (\d+) /
+    match.find() ? (match.group(1) as int) : null
+}
+
+/*
+ * GET from the cluster API, failing over through pveApiBases: every node answers for the
+ * whole cluster, so a node that is down costs one timeout, not the poll. The address that
+ * answered is asked first for the rest of the run. A rejected token (401/403) or another
+ * client error is not failed over: it would be the same at every address.
+ */
+def pveActiveBase = null
+def pveGet = { String path ->
+    def bases = pveApiBases()
+    if (pveActiveBase in bases) { bases = [pveActiveBase] + (bases - pveActiveBase) }
+    Exception last = null
+    for (base in bases) {
+        try {
+            def data = pveGetAt(base, path)
+            pveActiveBase = base
+            return data
+        } catch (IOException failure) {
+            def status = pveFailureStatus(failure)
+            if (status != null && status < 500) { throw failure }
+            last = failure
+        }
+    }
+    throw last ?: new IOException('No Proxmox API address to ask: set pve.api.url')
+}
+
+// A node resource's own API. Node modules use only this, and never fail over: another
+// node would answer for itself, not for this one.
+def pveSelfBase = pveHostUrl(pveHostProp('system.hostname'))
+def pveNodeGet = { String path ->
+    if (!pveSelfBase) { throw new IOException('Cannot reach this node: system.hostname is empty') }
+    pveGetAt(pveSelfBase, path)
 }
 
 // -------------------------------------------------------------------- output
