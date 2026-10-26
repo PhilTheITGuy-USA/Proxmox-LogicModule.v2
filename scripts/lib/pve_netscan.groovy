@@ -221,5 +221,63 @@ def pveNetscanPlan = { Map input ->
             }
         }
     }
-    return [resources: resources, report: report]
+
+    /*
+     * Deduplication against the portal (N§6), when the run could list it. A resource whose
+     * pve.serial matches is this NetScan's own from an earlier run: it is sent again, and if
+     * its address has changed it keeps its existing hostname -- a new hostname would make
+     * LogicMonitor create a second resource -- and the change is handed to the body to apply
+     * through the LogicMonitor API. Any other match (display name, hostname, or the same
+     * address however it is written) is a resource the NetScan did not create, and
+     * hostname.source decides: empty skips it and reports it, lm adopts it, netscan adds a
+     * second one under another display name.
+     */
+    def hostnameUpdates = []
+    def orphans = []
+    def existing = input.existing
+    if (existing != null && prop('skip.device.dedupe', 'false') != 'true') {
+        def mode = prop('hostname.source', '')
+        def sameAddress = { String a, String b ->
+            def x = pveTopoIp(a), y = pveTopoIp(b)
+            x != null && x == y
+        }
+        def kept = []
+        resources.each { res ->
+            def serial = res.hostProps['pve.serial']
+            def own = existing.find { it.props?.get('pve.serial') == serial }
+            if (own) {
+                if (own.hostname != res.hostname && !sameAddress(own.hostname, res.hostname)) {
+                    res.hostProps['pve.netscan.status'] = 'address changed: was ' + own.hostname + ', now ' + res.hostname
+                    hostnameUpdates << [id: own.id, hostname: res.hostname]
+                    report << (res.displayname + ': address changed from ' + own.hostname + ' to ' + res.hostname)
+                    res.hostname = own.hostname
+                }
+                kept << res
+                return
+            }
+            def other = existing.find {
+                it.displayName?.toString()?.equalsIgnoreCase(res.displayname) ||
+                it.hostname?.toString()?.equalsIgnoreCase(res.hostname) ||
+                sameAddress(it.hostname?.toString(), res.hostname)
+            }
+            if (!other) { kept << res; return }
+            if (mode == 'lm') {
+                kept << (res + [hostname: other.hostname, displayname: other.displayName])
+            } else if (mode == 'netscan') {
+                kept << (res + [displayname: res.displayname + ' - ' + res.hostname])
+            } else {
+                report << ('collision: ' + res.displayname + ' (' + res.hostname + ') matches existing ' +
+                           other.id + ' ' + other.hostname + ' ' + other.displayName + '; not sent')
+            }
+        }
+        resources = kept
+        def sent = resources.collect { it.hostProps['pve.serial'] } as Set
+        existing.findAll { it.props?.get('pve.cluster') == cluster && it.props?.get('pve.serial') &&
+                           !(it.props['pve.serial'] in sent) }.each { gone ->
+            orphans << [id: gone.id, hostname: gone.hostname, displayName: gone.displayName, serial: gone.props['pve.serial']]
+            report << ('orphan: ' + gone.displayName + ' (' + gone.hostname + ', ' + gone.props['pve.serial'] +
+                       ') is no longer in Proxmox; retire it by hand')
+        }
+    }
+    return [resources: resources, report: report, hostnameUpdates: hostnameUpdates, orphans: orphans]
 }

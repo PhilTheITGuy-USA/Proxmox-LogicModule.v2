@@ -1430,6 +1430,41 @@ note('ns-guest-filter', filtered.resources.findAll { it.hostProps['system.catego
 def offGuests = plan(nsGuestBase + [props: nsGuestBase.props + ['pve.netscan.guests': 'false']])
 note('ns-guests-off', !offGuests.resources.any { it.hostProps['system.categories'] == 'ProxmoxVE_Guest' }, 'guests were created with guests off')
 
+// ------------------------------- the NetScan plan: deduplication (N§6, §7)
+
+// A guest the NetScan made before, now at a new address: one resource, kept at its old
+// hostname (a new one would make LogicMonitor create a second resource, S5), and the change
+// handed to the body to apply through the LM API.
+def moved = plan(nsGuestBase + [existing: [[id: 77, hostname: '192.0.2.70', displayName: 'Media01', props: ['pve.serial': 'pve-cluster::101']]],
+                                addresses: nsGuestBase.addresses + [101: [ip: '192.0.2.75', source: 'live']]])
+def movedGuest = moved.resources.find { it.hostProps['pve.serial'] == 'pve-cluster::101' }
+note('ns-dedup-moved', moved.resources.count { it.hostProps['pve.serial'] == 'pve-cluster::101' } == 1 &&
+                       movedGuest?.hostname == '192.0.2.70' &&
+                       movedGuest?.hostProps?.get('pve.netscan.status') == 'address changed: was 192.0.2.70, now 192.0.2.75' &&
+                       moved.hostnameUpdates == [[id: 77, hostname: '192.0.2.75']],
+     "a moved guest was ${movedGuest} / updates ${moved.hostnameUpdates}")
+// A node the portal already monitors, not made by the NetScan: skipped and reported by default.
+def preexisting = [[id: 5, hostname: '192.168.10.11', displayName: 'Node-A', props: [:]]]
+def clash = plan(nsBase + [existing: preexisting])
+note('ns-dedup-skip', !clash.resources.any { it.hostname == '192.168.10.11' } &&
+                      clash.report.any { it.contains('collision') && it.contains('Node-A') },
+     "a node already monitored was ${clash.resources*.hostname} / ${clash.report}")
+def adopt = plan(nsBase + [existing: preexisting, props: nsBase.props + ['hostname.source': 'lm']])
+note('ns-dedup-adopt', adopt.resources.find { it.hostname == '192.168.10.11' }?.displayname == 'Node-A',
+     "hostname.source=lm did not adopt: ${adopt.resources*.displayname}")
+def second = plan(nsBase + [existing: preexisting, props: nsBase.props + ['hostname.source': 'netscan']])
+note('ns-dedup-netscan', second.resources.find { it.hostname == '192.168.10.11' }?.displayname == 'pve1 - 192.168.10.11',
+     "hostname.source=netscan did not rename: ${second.resources*.displayname}")
+// Addresses are compared, not strings: LogicMonitor writes IPv6 uncompressed.
+def v6clash = plan(nsBase + [existing: [[id: 6, hostname: 'FD00:0:0:0:0:0:0:12', displayName: 'b', props: [:]]]])
+note('ns-dedup-ipv6', !v6clash.resources.any { it.hostname == 'fd00::12' }, 'an IPv6 duplicate written differently was not caught')
+def skipped = plan(nsBase + [existing: preexisting, props: nsBase.props + ['skip.device.dedupe': 'true']])
+note('ns-dedup-off', skipped.resources.any { it.hostname == '192.168.10.11' && it.displayname == 'pve1' }, 'skip.device.dedupe did not turn matching off')
+// A guest gone from Proxmox: reported for an operator, never deleted.
+def orphaned = plan(nsBase + [existing: [[id: 9, hostname: '192.0.2.250', displayName: 'old', props: ['pve.cluster': 'pve-cluster', 'pve.serial': 'pve-cluster::555']]]])
+note('ns-orphans', orphaned.orphans*.id == [9] && orphaned.report.any { it.contains('orphan') && it.contains('old') },
+     "orphans were ${orphaned.orphans} / ${orphaned.report}")
+
 // ------------------------------- scale: 16 nodes, 1,000 guests (A§3.9, Q6)
 //
 // The design's call budgets, asserted per script, so a change that adds an O(guests) or an
