@@ -150,7 +150,7 @@ resource either way.
    |---|---|---|---|
    | `pve.api.url` | The API address of any node, a VIP or a DNS name for the cluster | `https://pve1.example.com:8006` | Yes |
    | `pve.token.credential` | The whole token string | `monitor@pve!logicmonitor=<secret>` | Yes |
-   | LogicMonitor API ID and key | For duplicate checking against existing resources; names fixed at build | — | Recommended |
+   | LogicMonitor API ID and key | For duplicate checking against existing resources; names fixed at build | — | Required with `pve.netscan.guests=true`; recommended otherwise |
    | `pve.netscan.cluster.address` | The cluster's own address, if it is not the address in `pve.api.url` | `pve-vip.example.com` | No |
 
    Optional settings:
@@ -165,6 +165,7 @@ resource either way.
    | `pve.netscan.node.hostname` | `ip`: the node's cluster address; `name`: its node name, which must resolve | `name` | `ip` |
    | `pve.netscan.node.maxfailures` | Node checks that may fail in one run before the rest are skipped | `5` | `10` |
    | `pve.netscan.guests` | `true` adds guests as resources (one host unit each) | `true` | `false` |
+   | `pve.netscan.guest.hostname` | `ip`: the guest's address; `name`: its name, where guest names resolve in DNS | `name` | `ip` |
    | `pve.netscan.guests.unaddressed` | `true` also adds selected guests with no address the NetScan can read; they show as down | `true` | `false` |
    | `skip.device.dedupe` | `true` turns duplicate checking off | `true` | `false` |
    | `hostname.source` | On a duplicate: empty skips it and reports it; `lm` adopts the existing resource; `netscan` adds a second one | `lm` | empty |
@@ -209,7 +210,12 @@ A guest resource's hostname is the guest's live IP address, read from the contai
 or the VM's guest agent on the interface that carries `net0`'s MAC address; else the static
 address in its configuration. A guest with neither is not added, and the run reports it: its name
 would not answer ping, so it would show as down. It is never replaced by a DNS name, so that
-LogicMonitor's duplicate-IP check recognises a guest you already monitor.
+LogicMonitor's duplicate-IP check recognises a guest you already monitor. Where guest names
+resolve (dynamic DNS), `pve.netscan.guest.hostname=name` uses the name instead.
+
+**Warning:** Guest resources need the LogicMonitor API credentials. The NetScan recognises a guest
+it added before by its cluster and VMID, so a guest whose address changes stays one resource;
+without the credentials it cannot look, and it adds no guests rather than risk duplicates.
 
 ## Manually Assigning Properties to Resources
 
@@ -291,6 +297,8 @@ resources the NetScan creates.
 - **A node shows as down although its modules collect:** the Collector cannot ping it.
   LogicMonitor judges a resource up from ping, not from API data; allow ICMP from the Collector.
   The NetScan's output and the node's `pve.netscan.status` report a failed ping.
+- **No guests were added at all:** the NetScan has no LogicMonitor API credentials, and its
+  output says so. Add them (step 7).
 - **A selected guest was not added:** the NetScan found no address for it (no live address, no
   static one in its configuration) and its run output says so. Give the guest an address, or set
   `pve.netscan.guests.unaddressed=true` to add it by name; it will then show as down.
@@ -318,6 +326,12 @@ resources needs `hostname.source=lm` *(not yet verified)*.
 
 The NetScan never deletes a resource. A guest or node removed from Proxmox keeps its resource,
 and the run reports it.
+
+When a guest's address changes, the NetScan keeps the one resource: it updates the hostname, or,
+where it cannot, leaves the old one and sets `pve.netscan.status` to `address changed: was <old>,
+now <new>`. Change the hostname under **Manage** to follow it. A NetScan never changes a hostname
+by sending a new one: LogicMonitor would create a second resource instead, named
+`<hostname>#<collector id>` if the display name is taken.
 
 ## Proxmox VE LogicModules in Package
 
