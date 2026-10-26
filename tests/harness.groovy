@@ -1494,6 +1494,67 @@ note('ns-appliesto', appliesToNeeds.size() >= 6 && unmet(fullPlan).isEmpty(),
 note('ns-appliesto-sensitive', unmet(plan(nsBase + [props: nsBase.props + ['pve.api.url': 'https://pve-vip.example.com:8006']])).any { it.property == 'pve.guest.mac' },
      'the AppliesTo cross-check could not see a missing guest property')
 
+// ----------------------------- the NetScan body, against stand-in snippets (N§3, §9)
+//
+// The body is Collector-only: it loads lm.emit, lm.debug, proto.http and lm.api. Stand-in
+// classes with the snippet shapes read off a Collector (lm.api's client methods, lm.emit's
+// resource(List, Boolean)) let it run here against the mock API end to end.
+
+def netscanFile = new File(ROOT, 'dist/netscan/Proxmox_VE_NetScan.groovy')
+def stubClasses = new GroovyClassLoader(this.class.classLoader)
+stubClasses.parseClass('''package com.santaba.agent
+class AgentVersion { static String AGENT_VERSION = '41000' }''')
+stubClasses.parseClass('''package com.logicmonitor.mod
+class Snippets {
+    static Map fakes = [:]
+    static Object getLoader() { null }
+}''')
+stubClasses.parseClass('''package com.santaba.agent.groovy.utils
+class GroovyScriptHelper {
+    static Object getInstance(Object version) {
+        [getScript: { String name, Object loader -> [withBinding: { Object binding ->
+            [load: { String snippet, String v -> com.logicmonitor.mod.Snippets.fakes[snippet] }] }] }]
+    }
+}''')
+def snippetFakes = stubClasses.loadClass('com.logicmonitor.mod.Snippets').fakes
+def emitted = []
+def portalDevices = []
+snippetFakes['lm.emit'] = [resource: { List resources, Boolean debugMode -> emitted.addAll(resources) }]
+snippetFakes['lm.debug'] = [debugSnippetFactory: { Object o, Object d, Object l, String c -> [LMDebugPrint: { String m -> }] }]
+snippetFakes['proto.http'] = [httpSnippetFactory: { Object props -> [getProxyInfo: { -> [:] }] }]
+snippetFakes['lm.api'] = [lmApiSnippetFactory: { Object props, Object http, Object dbg ->
+    [getApiId: { -> 'id' }, getApiKey: { -> 'key' }, apiCallInfo: { String what, Map args -> [timeEstimateMs: 10] },
+     getPortalDevices: { Map args -> portalDevices }] }]
+def runNetscan = { Map props ->
+    emitted.clear()
+    def out = new ByteArrayOutputStream(), err = new ByteArrayOutputStream()
+    def realOut = System.out, realErr = System.err
+    def result = null
+    Throwable thrown = null
+    try {
+        System.setOut(new PrintStream(out, true, 'UTF-8')); System.setErr(new PrintStream(err, true, 'UTF-8'))
+        result = new GroovyShell(stubClasses, new Binding([netscanProps: props])).evaluate(netscanFile)
+    } catch (Throwable t) { thrown = t } finally { System.setOut(realOut); System.setErr(realErr) }
+    [exit: result, thrown: thrown, stdout: new String(out.toByteArray(), 'UTF-8'), stderr: new String(err.toByteArray(), 'UTF-8'),
+     resources: new ArrayList(emitted)]
+}
+// The mock API is at 127.0.0.1, which is no fixture node's address: say the cluster has none of its own.
+def bodyProps = ['pve.api.url': baseUrl, 'pve.token.credential': TOKEN, 'pve.api.timeout': '2000',
+                 'pve.netscan.cluster.address': '192.168.10.11']
+def body = runNetscan(bodyProps)
+note('netscan-body', netscanFile.exists() && body.thrown == null && body.exit == 0 && body.resources*.displayname.sort() == ['pve1', 'pve2'],
+     "the NetScan body ran ${body.exit} / ${body.thrown} / ${body.resources*.displayname} / ${body.stderr.take(300)}")
+def active = body.resources.find { it.hostProps['pve.cluster.role'] == 'active' }
+note('netscan-report', active?.hostProps?.get('pve.netscan.report')?.contains('no cluster address') == true,
+     "the run's report was not on the active resource: ${active?.hostProps}")
+note('netscan-size', netscanFile.length() <= 32 * 1024, "the NetScan script is ${netscanFile.length()} bytes, over LogicMonitor's recommended 32 KB")
+// Guests on, the portal listed: guest 101 on pve1 has a config and is created.
+def withGuestsBody = withFixtures(['/nodes/pve1/qemu/101/config': [name: 'web-01', net0: 'virtio=BC:24:11:0E:00:02,bridge=vmbr0', ipconfig0: 'ip=192.168.10.50/24']]) {
+    runNetscan(bodyProps + ['pve.netscan.guests': 'true', 'pve.netscan.guests.filter.vmid': '101'])
+}
+note('netscan-guests', withGuestsBody.exit == 0 && withGuestsBody.resources.any { it.hostname == '192.168.10.50' && it.hostProps['pve.vmid'] == '101' },
+     "the NetScan did not create guest 101: ${withGuestsBody.resources*.hostname} / ${withGuestsBody.stderr.take(300)}")
+
 // ------------------------------- scale: 16 nodes, 1,000 guests (A§3.9, Q6)
 //
 // The design's call budgets, asserted per script, so a change that adds an O(guests) or an

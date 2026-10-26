@@ -64,7 +64,8 @@ arrive, so some properties from outside the NetScan do.
 | `skip.device.dedupe` | `false` | VMware's name and meaning [vmware]: `true` turns §6 off |
 | `hostname.source` | empty | VMware's name and meaning [vmware], §6: empty skips and reports a collision, `lm` adopts the existing device, `netscan` renames the new one |
 | `lmapi.timelimit.sec` | `60` | VMware's [vmware]: above this estimate, §6 queries the portal one device at a time |
-| LogicMonitor API credentials | none | read by the `lm.api` snippet itself from the NetScan's properties [vmware]; their property names are LogicMonitor's (`lmaccess.id` / `lmaccess.key` in its documentation) [unverified]. They do not arrive unless entered [S2]. **Required for guest resources** (§6), optional otherwise |
+| LogicMonitor API credentials | none | read by the `lm.api` snippet itself from the NetScan's properties [vmware]; their property names are LogicMonitor's (`lmaccess.id` / `lmaccess.key` in its documentation) [unverified]; the client built by `lm.api`'s factory reads them itself (`getApiId()`, `getApiKey()`) [Collector, 2026-10-26]. They do not arrive unless entered [S2]. **Required for guest resources** (§6), optional otherwise |
+| `pve.netscan.debug` | `false` | `true` makes a scheduled run print as the debug console does; the debug console is always in debug mode, so `lm.emit` masks every `.credential` value it prints |
 
 **The NetScan's "Criteria for updating Existing Resources"** decides which existing resources a
 run may update, not how [S5, user 2026-10-25]. Its options: *All matching resources*, *Resources
@@ -255,7 +256,17 @@ needs its place on the map and its down state):
 **Why it matters:** a portal often monitors Proxmox nodes and guests already, over SNMP, SSH or
 WMI, before the suite is installed. A duplicate costs a host unit.
 
-As VMware's, through the `lm.api` snippet [vmware]:
+As VMware's, through the `lm.api` snippet [vmware]. **What the snippet offers,** read off a Collector
+(user, 2026-10-26): `lm.api` 0 is a factory, `lmApiSnippetFactory(ParamMap props, http, lmDebug)`,
+whose `http` must be a `proto.http` client (`httpSnippetFactory(props)`) and `lmDebug` an
+`lm.debug` 1 logger (`debugSnippetFactory(out, debug, log, context)`). The client it returns
+**only reads**: `apiCallInfo`, `checkPortalSize`, `getPortalDevices`, `findPortalDevice`,
+`findPortalDeviceByName`, `findPortalDeviceByProperty`, `findPortalDeviceBySingleProperty`,
+`checkExistingDevices`, `checkExistingDevicesByName`, `checkExistingDevicesByProperty`,
+`apiGetV2`, `apiGetManyV2`, `rawGetV2`, `generateLMTokenAuth` -- no write call. So it can find a
+device by a property, which `pve.serial` matching needs, and **cannot change a hostname**.
+LogicMonitor plans to move duplicate checking into the platform (user, 2026-10-26); until then
+the NetScan uses `lm.api` as below, kept in one place of the body so it can come out.
 
 - **Portal size first.** The snippet estimates how long listing every device would take; under
   `lmapi.timelimit.sec` it lists them all once (name, display name, current Collector) and matches
@@ -273,7 +284,8 @@ As VMware's, through the `lm.api` snippet [vmware]:
   and its history and points in-guest monitoring at the new address, **if** the `lm.api` snippet
   can update a resource [unverified]. If it cannot, the run sends the **existing** hostname, so no
   duplicate is made, and writes `pve.netscan.status` = `address changed: was <old>, now <new>` on
-  the guest and in its output, for an operator to change the hostname. `name` hostnames avoid the
+  the guest and in its output, for an operator to change the hostname. The snippet has no write
+  call (above), so this is what happens today. `name` hostnames avoid the
   case where guest names resolve.
 - **Guests' MAC as a fourth key** is this suite's addition, because a guest found over SNMP is
   often named and addressed differently from its Proxmox name. The snippet's lookups seen so far
@@ -366,6 +378,15 @@ and only the snippet calls are Collector-only.
   plan writes that an AppliesTo or the preamble's role check reads (`ProxmoxVE_Cluster`,
   `ProxmoxVE_Node`, `ProxmoxVE_Guest`, `pve.netscan.reachable`, `pve.api.hosts`,
   `pve.cluster.role`, `pve.cluster.active`) must match the module definitions and the preamble.
+- **The built script stays under 32 KB,** LogicMonitor's recommended limit for an embedded
+  NetScan script: the build keeps only the preamble closures the NetScan reaches and drops comments
+  from that one output (29.4 KB, 2026-10-26; a harness check fails it above 32 KB).
+- **The body runs in the harness** against stand-in classes with the snippet shapes read off a
+  Collector (`lm.emit`'s `resource(List, Boolean)`, `lm.api`'s client), end to end over the mock
+  API. A mutation that drops the emit fails three checks.
+- **The run's report** -- the case found, collisions, orphans, address changes, privilege
+  refusals -- goes to stderr and to `pve.netscan.report` on the resource that collects for the
+  cluster, so it can be read in the portal after a scheduled run.
 - **`lm_lint_module.py` does not cover a NetScan;** it is not a LogicModule. The skill's
   `suite-design.md` §11 now carries what S2 showed of the Enhanced Script NetScan; a lint check
   waits until the script exists to check.

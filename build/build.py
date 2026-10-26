@@ -167,12 +167,65 @@ def assemble(body_name: str) -> str:
     return read(PREAMBLE).rstrip() + "\n\n" + ("-" * 0) + body.lstrip("\n")
 
 
+TOP_LEVEL_START = re.compile(r"^(def |if |import |[A-Za-z_][A-Za-z0-9_]* = )")
+CLOSURE_DEF = re.compile(r"^def ([A-Za-z_][A-Za-z0-9_]*) = \{")
+
+
+def strip_comments(text: str) -> str:
+    """Drop whole-line // comments, /* ... */ blocks that start a line, and blank lines.
+
+    Only comments that own their lines: a // inside a line may be a URL in a string. The
+    first line, the //!/lib-groovy/v4 header, stays."""
+    lines = text.split("\n")
+    kept, in_block = [lines[0]], False
+    for line in lines[1:]:
+        stripped = line.strip()
+        if in_block:
+            in_block = "*/" not in stripped
+            continue
+        if stripped.startswith("/*"):
+            in_block = "*/" not in stripped
+            continue
+        if stripped.startswith("//") or not stripped:
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def shake_preamble(preamble: str, users: str) -> str:
+    """The preamble without the closures nothing in `users` reaches, directly or through
+    another kept closure. Every top-level statement that is not a closure definition stays."""
+    chunks: list[list[str]] = []
+    for line in preamble.split("\n"):
+        if not chunks or TOP_LEVEL_START.match(line):
+            chunks.append([])
+        chunks[-1].append(line)
+    named = {}
+    for i, chunk in enumerate(chunks):
+        match = CLOSURE_DEF.match(chunk[0])
+        if match:
+            named[match.group(1)] = i
+    keep = {i for i in range(len(chunks)) if i not in named.values()}
+    frontier = users + "\n" + "\n".join("\n".join(chunks[i]) for i in keep)
+    while True:
+        reached = {i for name, i in named.items() if i not in keep and re.search(rf"\b{name}\b", frontier)}
+        if not reached:
+            break
+        keep |= reached
+        frontier = "\n".join("\n".join(chunks[i]) for i in reached)
+    return "\n".join("\n".join(chunks[i]) for i in sorted(keep))
+
+
 def assemble_netscan() -> str | None:
     """The NetScan script: the preamble, the NetScan library, then the body; None until the
-    body exists."""
+    body exists. LogicMonitor recommends at most 32 KB for an embedded NetScan script, so the
+    preamble keeps only what the NetScan reaches, and comments are dropped from this output
+    (the sources keep theirs)."""
     if not NETSCAN_BODY.exists():
         return None
-    return "\n\n".join(read(path).rstrip() for path in (PREAMBLE, NETSCAN_LIB, NETSCAN_BODY)) + "\n"
+    users = read(NETSCAN_LIB) + "\n" + read(NETSCAN_BODY)
+    parts = [shake_preamble(read(PREAMBLE), users), read(NETSCAN_LIB), read(NETSCAN_BODY)]
+    return strip_comments("\n\n".join(part.rstrip() for part in parts)) + "\n"
 
 
 def expand_datapoint(dp: dict, batch: bool) -> dict:
