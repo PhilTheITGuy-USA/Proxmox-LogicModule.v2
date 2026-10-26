@@ -19,13 +19,9 @@ try {
         def id = node.id
         def online = node.status?.toString() == 'online'
 
+        // Only whether each node is online: a node that is down cannot report itself down.
+        // Its CPU, memory and uptime are collected on the node's own resource.
         pveEmit(id, 'Status', online ? 1 : 0)
-        pveEmit(id, 'CPUUsagePercent', pveRound(((node.cpu ?: 0) as double) * 100.0d))
-        pveEmit(id, 'CPUCount', node.maxcpu ?: 0)
-        pveEmit(id, 'MemoryUsedBytes', node.mem ?: 0)
-        pveEmit(id, 'MemoryCapacityBytes', node.maxmem ?: 0)
-        pveEmit(id, 'MemoryUsagePercent', pvePercent(node.mem, node.maxmem))
-        pveEmit(id, 'UpTimeSeconds', node.uptime ?: 0)
     }
     return 0
 } catch (Exception exception) {

@@ -24,7 +24,6 @@ from dashboards import Dashboard, module_ref
 # Addressed as "<displayedAs> (<name>)". build.py checks each of these resolves to a
 # real module with the datapoints used below, because nothing in the portal would.
 CLUSTER = module_ref("Proxmox VE Cluster Status", "Proxmox_VE_Cluster_Status")
-NODES = module_ref("Proxmox VE Cluster Nodes", "Proxmox_VE_Cluster_Nodes")
 NODE_DETAIL = module_ref("Proxmox VE Node Detail", "Proxmox_VE_Node_Detail")
 GUEST_PERF = module_ref("Proxmox VE Cluster Guest Performance", "Proxmox_VE_Cluster_GuestPerformance")
 GUEST_STATUS = module_ref("Proxmox VE Cluster Guest Status", "Proxmox_VE_Cluster_GuestStatus")
@@ -70,10 +69,9 @@ def build() -> Dashboard:
 
     d.alert_status(1, 10, 3, 6, "Proxmox VE Alert Status", "Proxmox VE*")
 
-    d.table(4, 1, 5, 3, "Nodes by Utilisation", NODES, [
+    d.table(4, 1, 5, 3, "Nodes by Utilisation", NODE_DETAIL, [
         d.column("CPUUsagePercent", "CPU %", warn=85, error=92),
         d.column("MemoryUsagePercent", "Memory %", warn=85, error=92),
-        d.column("Status", "Up", display_type="raw", rounding=0),
     ])
 
     d.table(4, 6, 4, 3, "Storage by Utilisation", STORAGE, [
@@ -84,9 +82,9 @@ def build() -> Dashboard:
     # --------------------------------------------------- rows 7-12: node detail
 
     d.graph(7, 1, 4, 3, "Node CPU Utilisation",
-            [d.series(NODES, "CPUUsagePercent", display="area")], "%")
+            [d.series(NODE_DETAIL, "CPUUsagePercent", display="area")], "%")
     d.graph(7, 5, 4, 3, "Node Memory Utilisation",
-            [d.series(NODES, "MemoryUsagePercent", display="area")], "%")
+            [d.series(NODE_DETAIL, "MemoryUsagePercent", display="area")], "%")
     d.graph(7, 9, 4, 3, "Node Load Per Core",
             [d.series(NODE_DETAIL, "LoadPerCore")], "#", maximum="NaN",
             description="Load average normalised by core count, which is the form that "

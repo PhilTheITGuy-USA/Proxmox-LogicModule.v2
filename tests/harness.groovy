@@ -665,6 +665,14 @@ def noFailover = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Disks.ad.groovy
     [hostProps: nodeHostProps + ['system.hostname': '127.0.0.1:1', 'pve.api.hosts': '127.0.0.1:' + server2.address.port]])
 note('node-no-failover', noFailover.exit == 2, "a node module failed over to another node: ${noFailover.exit}")
 
+// ---------------------------------------- Cluster_Nodes keeps only Status (A§3.2)
+
+def clusterNodesRun = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Nodes.collect.groovy'), [hostProps: hostProps])
+def clusterNodeKeys = clusterNodesRun.stdout.readLines().findAll { it.contains('=') }
+    .collect { BATCH_LINE.matcher(it) }.findAll { it.matches() }.collect { it.group(2) } as Set
+note('cluster-nodes-status-only', clusterNodesRun.exit == 0 && clusterNodeKeys == ['Status'] as Set,
+     "Cluster_Nodes printed ${clusterNodeKeys}; CPU, memory and uptime belong to Node_Detail")
+
 // ------------------------------------------- Node_Detail on its node (A§3.2)
 
 def detail = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps])
