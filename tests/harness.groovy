@@ -1641,6 +1641,20 @@ note('netscan-report', active?.hostProps?.get('pve.netscan.report')?.contains('n
      "the run's report was not on the active resource: ${active?.hostProps}")
 // LogicMonitor recommends 32 KB at most; 31 KB here keeps a kilobyte free for the next change.
 note('netscan-size', netscanFile.length() <= 31 * 1024, "the NetScan script is ${netscanFile.length()} bytes, within 1 KB of LogicMonitor's recommended 32 KB")
+// The console copy's property block: LogicMonitor refuses an empty property ("Properties cannot
+// be empty", lab 2026-10-26), so a value left blank is skipped, and no lab value ships in it.
+def consoleText = new File(ROOT, 'dist/netscan/Proxmox_VE_NetScan.console.groovy').text
+def block = consoleText.substring(consoleText.indexOf('\n[') + 1, consoleText.indexOf('\n', consoleText.indexOf('].each')))
+def blanked = block.replaceFirst(/('lmaccess\.id'\s*:\s*)'[^']*'/, '$1\'\'')
+def strictSet = [:]
+def strictProps = [set: { String key, String value ->
+    if (!value) { throw new IllegalArgumentException('Properties cannot be empty') }
+    strictSet[key] = value
+}]
+def consoleRun = runSource(blanked, [hostProps: strictProps])
+note('netscan-console-props', consoleRun.thrown == null && !strictSet.containsKey('lmaccess.id') &&
+                              !block.contains("'104'") && blanked != block,
+     "the console property block failed on a blank value or ships a lab value: ${consoleRun.thrown} / ${strictSet.keySet()}")
 // Guests on, the portal listed: guest 101 on pve1 has a config and is created.
 def withGuestsBody = withFixtures(['/nodes/pve1/qemu/101/config': [name: 'web-01', net0: 'virtio=BC:24:11:0E:00:02,bridge=vmbr0', ipconfig0: 'ip=192.168.10.50/24']]) {
     runNetscan(bodyProps + ['pve.netscan.guests': 'true', 'pve.netscan.guests.filter.vmid': '101'])

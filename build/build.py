@@ -54,17 +54,20 @@ NETSCAN_DIR = "netscan"
 NETSCAN_CONSOLE_SETUP = """\
 // DEBUG CONSOLE VERSION. Paste into the Collector debug console (!groovy) to see why a NetScan
 // run found nothing: it prints its report and errors here. Fill in the properties below with
-// the NetScan's own values; credentials are masked in what it prints.
+// the NetScan's own values; credentials are masked in what it prints. A value left as
+// '<...>' or '' is not set, as a property the NetScan does not have (LogicMonitor refuses an
+// empty one).
 if (!binding.hasVariable('hostProps')) { binding.setVariable('hostProps', new com.santaba.common.util.ParamMap()) }
 [
     'pve.api.url'                   : 'https://<node or cluster address>:8006',
     'pve.token.credential'          : '<user@realm!tokenid=secret>',
     'pve.api.insecure'              : 'true',
     'pve.netscan.guests'            : 'true',
-    'pve.netscan.guests.filter.vmid': '104',
-    'lmaccess.id'                   : '<LogicMonitor API token Access ID, or leave empty>',
-    'lmaccess.key'                  : '<Access Key, or leave empty>',
-].each { key, value -> if (!value.startsWith('<')) { hostProps.set(key, value) } }
+    'pve.netscan.guests.filter.vmid': '<vmids, e.g. 101,200-299; unset, every guest>',
+    'hostname.source'               : '<lm to adopt matches, netscan to add beside them; unset, skip and report>',
+    'lmaccess.id'                   : '<LogicMonitor API token Access ID; unset, no duplicate checking>',
+    'lmaccess.key'                  : '<Access Key>',
+].each { key, value -> if (value && !value.startsWith('<')) { hostProps.set(key, value) } }
 """
 
 # LogicMonitor's datapoint dataType enum: 1 boolean, 2 byte, 3 short, 4 int, 5 long,

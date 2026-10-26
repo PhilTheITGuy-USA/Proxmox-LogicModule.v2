@@ -204,7 +204,7 @@ resource either way.
    | `pve.netscan.guest.hostname` | `ip`: the guest's address; `name`: its name, where guest names resolve in DNS | `name` | `ip` |
    | `pve.netscan.guests.unaddressed` | `true` also adds selected guests with no address the NetScan can read; they show as down | `true` | `false` |
    | `skip.device.dedupe` | `true` turns duplicate checking off | `true` | `false` |
-   | `hostname.source` | On a duplicate: empty skips it and reports it; `lm` adopts the existing resource; `netscan` adds a second one | `lm` | empty |
+   | `hostname.source` | On a duplicate: unset skips it and reports it; `lm` adopts the existing resource; `netscan` adds a second one | `lm` | unset |
    | `lmapi.timelimit.sec` | Above this estimate, existing resources are looked up one at a time | `90` | `60` |
 
 8. In **Filters**, choose which guests become resources. A guest must pass every filter that is
@@ -353,13 +353,17 @@ permissions, so an under-privileged token looks like an empty cluster.
 The NetScan checks each resource against those already in the portal, by display name, hostname
 and address, and on a match follows `hostname.source`:
 
-- empty (default): the existing resource is left alone, and the match is reported
+- unset (default): the existing resource is left alone, and the match is reported
 - `lm`: the existing resource is adopted; the NetScan's properties and groups are written to it
 - `netscan`: a second resource is added, named `<name> - <hostname>`, using one more host unit
 
 **Note:** LogicMonitor's own duplicate-IP exclusion (step 10) also skips any resource whose IP
 already exists, independently of the script. It skips; it does not update. Adopting existing
 resources needs `hostname.source=lm` *(not yet verified)*.
+
+**Note:** a NetScan property can't be saved empty ("Properties cannot be empty"). To leave one
+at its default, such as `pve.netscan.guests.filter.vmid` for every guest, delete the property
+rather than clear its value; the NetScan treats a missing property as unset.
 
 The NetScan never deletes a resource. A guest or node removed from Proxmox keeps its resource,
 and the run reports it.
@@ -375,7 +379,7 @@ log) says what each run did: which resources carry the cluster role, collisions,
 changes, and refusals. Two lines concern the LogicMonitor API token:
 
 - **"no LogicMonitor API credentials: duplicate checking is off"** — `lmaccess.id` or
-  `lmaccess.key` is missing or empty.
+  `lmaccess.key` is not set.
 - **"LogicMonitor API unavailable, no duplicate checking: …"** — the token was refused or the
   call failed; the message gives the reason. A role without **View** on **Resources** is the usual
   cause.
