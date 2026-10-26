@@ -131,7 +131,7 @@ def hostProps = [
 def nodeHostProps = hostProps + ['pve.api.url': 'http://127.0.0.1:1', 'pve.node': 'pve1',
                                  'system.hostname': '127.0.0.1:' + server.address.port]
 def NODE_SCOPED = ['Proxmox_VE_Node_Disks', 'Proxmox_VE_Node_Services', 'Proxmox_VE_Node_Certificates',
-                   'Proxmox_VE_Node_Replication', 'Proxmox_VE_Node_Subscription']
+                   'Proxmox_VE_Node_Replication', 'Proxmox_VE_Node_Subscription', 'Proxmox_VE_Node_Detail']
 
 // Modules whose collection calls each guest's own node, so a guest on an offline node reports nothing.
 def GUEST_NODE_READ_MODULES = ['Proxmox_VE_Cluster_Snapshots']
@@ -141,9 +141,7 @@ def PLAIN_LINE = ~/^([A-Za-z0-9_]+)=(.*)$/
 def isNumeric = { String v -> v ==~ /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/ }
 
 // Instance properties a Collector supplies for per-instance Script collection.
-def instanceBindings = [
-    'Proxmox_VE_Node_Detail': ['auto.pve_node': 'pve1', 'auto.pve_id': 'node/pve1'],
-]
+def instanceBindings = [:]
 
 def modulesDir = new File(ROOT, 'modules')
 def scriptsDir = new File(ROOT, 'dist/scripts')
@@ -667,6 +665,32 @@ def noFailover = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Disks.ad.groovy
     [hostProps: nodeHostProps + ['system.hostname': '127.0.0.1:1', 'pve.api.hosts': '127.0.0.1:' + server2.address.port]])
 note('node-no-failover', noFailover.exit == 2, "a node module failed over to another node: ${noFailover.exit}")
 
+// ------------------------------------------- Node_Detail on its node (A§3.2)
+
+def detail = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps])
+def dv = detail.stdout.readLines().findAll { it.contains('=') }.collectEntries { def kv = it.split('=', 2); [(kv[0]): kv[1] as double] }
+note('detail-pressure', dv.PressureCPUSomePercent == 2.5d && dv.PressureIOSomePercent == 0.37d, "pressure was ${dv} / ${detail.stderr}")
+note('detail-quorum', dv.Quorate == 1d && dv.NodesOnline == 1d, "quorum view was ${dv}")
+note('detail-cpu', dv.CPUUsagePercent == 15.23d && dv.CPUCount == 16d && dv.MemoryUsagePercent == 50d && dv.UpTimeSeconds == 604800d,
+     "CPU, memory and uptime were ${dv}")
+def noPsi = withFixtures(['/nodes/pve1/rrddata?timeframe=hour&cf=AVERAGE': [[time: 1, cpu: 0.1, loadavg: 0.2, maxcpu: 4]]]) {
+    runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps])
+}
+note('detail-no-pressure', noPsi.exit == 0 && !noPsi.stdout.contains('Pressure') && noPsi.stdout.contains('CPUUsagePercent'),
+     "pressure fabricated, or the rest lost: ${noPsi.exit} / ${noPsi.stdout}")
+def standaloneDetail = withFixtures(['/cluster/status': [[type: 'node', name: 'pve1', nodeid: 1, online: 1, local: 1]]]) {
+    runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps])
+}
+note('detail-standalone', standaloneDetail.exit == 0 && !standaloneDetail.stdout.contains('Quorate'),
+     "a standalone host reported a quorum it does not have: ${standaloneDetail.stdout}")
+def stall = runSource(preamble + '''
+return [pveNodeStall([pressurecpusome: 2.5, pressureiosome: 30, pressurememorysome: 1], [:]),
+        pveNodeStall([cpu: 0.1], [loadavg: ['6.0'], cpuinfo: [cpus: 4]]),
+        pveNodeStall([cpu: 0.1], [loadavg: ['1.0'], cpuinfo: [cpus: 4]]),
+        pveNodeStall([:], [:]),
+        pveLatestRrd([[time: 1, cpu: 0.1], [time: 2, cpu: 0.2], [time: 3, cpu: null]])?.time]''', [hostProps: hostProps])
+note('stall', stall.exit == [30d, 100d, 25d, null, 2], "pveNodeStall / pveLatestRrd gave ${stall.exit} / ${stall.thrown}")
+
 // Only the collecting resource stamps instance ERIs: a standby's would double every key.
 withFixtures(['/cluster/status': statusWith([:], [:], 1)]) {
     def standbyAd = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_GuestStatus.ad.groovy'),
@@ -1093,8 +1117,8 @@ note('sizes', osdNames.count { it ==~ /osd\.\d+ \(4\.0 TB\)/ } == 2 && osdNames.
 def guestDescriptions = adRows('Proxmox_VE_Cluster_GuestStatus')*.description
 note('sizes', guestDescriptions.any { it.endsWith(', root disk 54 GB') } && guestDescriptions.any { it.endsWith(', root disk 8.6 GB') },
      "guest descriptions were ${guestDescriptions}")
-def nodeDescriptions = adRows('Proxmox_VE_Node_Detail')*.description + adRows('Proxmox_VE_Cluster_Nodes')*.description
-note('sizes', nodeDescriptions.count { it.endsWith('pve1, root filesystem 101 GB') } == 2 &&
+def nodeDescriptions = adRows('Proxmox_VE_Cluster_Nodes')*.description
+note('sizes', nodeDescriptions.count { it.endsWith('pve1, root filesystem 101 GB') } == 1 &&
               nodeDescriptions.any { it.endsWith('pve2') },
      "node descriptions were ${nodeDescriptions}")
 
@@ -1158,8 +1182,10 @@ note('migrations', migrating['qemu-101']?.Migrating == 1 && migrating['qemu-101'
 // The entire justification for the BatchScript design.
 note('call-efficiency', requested.contains('/cluster/resources?type=vm'),
      'guest collection did not use the bulk endpoint')
-note('call-efficiency', !requested.any { it.contains('rrddata') },
-     "collection used the redundant rrddata endpoint: ${requested}")
+// Guest metrics come from the bulk endpoint; a node's rrddata is read only for its pressure
+// figures, which nothing else reports.
+note('call-efficiency', !requested.any { it.contains('rrddata') && (it.contains('/qemu/') || it.contains('/lxc/')) },
+     "guest collection used the per-guest rrddata endpoint: ${requested}")
 
 // ---------------------------------------------------------------- Snapshots
 //

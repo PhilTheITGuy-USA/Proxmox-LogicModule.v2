@@ -1,7 +1,7 @@
 /*
  * Active Discovery: Proxmox VE cluster nodes.
- * Used by Proxmox_VE_Cluster_Nodes only. Modules that call a node's own API discover through
- * Proxmox_VE_OnlineNodes.ad.groovy instead.
+ * Used by Proxmox_VE_Cluster_Nodes only: every node, online or not, since a node that is
+ * down is exactly what it reports.
  */
 if (pveConfigError) {
     System.err.println(pveConfigError)

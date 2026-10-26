@@ -193,6 +193,32 @@ def pveSelfNode = { ->
     throw new IOException('Cannot tell which node this resource is: set pve.node')
 }
 
+// ------------------------------------------------------------- node pressure
+
+// The newest row of /nodes/{node}/rrddata that carries data: the last one is often still
+// being filled, with every field null.
+def pveLatestRrd = { List rows ->
+    (rows ?: []).findAll { it?.cpu != null }.with { it ? it[-1] : null }
+}
+
+/*
+ * How stalled a node is, 0-100: the share of time tasks waited on CPU, IO or memory, from
+ * Linux pressure stall information in rrddata. The worst of the three, so one starved
+ * resource is not averaged away. Pressure is already relative to the machine's size, and
+ * load average already counts tasks waiting on IO, so load and IO wait are not added in.
+ * Without pressure fields (a kernel or Proxmox release that does not report them) the
+ * 1-minute load per CPU stands in, capped at 100; with neither, null -- never a guess.
+ */
+def pveNodeStall = { Map rrdRow, Map status ->
+    def keys = ['pressurecpusome', 'pressureiosome', 'pressurememorysome']
+    def pressure = keys.findAll { rrdRow?.get(it) != null }.collect { rrdRow[it] as double }
+    if (pressure) { return pressure.max() }
+    def load = status?.loadavg ? status.loadavg[0]?.toString()?.toDouble() : null
+    def cpus = status?.cpuinfo?.cpus
+    if (load != null && cpus) { return Math.min(100.0d, 100.0d * load / (cpus as double)) }
+    return null
+}
+
 // --------------------------------------------------------------- cluster role
 
 /*

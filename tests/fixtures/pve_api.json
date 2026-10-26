@@ -214,6 +214,7 @@
       "plugintype": "nfs"
     }
   ],
+  "/nodes/pve1/rrddata?timeframe=hour&cf=AVERAGE": [{"time": 1792965600, "cpu": 0.12, "iowait": 0.004, "loadavg": 0.25, "maxcpu": 4, "pressurecpusome": 1.0, "pressureiosome": 0.2, "pressureiofull": 0.1, "pressurememorysome": 0, "pressurememoryfull": 0}, {"time": 1792965660, "cpu": 0.1, "iowait": 0.0045, "loadavg": 0.21, "maxcpu": 4, "pressurecpusome": 2.5, "pressureiosome": 0.37, "pressureiofull": 0.34, "pressurememorysome": 0, "pressurememoryfull": 0}],
   "/nodes/pve1/status": {
     "cpu": 0.1523,
     "loadavg": [

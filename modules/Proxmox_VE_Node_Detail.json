@@ -1,19 +1,84 @@
 {
   "name": "Proxmox_VE_Node_Detail",
   "displayedAs": "Proxmox VE Node Detail",
-  "description": "Load average, swap and root filesystem for each Proxmox VE node. Complements Proxmox VE Cluster Nodes with the metrics that are only exposed per node.",
+  "description": "This node's CPU, memory, uptime, load, swap, root filesystem, pressure stall figures and its own view of cluster quorum, asked of the node itself.",
   "group": "Proxmox VE",
   "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
   "searchKeywords": "proxmox,pve,node,load,swap,rootfs,filesystem",
-  "technicalNotes": "Script collection: one /nodes/{node}/status call per node per interval. Discovery is online nodes only: an offline node cannot answer its own API, so an instance created for it would never collect. An instance already discovered survives the node going offline, and Proxmox_VE_Cluster_Nodes is what reports the node as down. Node counts are bounded by cluster size, which is why this is acceptable here and would not be for guests.\n\nLoadPerCore normalises load average by logical CPU count so a single threshold is meaningful across differently sized nodes. Proxmox returns load average values as strings; the script coerces them explicitly.",
+  "technicalNotes": "Script collection on the node's own resource: three calls to this node per interval -- /nodes/{node}/status, /nodes/{node}/rrddata and /cluster/status. The node is asked directly, at the resource's own hostname, and never through another node, which would answer for itself. A node that does not answer fails the run.\n\nCPU, memory and uptime are the node's own figures, so their alerts are raised, routed and silenced on the node.\n\nLoadPerCore normalises load average by logical CPU count so a single threshold is meaningful across differently sized nodes. Proxmox returns load average values as strings; the script coerces them explicitly.\n\nThe Pressure datapoints are Linux pressure stall information: the percent of time some (or, for Full, all) tasks waited for CPU, IO or memory, per-minute averages from rrddata. Pressure is the clearest single measure of a node that cannot keep up. Each is withheld where the node does not report it.\n\nQuorate and NodesOnline are this node's own view of the cluster. Quorate alerts when this node has lost quorum; NodesOnline is recorded without a threshold, since the cluster modules alert on nodes going offline and one copy of that alert per node would bury it. Both are withheld on a standalone host, which has no quorum to lose.",
   "collectionMethod": "script",
   "collectionInterval": "5m",
-  "multiInstance": true,
-  "useWildValueAsUniqueIdentifier": true,
+  "multiInstance": false,
+  "useWildValueAsUniqueIdentifier": false,
   "collectScript": "Proxmox_VE_Node_Detail.collect.groovy",
-  "discoveryScript": "Proxmox_VE_OnlineNodes.ad.groovy",
-  "discoveryInterval": "60m",
   "datapoints": [
+    {
+      "name": "CPUUsagePercent",
+      "description": "Node CPU utilisation, percent.",
+      "threshold": "> 85 92 97",
+      "triggerInterval": 3,
+      "alertBody": "Proxmox node ##HOSTNAME## is at ##VALUE##% CPU. Its guests are competing for CPU time; consider migrating some to a less busy node.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "CPUCount",
+      "description": "Logical CPUs available to the node."
+    },
+    {
+      "name": "MemoryUsedBytes",
+      "description": "Memory in use, bytes."
+    },
+    {
+      "name": "MemoryCapacityBytes",
+      "description": "Total memory, bytes."
+    },
+    {
+      "name": "MemoryUsagePercent",
+      "description": "Memory utilisation, percent.",
+      "threshold": "> 85 92 97",
+      "triggerInterval": 3,
+      "alertBody": "Proxmox node ##HOSTNAME## is using ##VALUE##% of its memory. Close to the limit the host starts swapping or killing processes, guests included.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "UpTimeSeconds",
+      "description": "Seconds since the node booted."
+    },
+    {
+      "name": "PressureCPUSomePercent",
+      "description": "Percent of time some tasks waited for CPU, 1-minute average. Withheld where the node does not report pressure.",
+      "conditional": true
+    },
+    {
+      "name": "PressureIOSomePercent",
+      "description": "Percent of time some tasks waited for IO, 1-minute average. Withheld where the node does not report pressure.",
+      "conditional": true
+    },
+    {
+      "name": "PressureIOFullPercent",
+      "description": "Percent of time every task waited for IO at once, 1-minute average. Withheld where the node does not report pressure.",
+      "conditional": true
+    },
+    {
+      "name": "PressureMemorySomePercent",
+      "description": "Percent of time some tasks waited for memory, 1-minute average. Withheld where the node does not report pressure.",
+      "conditional": true
+    },
+    {
+      "name": "PressureMemoryFullPercent",
+      "description": "Percent of time every task waited for memory at once, 1-minute average. Withheld where the node does not report pressure.",
+      "conditional": true
+    },
+    {
+      "name": "Quorate",
+      "description": "1 when this node is part of a quorate cluster, by its own view. Withheld on a standalone host.",
+      "threshold": "< 1 1 1",
+      "conditional": true,
+      "alertBody": "Proxmox node ##HOSTNAME## has lost quorum. It is cut off from the majority of its cluster: it stops starting, migrating or changing guests until quorum returns.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "NodesOnline",
+      "description": "Cluster members online, by this node's own view. Withheld on a standalone host.",
+      "conditional": true
+    },
     {
       "name": "LoadAverage1m",
       "description": "1 minute load average."
@@ -31,7 +96,7 @@
       "description": "1 minute load average divided by logical CPU count.",
       "threshold": "> 1.5 2 4",
       "triggerInterval": 3,
-      "alertBody": "Proxmox node ##INSTANCE## has a load of ##VALUE## per core.\n\nThis started at ##START##, ##DURATION## ago."
+      "alertBody": "Proxmox node ##HOSTNAME## has a load of ##VALUE## per core.\n\nThis started at ##START##, ##DURATION## ago."
     },
     {
       "name": "SwapUsedBytes",
@@ -46,7 +111,7 @@
       "description": "Swap utilisation, percent. Sustained swap use on a hypervisor indicates memory overcommit.",
       "threshold": "> 25 50 80",
       "triggerInterval": 5,
-      "alertBody": "Proxmox node ##INSTANCE## is using ##VALUE##% of its swap. Sustained swap on a hypervisor means memory is overcommitted, and every guest on the node slows down.\n\nThis started at ##START##, ##DURATION## ago."
+      "alertBody": "Proxmox node ##HOSTNAME## is using ##VALUE##% of its swap. Sustained swap on a hypervisor means memory is overcommitted, and every guest on the node slows down.\n\nThis started at ##START##, ##DURATION## ago."
     },
     {
       "name": "RootFSUsedBytes",
@@ -64,7 +129,7 @@
       "name": "RootFSUsedPercent",
       "description": "Root filesystem utilisation, percent. A full root filesystem stops pvedaemon accepting work.",
       "threshold": "> 80 90 95",
-      "alertBody": "The root filesystem on Proxmox node ##INSTANCE## is ##VALUE##% full.\n\nThis started at ##START##, ##DURATION## ago."
+      "alertBody": "The root filesystem on Proxmox node ##HOSTNAME## is ##VALUE##% full.\n\nThis started at ##START##, ##DURATION## ago."
     },
     {
       "name": "CPUSockets",
@@ -79,7 +144,7 @@
       "description": "Percent of CPU time spent waiting on IO. Sustained IO wait means storage, not CPU, is the constraint.",
       "threshold": "> 20 35 50",
       "triggerInterval": 5,
-      "alertBody": "Proxmox node ##INSTANCE## is spending ##VALUE##% of its CPU time waiting on disk IO. Storage, not CPU, is the bottleneck, and guests on this node will be slow to read and write.\n\nThis started at ##START##, ##DURATION## ago."
+      "alertBody": "Proxmox node ##HOSTNAME## is spending ##VALUE##% of its CPU time waiting on disk IO. Storage, not CPU, is the bottleneck, and guests on this node will be slow to read and write.\n\nThis started at ##START##, ##DURATION## ago."
     },
     {
       "name": "KSMSharedBytes",
@@ -88,6 +153,13 @@
     }
   ],
   "graphs": [
+    {"title": "CPU Usage", "verticalLabel": "%", "max": 100, "lines": [{"dp": "CPUUsagePercent", "legend": "CPU", "color": "blue"}]},
+    {"title": "CPUs", "verticalLabel": "CPUs", "lines": [{"dp": "CPUCount", "legend": "Logical CPUs", "color": "blue"}]},
+    {"title": "Memory", "verticalLabel": "bytes", "scale1024": true, "lines": [{"dp": "MemoryUsedBytes", "legend": "Used", "color": "blue"}, {"dp": "MemoryCapacityBytes", "legend": "Total", "color": "black"}]},
+    {"title": "Memory Usage", "verticalLabel": "%", "max": 100, "lines": [{"dp": "MemoryUsagePercent", "legend": "Memory", "color": "blue"}]},
+    {"title": "Uptime", "verticalLabel": "seconds", "lines": [{"dp": "UpTimeSeconds", "legend": "Since boot", "color": "blue"}]},
+    {"title": "Pressure Stall", "verticalLabel": "%", "max": 100, "lines": [{"dp": "PressureCPUSomePercent", "legend": "CPU some", "color": "blue"}, {"dp": "PressureIOSomePercent", "legend": "IO some", "color": "orange"}, {"dp": "PressureIOFullPercent", "legend": "IO full", "color": "red"}, {"dp": "PressureMemorySomePercent", "legend": "Memory some", "color": "green"}, {"dp": "PressureMemoryFullPercent", "legend": "Memory full", "color": "fuchsia"}]},
+    {"title": "Cluster View", "verticalLabel": "count", "lines": [{"dp": "Quorate", "legend": "Quorate (1 = yes)", "color": "green"}, {"dp": "NodesOnline", "legend": "Nodes online", "color": "blue"}]},
     {"title": "Load Average", "verticalLabel": "load", "lines": [{"dp": "LoadAverage1m", "legend": "1 minute", "color": "blue"}, {"dp": "LoadAverage5m", "legend": "5 minutes", "color": "green"}, {"dp": "LoadAverage15m", "legend": "15 minutes", "color": "orange"}]},
     {"title": "Load per Core", "verticalLabel": "load", "lines": [{"dp": "LoadPerCore", "legend": "1 minute, per core", "color": "blue"}]},
     {"title": "IO Wait", "verticalLabel": "%", "max": 100, "lines": [{"dp": "IOWaitPercent", "legend": "IO wait", "color": "orange"}]},

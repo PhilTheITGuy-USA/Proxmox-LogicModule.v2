@@ -1,11 +1,11 @@
 /*
- * Script collection (per node instance): the node metrics that /cluster/resources omits.
- * CPU count, memory and uptime are in that bulk call, so Proxmox_VE_Cluster_Nodes reports them.
+ * Script collection: this node's own health, asked of the node itself at the resource's
+ * hostname -- never through another node, which would answer for itself.
  *
- * This is the one module in the Tier 1 set that cannot be a BatchScript, because
- * loadavg / swap / rootfs are only exposed per node at /nodes/{node}/status. Node counts
- * are small and bounded by cluster size, so one call per node per interval is acceptable
- * in a way that one call per guest would not be.
+ * Three calls: /nodes/{node}/status (CPU, memory, uptime, load, swap, root filesystem),
+ * /nodes/{node}/rrddata (Linux pressure stall figures, per-minute averages) and
+ * /cluster/status (this node's own view of quorum, so a quorum loss alerts from every
+ * node that survives it, whichever resource is down).
  */
 if (pveConfigError) {
     System.err.println(pveConfigError)
@@ -13,15 +13,19 @@ if (pveConfigError) {
 }
 
 try {
-    def node = pveInstanceProp('pve_node')
-    if (!node) {
-        throw new IOException('Instance property pve_node is missing. Re-run Active Discovery.')
-    }
-
-    def status = pveGet('/nodes/' + node + '/status') ?: [:]
+    def node = pveSelfNode()
+    def status = pveNodeGet('/nodes/' + node + '/status') ?: [:]
     def swap = status.swap ?: [:]
     def rootfs = status.rootfs ?: [:]
+    def memory = status.memory ?: [:]
     def cpuInfo = status.cpuinfo ?: [:]
+
+    pveEmit(null, 'CPUUsagePercent', pveRound(((status.cpu ?: 0) as double) * 100.0d))
+    pveEmit(null, 'CPUCount', cpuInfo.cpus ?: 0)
+    pveEmit(null, 'MemoryUsedBytes', memory.used ?: 0)
+    pveEmit(null, 'MemoryCapacityBytes', memory.total ?: 0)
+    pveEmit(null, 'MemoryUsagePercent', pvePercent(memory.used, memory.total))
+    pveEmit(null, 'UpTimeSeconds', status.uptime ?: 0)
 
     /*
      * loadavg entries are typed as strings in the Proxmox schema, not numbers. They are
@@ -59,6 +63,29 @@ try {
     def ksm = status.ksm ?: [:]
     if (ksm.shared != null) {
         pveEmit(null, 'KSMSharedBytes', ksm.shared)
+    }
+
+    /*
+     * Pressure stall figures are percent of time stalled. Each is withheld when the node
+     * does not report it, which is what a kernel without pressure accounting does: a zero
+     * would read as "never stalled".
+     */
+    def rrd = pveLatestRrd(pveNodeGet('/nodes/' + node + '/rrddata?timeframe=hour&cf=AVERAGE') ?: [])
+    def pressure = { String field -> rrd?.get(field) != null ? pveRound(rrd[field] as double) : null }
+    if (pressure('pressurecpusome') != null) { pveEmit(null, 'PressureCPUSomePercent', pressure('pressurecpusome')) }
+    if (pressure('pressureiosome') != null) { pveEmit(null, 'PressureIOSomePercent', pressure('pressureiosome')) }
+    if (pressure('pressureiofull') != null) { pveEmit(null, 'PressureIOFullPercent', pressure('pressureiofull')) }
+    if (pressure('pressurememorysome') != null) { pveEmit(null, 'PressureMemorySomePercent', pressure('pressurememorysome')) }
+    if (pressure('pressurememoryfull') != null) { pveEmit(null, 'PressureMemoryFullPercent', pressure('pressurememoryfull')) }
+
+    // This node's own view of the cluster. A standalone host has no cluster row and no
+    // quorum to lose, so both are withheld there.
+    def clusterStatus = pveNodeGet('/cluster/status') ?: []
+    def clusterRow = clusterStatus.find { it.type?.toString() == 'cluster' }
+    if (clusterRow) {
+        pveEmit(null, 'Quorate', clusterRow.quorate?.toString() == '1' ? 1 : 0)
+        pveEmit(null, 'NodesOnline',
+                clusterStatus.count { it.type?.toString() == 'node' && it.online?.toString() == '1' })
     }
 
     return 0
