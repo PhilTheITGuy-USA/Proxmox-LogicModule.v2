@@ -111,7 +111,8 @@ def pveNetscanPlan = { Map input ->
     def nodes = status.findAll { it.type?.toString() == 'node' && it.name }.sort { (it.nodeid ?: 0) as int }
     def standalone = clusterRow == null
     def cluster = standalone ? nodes[0]?.name?.toString() : clusterRow.name?.toString()
-    def root = prop('pve.netscan.rootFolder', 'Proxmox VE')
+    // The cluster's group; a standalone host's is Host - <node>, and cluster is that node's name.
+    def group = prop('pve.netscan.rootFolder', 'Proxmox VE') + (standalone ? '/Host - ' : '/Cluster - ') + cluster
     def apiUrl = prop('pve.api.url')
     def apiHosts = nodes.collect { it.ip?.toString() }.findAll { it }.join(',')
 
@@ -159,7 +160,7 @@ def pveNetscanPlan = { Map input ->
                       hostProps: tokenSet + ['system.categories': 'ProxmoxVE_Cluster', 'pve.serial': cluster,
                                              'pve.cluster.role': 'active', 'pve.cluster.active': 'none',
                                              'pve.netscan.status': 'ok'],
-                      groupName: [root + '/Cluster - ' + cluster]]
+                      groupName: [group]]
     }
 
     def byName = prop('pve.netscan.node.hostname', 'ip') == 'name'
@@ -187,7 +188,7 @@ def pveNetscanPlan = { Map input ->
                           'pve.cluster.active'   : activeOf[name],
                           'pve.netscan.reachable': reachable,
                           'pve.netscan.status'   : why],
-                      groupName: [standalone ? root + '/Host - ' + name : root + '/Cluster - ' + cluster + '/Nodes']]
+                      groupName: [standalone ? group : group + '/Nodes']]
     }
 
     /*
@@ -215,7 +216,6 @@ def pveNetscanPlan = { Map input ->
                 created << [guest: guest, hostname: byGuestName || !found ? guest.name?.toString() : found.ip]
             }
             def sharedNames = created.countBy { it.guest.name?.toString() }.findAll { it.value > 1 }.keySet()
-            def guestGroup = standalone ? root + '/Host - ' + cluster + '/Guests' : root + '/Cluster - ' + cluster + '/Guests'
             created.each { entry ->
                 def guest = entry.guest
                 def name = guest.name?.toString()
@@ -233,7 +233,7 @@ def pveNetscanPlan = { Map input ->
                                   'netscan.powerstate': guest.status?.toString() ?: 'unknown',
                                   'pve.serial'        : cluster + '::' + guest.vmid,
                                   'pve.netscan.status': 'ok'],
-                              groupName: [guestGroup]]
+                              groupName: [group + '/Guests']]
             }
         }
     }
@@ -309,15 +309,15 @@ def pveNetscanPlan = { Map input ->
          * the hostname it has.
          */
         def sent = resources.collect { it.hostProps['pve.serial'] } as Set
-        def released = existing.findAll { it.props?.get('pve.cluster') == cluster && it.props?.get('pve.serial') &&
-                                          !(it.props['pve.serial'] in sent) &&
-                                          it.props?.get('pve.cluster.role') in ['active', 'standby'] }
+        def unsent = existing.findAll { it.props?.get('pve.cluster') == cluster && it.props?.get('pve.serial') &&
+                                        !(it.props['pve.serial'] in sent) }
+        def released = unsent.findAll { it.props['pve.cluster.role'] in ['active', 'standby'] }
         released.each { gone ->
             def serial = gone.props['pve.serial']
             resources << [hostname: gone.hostname, displayname: gone.displayName,
                           hostProps: ['pve.serial': serial, 'pve.cluster.role': 'none', 'pve.cluster.active': 'none',
                                       'pve.netscan.status': 'no longer holds the cluster role'],
-                          groupName: [serial == cluster ? root + '/Cluster - ' + cluster : root + '/Cluster - ' + cluster + '/Nodes']]
+                          groupName: [standalone || serial == cluster ? group : group + '/Nodes']]
             report << (gone.displayName + ': no longer holds the cluster role')
         }
 
@@ -325,8 +325,7 @@ def pveNetscanPlan = { Map input ->
         // guest a filter now leaves out is still there.
         def vmids = (input.resources ?: []).findAll { it.vmid != null }.collect { it.vmid.toString() } as Set
         def nodeNames = nodes*.name*.toString() as Set
-        existing.findAll { it.props?.get('pve.cluster') == cluster && it.props?.get('pve.serial') &&
-                           !(it.props['pve.serial'] in sent) && !(it in released) }.each { gone ->
+        (unsent - released).each { gone ->
             def serial = gone.props['pve.serial'].toString()
             def rest = serial.startsWith(cluster + '::') ? serial.substring(cluster.length() + 2) : null
             def missing = rest == null ? false : rest.startsWith('node::') ? !(rest.substring(6) in nodeNames) : !(rest in vmids)

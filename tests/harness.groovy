@@ -1639,7 +1639,8 @@ note('netscan-body', netscanFile.exists() && body.thrown == null && body.exit ==
 def active = body.resources.find { it.hostProps['pve.cluster.role'] == 'active' }
 note('netscan-report', active?.hostProps?.get('pve.netscan.report')?.contains('no cluster address') == true,
      "the run's report was not on the active resource: ${active?.hostProps}")
-note('netscan-size', netscanFile.length() <= 32 * 1024, "the NetScan script is ${netscanFile.length()} bytes, over LogicMonitor's recommended 32 KB")
+// LogicMonitor recommends 32 KB at most; 31 KB here keeps a kilobyte free for the next change.
+note('netscan-size', netscanFile.length() <= 31 * 1024, "the NetScan script is ${netscanFile.length()} bytes, within 1 KB of LogicMonitor's recommended 32 KB")
 // Guests on, the portal listed: guest 101 on pve1 has a config and is created.
 def withGuestsBody = withFixtures(['/nodes/pve1/qemu/101/config': [name: 'web-01', net0: 'virtio=BC:24:11:0E:00:02,bridge=vmbr0', ipconfig0: 'ip=192.168.10.50/24']]) {
     runNetscan(bodyProps + ['pve.netscan.guests': 'true', 'pve.netscan.guests.filter.vmid': '101'])
@@ -1706,6 +1707,17 @@ def vipGone = plan(nsBase + [existing: [[id: 3, hostname: 'pve-vip.example.com',
 def oldCluster = vipGone.resources.find { it.hostname == 'pve-vip.example.com' }
 note('ns-role-address-gone', oldCluster?.hostProps?.get('pve.cluster.role') == 'none' && !(vipGone.orphans*.id).contains(3),
      "a cluster resource whose address went kept its role, or was called an orphan: ${oldCluster} / ${vipGone.orphans}")
+// The groups not pinned above: a re-sent role resource keeps its own, and a standalone host's
+// guests sit under its Host group.
+def vipNodesOffPve2 = vipNodesOff.resources.find { it.hostProps['pve.serial'] == 'pve-cluster::node::pve2' }
+def standaloneGuests = plan(nsGuestBase + [status: [[type: 'node', name: 'pve-a', nodeid: 1, online: 1, local: 1, ip: '10.0.0.9']],
+                                           reach: ['pve-a': [api: true, ping: true]],
+                                           props: nsGuestBase.props + ['pve.api.url': 'https://10.0.0.9:8006']])
+note('ns-groups-rest', vipNodesOffPve2?.groupName == ['Proxmox VE/Cluster - pve-cluster/Nodes'] &&
+                       oldCluster?.groupName == ['Proxmox VE/Cluster - pve-cluster'] &&
+                       standaloneGuests.resources.find { it.hostProps['system.categories'] == 'ProxmoxVE_Guest' }?.groupName ==
+                           ['Proxmox VE/Host - pve-a/Guests'],
+     "groups were ${vipNodesOffPve2?.groupName} / ${oldCluster?.groupName} / ${standaloneGuests.resources*.groupName}")
 def activeClash = plan(nsBase + [existing: [[id: 9, hostname: '10.99.0.1', displayName: 'pve1', props: [:]]]])
 def survivor = activeClash.resources.find { it.hostProps['pve.node'] == 'pve2' }
 note('ns-role-collision', !activeClash.resources.any { it.hostProps['pve.node'] == 'pve1' } &&

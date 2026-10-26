@@ -56,8 +56,10 @@ lines (`note('<name>', ...)` names each check). Rebuild before running it -- it 
   checked by `check_script_lengths`. A preamble closure must be defined before the closures that
   use it (a Groovy closure can't see a later script variable), and the shaker finds references
   by name, so don't call a closure through a dynamic name.
-- **The NetScan is 32,736 bytes, 32 under LogicMonitor's recommended 32 KB** (harness
-  `netscan-size`): any addition to it needs a trim first.
+- **The NetScan is 29,784 bytes against LogicMonitor's recommended 32 KB.** Its output also has
+  its indentation halved (`compact_indent`, which refuses text holding `'''`, `"""` or `/$`,
+  the marks of a multi-line string). The harness's `netscan-size` fails above 31 KB, keeping a
+  kilobyte free; past that, trim the NetScan rather than raise the limit.
 - Collector objects are not Java collections: `hostProps` and `netscanProps` are
   `com.santaba.common.util.ParamMap` (`get` / `set`, no `put`, not a `Map`). Never type a
   parameter that receives them as `Map`.
@@ -99,8 +101,8 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Local checks** (2026-10-26, after the M1/M2/M7 fixes): build clean; compile job passed;
-  harness 1,486 of 1,486; lint 0 errors, 4 warnings; both dashboards check clean.
+- **Local checks** (2026-10-26, after the NetScan trim): build clean; compile job passed;
+  harness 1,487 of 1,487; lint 0 errors, 4 warnings; both dashboards check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
   portal for the PropertySources; the NetScan runs on the Collector.
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no

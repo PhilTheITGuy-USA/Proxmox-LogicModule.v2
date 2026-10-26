@@ -236,16 +236,30 @@ def shake_preamble(preamble: str, users: str) -> str:
     return "\n".join("\n".join(chunks[i]) for i in sorted(keep))
 
 
+def compact_indent(text: str) -> str:
+    """Every line's leading spaces halved: four-space indentation becomes two.
+
+    Groovy ignores leading whitespace everywhere but inside a string that spans lines, so
+    this refuses any text that could hold one rather than risk changing a string's value: a
+    triple-quoted string, or a dollar-slashy one, which always closes with /$ ($/ alone is
+    also the end of an ordinary /...$/ regex)."""
+    for marker in ("'''", '"""', "/$"):
+        if marker in text:
+            raise ValueError(f"compact_indent: {marker} may mark a multi-line string; indentation left as is")
+    return "\n".join(" " * ((len(line) - len(line.lstrip(" "))) // 2) + line.lstrip(" ")
+                     for line in text.split("\n"))
+
+
 def assemble_netscan() -> str | None:
     """The NetScan script: the preamble, the NetScan library, then the body; None until the
     body exists. LogicMonitor recommends at most 32 KB for an embedded NetScan script, so the
     preamble keeps only what the NetScan reaches, and comments are dropped from this output
-    (the sources keep theirs)."""
+    and its indentation halved (the sources keep both)."""
     if not NETSCAN_BODY.exists():
         return None
     users = read(NETSCAN_LIB) + "\n" + read(NETSCAN_BODY)
     parts = [shake_preamble(read(PREAMBLE), users), read(NETSCAN_LIB), read(NETSCAN_BODY)]
-    return strip_comments("\n\n".join(part.rstrip() for part in parts)) + "\n"
+    return compact_indent(strip_comments("\n\n".join(part.rstrip() for part in parts))) + "\n"
 
 
 def expand_datapoint(dp: dict, batch: bool) -> dict:
