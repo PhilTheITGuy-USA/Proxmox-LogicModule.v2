@@ -56,8 +56,8 @@ lines (`note('<name>', ...)` names each check). Rebuild before running it -- it 
   checked by `check_script_lengths`. A preamble closure must be defined before the closures that
   use it (a Groovy closure can't see a later script variable), and the shaker finds references
   by name, so don't call a closure through a dynamic name.
-- **The NetScan is about 200 bytes under LogicMonitor's recommended 32 KB** (harness
-  `netscan-size`): the next addition to it needs a trim.
+- **The NetScan is 32,736 bytes, 32 under LogicMonitor's recommended 32 KB** (harness
+  `netscan-size`): any addition to it needs a trim first.
 - Collector objects are not Java collections: `hostProps` and `netscanProps` are
   `com.santaba.common.util.ParamMap` (`get` / `set`, no `put`, not a `Map`). Never type a
   parameter that receives them as `Map`.
@@ -89,8 +89,7 @@ the authority; this is the map.
   property with an explicit value on every run (a re-run overwrites and adds, never removes),
   deduplicates through `lm.api` (`pve.serial` first, then display name, hostname, address), and
   never deletes: it reports orphans and address changes in `pve.netscan.report` on the active
-  resource, since the portal shows a NetScan's stderr nowhere. LogicMonitor plans to move
-  deduplication into the platform; until then `lm.api` stays, kept in one place of the body.
+  resource, since the portal shows a NetScan's stderr nowhere.
 - **Topology:** guest vertices are keyed by the bare MAC of the first NIC, which GuestStatus
   instances and `addERI_Proxmox_VE_GuestResource` also carry; node keys are synthesised from name
   and corosync address and stamped by `addERI_Proxmox_VE_Node`.
@@ -100,8 +99,8 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Local checks** (2026-10-26, after the lab map fix): build clean; compile job passed; harness
-  1,483 of 1,483; lint 0 errors, 4 warnings; both dashboards check clean.
+- **Local checks** (2026-10-26, after the M1/M2/M7 fixes): build clean; compile job passed;
+  harness 1,486 of 1,486; lint 0 errors, 4 warnings; both dashboards check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
   portal for the PropertySources; the NetScan runs on the Collector.
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no

@@ -20,6 +20,9 @@ def pveNsHost = { String value ->
     host?.replaceAll(/^\[|\]$/, '')?.toLowerCase()
 }
 
+// Round-robin DNS: more than one address of one family. One IPv4 and one IPv6 is dual stack.
+def pveNsRoundRobin = { List ips -> ips.groupBy { it.contains(':') }.any { it.value.size() > 1 } }
+
 // key=value pairs of a Proxmox net0 / ipconfig0 string.
 def pveNsPairs = { String value ->
     (value ?: '').tokenize(',').collect { it.split('=', 2) }.findAll { it.size() == 2 }

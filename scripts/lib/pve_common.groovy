@@ -90,7 +90,8 @@ if (pveHostProp('pve.api.insecure', 'false').toBoolean()) {
 /*
  * A base URL for one address: the scheme and port of pve.api.url (https and pve.api.port,
  * default 8006, without it). An address that carries its own port keeps it; a bare IPv6
- * address is bracketed, as a URL requires.
+ * address is bracketed, as a URL requires; one written as a URL is used as written, less any
+ * trailing /api2/json, which pveGetAt adds.
  */
 def pveUrlScheme = { -> pveBaseUrl ? (new URI(pveBaseUrl).scheme ?: 'https') : 'https' }
 def pveUrlPort = { ->
@@ -100,6 +101,7 @@ def pveUrlPort = { ->
 def pveHostUrl = { String host ->
     def address = host?.trim()
     if (!address) { return null }
+    if (address.contains('://')) { return address.replaceAll('(/api2/json)?/*$', '') }
     def prefix = pveUrlScheme() + '://'
     if (address.startsWith('[')) { return prefix + (address.contains(']:') ? address : address + ':' + pveUrlPort()) }
     if (address.count(':') > 1) { return prefix + '[' + address + ']:' + pveUrlPort() }
@@ -138,7 +140,7 @@ def pveGetAt = { String base, String path ->
     int status = connection.responseCode
     if (status == 401 || status == 403) {
         throw new IOException('HTTP ' + status + ' for ' + path +
-            ' - the API token was rejected. Check the token secret, and that the token has a' +
+            ' - the API token in pve.token.credential was rejected. Check its secret, and that it has a' +
             ' PVEAuditor ACL. A token with privilege separation enabled needs its own ACL entry,' +
             ' not just the one on its user.')
     }

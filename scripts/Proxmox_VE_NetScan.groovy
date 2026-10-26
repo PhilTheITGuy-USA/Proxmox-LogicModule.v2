@@ -85,9 +85,9 @@ try {
         if (pveAddressDown(address)) {
             report << ('cluster address ' + address + ' does not answer ping or port 8006: its resource will show as down; the standby collects')
         }
-        if (addressIps.size() > 1) {
+        if (pveNsRoundRobin(addressIps)) {
             report << ('cluster address ' + address + ' is round-robin DNS (' + addressIps.join(', ') +
-                       '): LogicMonitor\'s ping may land on a node that is down; a VIP or a proxy is more reliable')
+                       '): LogicMonitor\'s ping may reach a node that is down; a VIP or proxy is safer')
         }
     }
 
@@ -147,8 +147,8 @@ try {
             if (error != null && pveFailureStatus(error) == 403) { agentDenied++ }
         }, false)
         if (agentDenied) {
-            report << (agentDenied + ' guest agent reads were refused (HTTP 403): the token lacks VM.GuestAgent.Audit ' +
-                       '(VM.Monitor on Proxmox VE 8); those VMs fall back to their configured address')
+            report << (agentDenied + ' guest agent reads refused (HTTP 403): the token lacks VM.GuestAgent.Audit ' +
+                       '(VM.Monitor on PVE 8); those VMs use their configured address')
         }
         selected.each { guest ->
             def vmid = guest.vmid as int

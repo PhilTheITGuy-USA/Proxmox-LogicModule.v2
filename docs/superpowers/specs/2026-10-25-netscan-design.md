@@ -284,8 +284,6 @@ whose `http` must be a `proto.http` client (`httpSnippetFactory(props)`) and `lm
 `checkExistingDevices`, `checkExistingDevicesByName`, `checkExistingDevicesByProperty`,
 `apiGetV2`, `apiGetManyV2`, `rawGetV2`, `generateLMTokenAuth` -- no write call. So it can find a
 device by a property, which `pve.serial` matching needs, and **cannot change a hostname**.
-LogicMonitor plans to move duplicate checking into the platform (user, 2026-10-26); until then
-the NetScan uses `lm.api` as below, kept in one place of the body so it can come out.
 
 - **Portal size first.** The snippet estimates how long listing every device would take; under
   `lmapi.timelimit.sec` it lists them all once (name, display name, current Collector) and matches

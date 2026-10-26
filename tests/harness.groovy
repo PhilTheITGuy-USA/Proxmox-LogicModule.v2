@@ -614,6 +614,15 @@ return ['10.0.0.5', '10.0.0.5:8443', 'fd00::12', '[fd00::12]', 'pve1.example.com
 note('hosturl-ipv6', urls.exit == ['https://10.0.0.5:8006', 'https://10.0.0.5:8443', 'https://[fd00::12]:8006',
                                    'https://[fd00::12]:8006', 'https://pve1.example.com:8006'],
      "pveHostUrl gave ${urls.exit} / ${urls.thrown}")
+// M1: a pve.api.hosts entry written as a URL is used as written, less any /api2/json.
+def asUrls = runSource(preamble + '''
+return ['https://10.0.0.5:8006', 'https://[fd00::12]:8006/', 'http://pve1.example.com:8006/api2/json'].collect { pveHostUrl(it) }''',
+    [hostProps: ['pve.api.url': 'https://vip.example.com:8006', 'pve.token.credential': TOKEN]])
+note('hosturl-url', asUrls.exit == ['https://10.0.0.5:8006', 'https://[fd00::12]:8006', 'http://pve1.example.com:8006'],
+     "pveHostUrl mangled URL entries: ${asUrls.exit} / ${asUrls.thrown}")
+// M7: a rejected token names the property that holds it.
+note('auth-names-property', fo401.stderr.contains('pve.token.credential'),
+     "the 401 message does not name pve.token.credential: ${fo401.stderr.take(300)}")
 
 // ------------------------------------------------------- the cluster role (A§3.1)
 
@@ -1652,6 +1661,12 @@ note('ns-vip-resolved', plan(nsBase + [addressIps: ['10.9.9.9'],
                                        props: nsBase.props + ['pve.api.url': 'https://pve-vip.example.com:8006']]).resources
                            .any { it.hostname == 'pve-vip.example.com' },
      'a VIP resolving to no node address was not a cluster address')
+
+// M2: round-robin DNS is more than one address of one family; one IPv4 plus one IPv6 is dual stack.
+def rr = runSource(preamble + '\n' + netscanLib + '''
+return [pveNsRoundRobin(['10.0.0.5', 'fd00::5']), pveNsRoundRobin(['10.0.0.5', '10.0.0.6']),
+        pveNsRoundRobin(['fd00::5', 'fd00::6', '10.0.0.5']), pveNsRoundRobin(['10.0.0.5'])]''', [netscanProps: [:]])
+note('ns-round-robin', rr.exit == [false, true, true, false], "round-robin detection gave ${rr.exit} / ${rr.thrown}")
 
 // C2: on a portal too large to list, guests are still looked up before they are sent.
 portalEstimateMs = 10 ** 9
