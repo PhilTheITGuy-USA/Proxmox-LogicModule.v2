@@ -177,9 +177,14 @@ def read(path: Path) -> str:
 
 
 def assemble(body_name: str) -> str:
-    """Prepend the shared preamble to a module body."""
+    """Prepend the shared preamble to a module body.
+
+    Only the preamble closures the body reaches, directly or through one another, and no
+    comments: the portal refuses an embedded script over MAX_SCRIPT_CHARS, and the full
+    preamble alone comes close. The sources keep their comments; the harness and the compile
+    job run these assembled scripts, so what ships is what is tested."""
     body = read(SCRIPTS / body_name)
-    return read(PREAMBLE).rstrip() + "\n\n" + ("-" * 0) + body.lstrip("\n")
+    return strip_comments(shake_preamble(read(PREAMBLE), body).rstrip() + "\n\n" + body.lstrip("\n")) + "\n"
 
 
 TOP_LEVEL_START = re.compile(r"^(def |if |import |[A-Za-z_][A-Za-z0-9_]* = )")
@@ -369,6 +374,15 @@ def module_type(defn: dict) -> str:
 # are not in the definition, only their file names are -- so every top-level string here is
 # a metadata field the portal stores as typed. technicalNotes is the one that grows.
 MAX_FIELD_CHARS = 4096
+
+# And a module's embedded Groovy: "groovyScript field cannot contain more than 49135 characters",
+# from the portal's import API on 2026-10-26, when v2's preamble had grown past it in two modules.
+MAX_SCRIPT_CHARS = 49135
+
+
+def check_script_lengths(scripts: dict[str, str]) -> list[str]:
+    return [f"{name}: the assembled script is {len(text)} characters; the portal refuses more than "
+            f"{MAX_SCRIPT_CHARS}" for name, text in scripts.items() if len(text) > MAX_SCRIPT_CHARS]
 
 
 def check_field_lengths(path: Path, defn: dict) -> list[str]:
@@ -759,6 +773,7 @@ def main() -> int:
         else:
             module, scripts = build_module(defn)
             problems.extend(check_module(defn, module))
+        problems.extend(check_script_lengths(scripts))
         for filename, content in scripts.items():
             problems.extend(balance_check(filename, content))
         built.append((module, scripts))
