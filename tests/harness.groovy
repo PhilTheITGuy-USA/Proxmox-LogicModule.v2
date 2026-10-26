@@ -442,7 +442,7 @@ def breakerFixtures = extendedFixtures + [
         [id: 'qemu/106', type: 'qemu', vmid: 106, name: 'after-failure', node: 'pve1', template: false],
     ],
 ]
-def breaker = withFixtures(breakerFixtures) { discoverWith(statusAd, hostProps) }
+def breaker = withFixtures(breakerFixtures) { discoverWith(statusAd, hostProps + ['pve.api.concurrency': '1']) }
 def breakerAd = parseAd(breaker.stdout)
 def configReads = breaker.requests.findAll { it.endsWith('/config') }
 note('guest-eri-breaker', breaker.thrown == null && breaker.exit == 0,
@@ -664,6 +664,39 @@ note('node-self', selfFromStatus.exit == 'pve1', "pveSelfNode from the local row
 def noFailover = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Disks.ad.groovy'),
     [hostProps: nodeHostProps + ['system.hostname': '127.0.0.1:1', 'pve.api.hosts': '127.0.0.1:' + server2.address.port]])
 note('node-no-failover', noFailover.exit == 2, "a node module failed over to another node: ${noFailover.exit}")
+
+// ---------------------------------- per-guest loops (A§3.9 rules 2-5)
+
+// Rule 2: a guest's read goes to the node that owns it, when that node's address is one the
+// NetScan listed in pve.api.hosts.
+def ownerPort = '127.0.0.1:' + server2.address.port
+def owner = withFixtures(['/cluster/status': statusWith([ip: ownerPort], [:], 1)]) {
+    server2Requests.clear()
+    discoverWith(statusAd, hostProps + ['pve.api.hosts': ownerPort])
+}
+note('guestloop-owner', owner.exit == 0 && server2Requests.contains('/nodes/pve1/qemu/101/config') &&
+                        !owner.requests.contains('/nodes/pve1/qemu/101/config'),
+     "guest configs were not read from the owning node: ${server2Requests} / ${owner.requests}")
+def v6 = runSource(preamble + '\nreturn pveNodeBases(rows)', [hostProps: hostProps, rows: fixtures['/cluster/status']])
+note('guestloop-ipv6', v6.exit?.pve2 == 'http://[fd00::12]:' + server.address.port, "owner URLs were ${v6.exit} / ${v6.thrown}")
+def budget = runScript(statusAd, [hostProps: hostProps + ['pve.api.budget.ms': '0']])
+note('guestloop-budget', budget.exit == 0 && budget.stderr.contains('time budget reached') && budget.stdout.contains('qemu-101##'),
+     "no budget stop, or guests lost from discovery: ${budget.exit} / ${budget.stderr}")
+// An agent that is not running answers HTTP 500 for its own guest; with httpErrorTrips false
+// that must not stop the node's other reads.
+def agentRun = withFixtures([:]) {
+    int before = requestLog.size()
+    def run = runSource(preamble + '''
+def seen = []
+pveForEachGuest('Agent reads', guests, rows, '/agent/network-get-interfaces', { g, data, error -> seen << [g.vmid, error != null] }, false)
+return seen''', [hostProps: hostProps, guests: fixtures['/cluster/resources?type=vm'].findAll { it.node == 'pve1' && !it.template },
+                rows: fixtures['/cluster/status']])
+    run.requests = new ArrayList(requestLog).subList(before, requestLog.size())
+    run
+}
+note('guestloop-http-error', agentRun.thrown == null && agentRun.exit?.every { it[1] } &&
+                             agentRun.requests.count { it.endsWith('/agent/network-get-interfaces') } == agentRun.exit?.size(),
+     "an HTTP error stopped the loop: ${agentRun.exit} / ${agentRun.thrown} / ${agentRun.requests}")
 
 // ------------------------------------------------ cluster health score (A§3.2)
 
@@ -1249,7 +1282,7 @@ note('snapshots', snap['lxc-104'] == [SnapshotCount: 0.0d], "lxc-104 was ${snap[
 note('snapshots', !snapRun.requests.any { it.startsWith('/nodes/pve2/') || it.contains('/999/') },
      "asked an offline node's guest or a template: ${snapRun.requests}")
 // One failure stops that node's reads: 101 fails first, so 103 and 104 are skipped.
-def snapBroken = withFixtures(snapFixtures + ['/nodes/pve1/qemu/101/snapshot': null]) { discoverWith(snapCollect, hostProps) }
+def snapBroken = withFixtures(snapFixtures + ['/nodes/pve1/qemu/101/snapshot': null]) { discoverWith(snapCollect, hostProps + ['pve.api.concurrency': '1']) }
 note('snapshots', snapBroken.exit == 0 && parseBatch(snapBroken.stdout).isEmpty() &&
                   !snapBroken.requests.any { it.contains('/lxc/10') } &&
                   snapBroken.stderr.readLines().count { it.contains('Snapshot reads stopped for node pve1') } == 1,

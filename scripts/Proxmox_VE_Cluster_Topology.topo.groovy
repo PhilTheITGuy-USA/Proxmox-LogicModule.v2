@@ -85,14 +85,12 @@ try {
 
     def nodes = (pveGet('/cluster/resources?type=node') ?: [])
     def nodeEris = [:]
-    def onlineNodes = [] as Set
     nodes.each { node ->
         def nodeName = node.node?.toString()
         if (!nodeName) { return }
         // One key, never two (see the header); a row with no usable address falls back
         // to the cluster-scoped key, so no null reaches eriPreProcessor.
         nodeEris[nodeName] = eri([pveTopoNodeVertexKey(clusterName, nodeName, nodeIps[nodeName])])
-        if (node.status?.toString() == 'online') { onlineNodes << nodeName }
         // Every node gets its cluster edge, offline included: a node that is down is
         // still part of the cluster, and dropping it would make the map forget the
         // thing that has just gone wrong.
@@ -109,48 +107,33 @@ try {
     def guests = (pveGet('/cluster/resources?type=vm') ?: [])
         .findAll { it.type in ['qemu', 'lxc'] && !it.template }
 
-    guests.each { guest ->
+    /*
+     * The reads go through pveForEachGuest: to the node that owns the guest, never to an
+     * offline node, stopped for a node after its first failure, bounded in concurrency and
+     * time. Two failures are distinguished, and they are not the same thing.
+     *
+     * A config that reads but has no MAC is a guest with no virtual NIC. That is a
+     * permanent fact, so the synthesised fallback key is stable -- what VMware's VM
+     * topology does. It resolves to no resource, and the portal draws no vertex that
+     * matches nothing, so such a guest is emitted but stays off the map.
+     *
+     * A config that cannot be read is transient. Falling back there would change the
+     * guest's identity for one run and change it back on the next, rewriting the map
+     * around a blip. Omitting the edge is the smaller error, so the guest is skipped.
+     */
+    pveForEachGuest('Config reads', guests, status, '/config', { guest, config, error ->
         def nodeName = guest.node?.toString()
         def vmid = guest.vmid
         def kind = guest.type?.toString()
         def nodeEri = nodeEris[nodeName]
-        if (!nodeEri || !vmid || !kind) { return }
-
-        /*
-         * An offline node cannot answer for its guests, and the online filter is what
-         * stops the fan-out spending a pve.api.timeout on each of them -- the same
-         * reasoning as every other module that reaches into a node's own API.
-         */
-        if (!onlineNodes.contains(nodeName)) { return }
-
-        /*
-         * Per-guest try, and the two failures it distinguishes are not the same thing.
-         *
-         * A config that reads but has no MAC is a guest with no virtual NIC. That is a
-         * permanent fact, so the synthesised fallback key is stable -- what VMware's VM
-         * topology does. It resolves to no resource, and the portal draws no vertex that
-         * matches nothing, so such a guest is emitted but stays off the map.
-         *
-         * A config that cannot be read is transient. Falling back there would change the
-         * guest's identity for one run and change it back on the next, rewriting the map
-         * around a blip. Omitting the edge is the smaller error, so the guest is skipped.
-         */
-        def config = null
-        try {
-            config = pveGet('/nodes/' + nodeName + '/' + kind + '/' + vmid + '/config')
-        } catch (Exception guestException) {
-            System.err.println('Config read skipped for ' + kind + '/' + vmid + ': ' +
-                guestException.message)
-            return
-        }
-        if (config == null) { return }
+        if (!nodeEri || !vmid || !kind || error != null || config == null) { return }
 
         def mac = pveGuestMac(config)
         def guestEri = (mac && lmTopo.isMac(mac, lmTopoData.blockedKeys, false)) ?
             eri([mac]) : eri([pveTopoKey(clusterName, kind + '-' + vmid)])
 
         lmTopo.registerEdge('Compute', nodeEri, guestEri, edges)
-    }
+    })
 
     println lmTopo.generateTopology(edges, keyNamespace, keyBlacklist, null, debug)
     return 0

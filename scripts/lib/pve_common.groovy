@@ -665,3 +665,95 @@ def pveRole = { ->
     pveRoleResult = result + [role: role]
     return pveRoleResult
 }
+
+// ------------------------------------------------------------ per-guest loops
+
+// Each node's own API, from /cluster/status: node name -> base URL for its address.
+def pveNodeBases = { List statusRows ->
+    statusRows.findAll { it.type?.toString() == 'node' && it.name && it.ip }
+        .collectEntries { [(it.name.toString()): pveHostUrl(it.ip.toString())] }
+}
+
+/*
+ * One read per guest, for the loops that scale with guest count (a config, a snapshot list,
+ * a guest agent's addresses). GET /nodes/<node>/<type>/<vmid><suffix> for every guest, and
+ * call onResult(guest, data, error) for every guest in their order, on this thread; error is
+ * null when the read succeeded, and says why when it did not happen or failed.
+ *
+ * - The read goes to the node that owns the guest, at its own address, when that address is
+ *   one pve.api.hosts lists -- the cluster API address would only proxy it there. If the
+ *   node's own address does not answer, its reads go through the cluster API instead.
+ * - A guest on a node /cluster/status reports offline is not asked: it cannot answer.
+ * - A per-node circuit breaker: a node's first failed read skips the rest of its guests for
+ *   this run, so a sick node costs one timeout, not one per guest, and stderr gets one line.
+ *   A connection failure or timeout always trips it; an HTTP error status only when
+ *   httpErrorTrips is true. A guest agent that is not running answers HTTP 500 for its own
+ *   guest alone, so agent reads pass false.
+ * - At most pve.api.concurrency reads (default 2) in flight per node, so a node's own API
+ *   workers, which the Proxmox UI shares, are never crowded. With more than one in flight,
+ *   reads already started when a failure trips the breaker still finish.
+ * - A time budget, pve.api.budget.ms (default 45000), below the Collector's script timeout:
+ *   reads not started by then are skipped and counted on stderr, never fabricated.
+ */
+def pveForEachGuest = { String what, List guests, List statusRows, String suffix, Closure onResult,
+                        boolean httpErrorTrips = true ->
+    def concurrency = Math.max(1, pveHostProp('pve.api.concurrency', '2') as int)
+    def deadline = System.currentTimeMillis() + (pveHostProp('pve.api.budget.ms', '45000') as long)
+    def listed = pveHostProp('pve.api.hosts', '').tokenize(',').collect { pveHostUrl(it) } as Set
+    def ownBase = pveNodeBases(statusRows).findAll { node, base -> base in listed }
+    // Offline only where /cluster/status says so: a node it does not list is asked anyway.
+    def offline = statusRows.findAll { it.type?.toString() == 'node' && it.online != null &&
+                                       it.online?.toString() != '1' }
+                            .collect { it.name?.toString() } as Set
+    def tripped = new java.util.concurrent.ConcurrentHashMap()
+    def viaCluster = new java.util.concurrent.ConcurrentHashMap()
+    def overBudget = new java.util.concurrent.atomic.AtomicInteger()
+    def pools = [:]
+
+    def readOne = { Map guest, String node ->
+        def path = '/nodes/' + node + '/' + guest.type + '/' + guest.vmid + suffix
+        if (System.currentTimeMillis() > deadline) {
+            overBudget.incrementAndGet()
+            return [error: new IOException('time budget reached')]
+        }
+        if (tripped.containsKey(node)) { return [error: new IOException('reads stopped for node ' + node)] }
+        try {
+            def base = ownBase[node]
+            if (base && !viaCluster.containsKey(node)) {
+                try {
+                    return [data: pveGetAt(base, path)]
+                } catch (IOException ownFailure) {
+                    if (pveFailureStatus(ownFailure) != null) { throw ownFailure }
+                    viaCluster.put(node, true)
+                }
+            }
+            return [data: pveGet(path)]
+        } catch (Exception failure) {
+            if (httpErrorTrips || pveFailureStatus(failure) == null) {
+                if (tripped.putIfAbsent(node, true) == null) {
+                    System.err.println(what + ' stopped for node ' + node + ' after ' + guest.type + '/' +
+                        guest.vmid + ' failed (' + failure.message + '); its remaining guests are not read this run.')
+                }
+            }
+            return [error: failure]
+        }
+    }
+
+    def futures = guests.collect { guest ->
+        def node = guest.node?.toString()
+        if (!guest.vmid || node in offline) { return null }
+        def pool = pools.computeIfAbsent(node) { java.util.concurrent.Executors.newFixedThreadPool(concurrency) }
+        pool.submit({ -> readOne(guest, node) } as java.util.concurrent.Callable)
+    }
+    try {
+        guests.eachWithIndex { guest, i ->
+            def outcome = futures[i] == null ? [error: new IOException('node ' + guest.node + ' is offline')] : futures[i].get()
+            onResult(guest, outcome.data, outcome.error)
+        }
+    } finally {
+        pools.values()*.shutdownNow()
+    }
+    if (overBudget.get() > 0) {
+        System.err.println(what + ': time budget reached: ' + overBudget.get() + ' guests not read this run.')
+    }
+}

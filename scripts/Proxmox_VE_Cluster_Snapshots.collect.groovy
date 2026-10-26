@@ -20,34 +20,17 @@ if (!pveRole().collect) {
 
 try {
     def guests = pveGuestList()
-    def onlineNodes = (pveGet('/cluster/resources?type=node') ?: [])
-        .findAll { it.status?.toString() == 'online' && it.node }
-        .collect { it.node.toString() } as Set
-
-    /*
-     * Per-node circuit breaker. A node that fails one snapshot read is treated as sick for the
-     * rest of this run: its later guests are skipped instead of each spending a
-     * pve.api.timeout, and stderr gets one line per node rather than per guest.
-     */
-    def failedNodes = [] as Set
+    def statusRows = pveGet('/cluster/status') ?: []
     def nowSeconds = System.currentTimeMillis() / 1000.0d
 
-    guests.each { guest ->
-        def nodeName = guest.node?.toString()
-        if (!guest.vmid || !onlineNodes.contains(nodeName) || failedNodes.contains(nodeName)) {
-            return
-        }
-        // Per-guest try: one unreadable list withholds only this guest's datapoints.
-        def entries
-        try {
-            entries = pveGet('/nodes/' + nodeName + '/' + guest.type + '/' + guest.vmid + '/snapshot') ?: []
-        } catch (Exception guestException) {
-            failedNodes << nodeName
-            System.err.println('Snapshot reads stopped for node ' + nodeName + ' after ' +
-                guest.type + '/' + guest.vmid + ' failed (' + guestException.message +
-                '); its remaining guests report nothing this run.')
-            return
-        }
+    /*
+     * One snapshot list per guest, through pveForEachGuest: asked of the node that owns the
+     * guest, never of an offline node, stopped for a node after its first failure, bounded in
+     * concurrency and time. A guest whose list was not read reports nothing this run.
+     */
+    pveForEachGuest('Snapshot reads', guests, statusRows, '/snapshot', { guest, data, error ->
+        if (error != null) { return }
+        def entries = data ?: []
 
         def snapshots = entries.findAll { it instanceof Map && it.name?.toString() != 'current' }
         def id = guest.id
@@ -62,7 +45,7 @@ try {
         if (guest.type == 'qemu') {
             pveEmit(id, 'SnapshotsWithRAM', snapshots.count { it.vmstate?.toString() in ['1', 'true'] })
         }
-    }
+    })
     return 0
 } catch (Exception exception) {
     System.err.println('Proxmox snapshot collection failed: ' + exception.message)
