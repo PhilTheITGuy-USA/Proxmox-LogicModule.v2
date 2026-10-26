@@ -1,11 +1,11 @@
 # Proxmox VE suite v2: cluster, node and guest resources
 
-Status: **draft for review**, 2026-10-21; revised 2026-10-24 with the v1 reuse decisions (§3.2,
+Status: **approved by the user 2026-10-25**; drafted 2026-10-21; revised 2026-10-24 with the v1 reuse decisions (§3.2,
 §3.8) and topology corrections (§2, §3.4, §3.6); revised 2026-10-25 for v1 complete at `2e0237b`,
 the NetScan spec (§3.3) and the v1-against-v2 licence comparison (§3.7); revised again 2026-10-25:
 v2 is standalone, with its own token property `pve.token.credential` (§3.2, §3.5, §3.8);
 revised again 2026-10-25 after spike S2: the cluster role is an active and a standby resource
-(§3.1), the cluster health score (§3.2), and v1 is copied into this repository (§3.8). Nothing here is approved or built. Research behind it:
+(§3.1), the cluster health score (§3.2), and v1 is copied into this repository (§3.8). Nothing here is built yet; the plan is `docs/superpowers/plans/2026-10-25-proxmox-v2.md`. Research behind it:
 `docs/research/2026-10-21-lm-vsphere-architecture.md`. v1 is the `Proxmox-LogicModule` repository
 (19 modules, portal-verified on a two-node lab cluster).
 

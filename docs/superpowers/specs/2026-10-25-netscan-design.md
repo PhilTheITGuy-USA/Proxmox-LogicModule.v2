@@ -1,6 +1,6 @@
 # Proxmox VE suite v2: the NetScan
 
-Status: **draft for review**, 2026-10-25; revised the same day with the user's answers to Q6–Q9
+Status: **approved by the user 2026-10-25**; drafted 2026-10-25; revised the same day with the user's answers to Q6–Q9
 and with what LogicMonitor's vSphere NetScan script shows (supplied by the user 2026-10-25,
 summarised in research §2a, not copied); revised again after spike S2 (2026-10-25): the cluster
 role is an active and a standby resource (§5.1), guest hostnames stay IPs (§5.3), deduplication

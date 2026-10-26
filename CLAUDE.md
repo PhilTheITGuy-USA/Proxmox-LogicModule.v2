@@ -46,9 +46,9 @@ v2's token property is **`pve.token.credential`**, never v1's `pve.api.token.cre
   NetScan the user supplied is LogicMonitor's code: summarise it, never copy it in (its contract
   is summarised in research §2a).
 - `docs/superpowers/specs/` -- the v2 architecture spec and the NetScan spec it points to (§3.3),
-  both **draft for review**. The workflow is spec → spikes (§5) → plan → code; don't start a plan
-  or code until the user approves the specs and the open questions that block them (architecture
-  §4, NetScan §11) are answered. The NetScan spec tags claims **[v1]**, **[vmware]**,
+  both **approved by the user 2026-10-25**. The workflow is spec → spikes (§5) → plan → code; the
+  plan is `docs/superpowers/plans/2026-10-25-proxmox-v2.md`, and spec changes from here on need
+  the user's approval again. The NetScan spec tags claims **[v1]**, **[vmware]**,
   **[unverified]** with the spike that settles each, or **[S<n>]** when a spike has seen it in the
   lab cluster `Labcluster` (PVE 9.2.3).
 
