@@ -104,7 +104,7 @@ when a layer changes.
 - **Local checks** (2026-10-26, after the NetScan trim): build clean; compile job passed;
   harness 1,487 of 1,487; lint 0 errors, 4 warnings; both dashboards check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
-  portal for the PropertySources; the NetScan runs on the Collector.
+  portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included (user, 2026-10-26).
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
   replication), 2026-10-26: S2, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
   Node-B (standby) and the guest Webapp01, and a re-run adds nothing and leaves the expected
