@@ -1465,6 +1465,35 @@ def orphaned = plan(nsBase + [existing: [[id: 9, hostname: '192.0.2.250', displa
 note('ns-orphans', orphaned.orphans*.id == [9] && orphaned.report.any { it.contains('orphan') && it.contains('old') },
      "orphans were ${orphaned.orphans} / ${orphaned.report}")
 
+// ------------------------------- the NetScan writes what every AppliesTo reads (N§9)
+//
+// A module whose AppliesTo names a category or property the NetScan never writes, or tests
+// for a value it never writes, applies to nothing, and nothing says so.
+
+def appliesToNeeds = new File(ROOT, 'dist').listFiles().findAll { it.name.endsWith('.json') }.collectMany { f ->
+    def applies = new JsonSlurper().parse(f).appliesTo ?: ''
+    def needs = (applies =~ /hasCategory\("([^"]+)"\)/).collect { [module: f.name, category: it[1]] }
+    needs += (applies =~ /(pve\.[a-z0-9_.]+) (==|!=) "([^"]*)"/).collect { [module: f.name, property: it[1], op: it[2], value: it[3]] }
+    needs += (applies =~ /(?<![\w."])(pve\.[a-z0-9_.]+)(?![a-z0-9_.])(?! [!=]=)/).collect { it[1] }
+        .findAll { it != 'pve.guest.mac_prefix' }   // set by a user, not the NetScan
+        .collect { [module: f.name, property: it, op: 'present'] }
+    needs
+}
+def unmet = { Map planned ->
+    def written = planned.resources*.hostProps
+    appliesToNeeds.findAll { need ->
+        if (need.category) { return !written.any { (it['system.categories'] ?: '').tokenize(',').contains(need.category) } }
+        if (need.op == '==') { return !written.any { it[need.property] == need.value } }
+        return !written.any { it.containsKey(need.property) }
+    }
+}
+def fullPlan = plan(nsGuestBase + [props: nsGuestBase.props + ['pve.api.url': 'https://pve-vip.example.com:8006']])
+note('ns-appliesto', appliesToNeeds.size() >= 6 && unmet(fullPlan).isEmpty(),
+     "AppliesTo needs the NetScan never meets: ${unmet(fullPlan)} (of ${appliesToNeeds.size()})")
+// The check itself must be able to fail: with guests off, nothing is ProxmoxVE_Guest.
+note('ns-appliesto-sensitive', unmet(plan(nsBase + [props: nsBase.props + ['pve.api.url': 'https://pve-vip.example.com:8006']])).any { it.property == 'pve.guest.mac' },
+     'the AppliesTo cross-check could not see a missing guest property')
+
 // ------------------------------- scale: 16 nodes, 1,000 guests (A§3.9, Q6)
 //
 // The design's call budgets, asserted per script, so a change that adds an O(guests) or an
