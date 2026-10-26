@@ -107,9 +107,15 @@ def pveHostUrl = { String host ->
     return prefix + address + ':' + pveUrlPort()
 }
 
-// Every address the cluster API can be asked at, in order: pve.api.url, then pve.api.hosts.
+/*
+ * Every address the cluster API can be asked at, in order: on a node resource its own API
+ * first, then pve.api.url, then pve.api.hosts. A node answers for the cluster as it sees it,
+ * and the role check has just vouched for that view; pve.api.url may be the very node a
+ * standby is standing in for, whose view is stale.
+ */
 def pveApiBases = { ->
-    ([pveBaseUrl?.replaceAll('/+$', '')] +
+    def own = pveHostProp('pve.node') ? pveHostUrl(pveHostProp('system.hostname')) : null
+    ([own, pveBaseUrl?.replaceAll('/+$', '')] +
         pveHostProp('pve.api.hosts', '').tokenize(',').collect { pveHostUrl(it) })
         .findAll { it }.unique()
 }
@@ -630,10 +636,13 @@ def pveHealthScore = { List statusRows, Map stallByNode ->
  * cluster resource). Only one of the pair collects: the other prints nothing, so its
  * datapoints read No Data, which does not alert, and the pair never alerts twice.
  *
- * A node that has lost quorum never counts itself active, so a split cluster cannot have
- * two collecting resources. A standby takes over only with quorum, except in a two-node
- * cluster, which loses quorum whenever either node is down: there the active node has
- * stopped without quorum, so the standby collecting leaves one collector either way. Where its own view cannot be read, an active resource collects
+ * A node whose own corosync is not running never collects: its API still answers, but with
+ * frozen membership and a quorum flag that flips between polls, so its view cannot be
+ * trusted. Otherwise a node trusts its own view. With three nodes or more, a node without
+ * quorum never collects, so a split cluster has one collecting side. A two-node cluster
+ * loses quorum whenever either node is down, so there quorum is not required: the survivor
+ * of a lost peer collects. Only a two-node cluster split with both nodes up gets two
+ * collectors, which a QDevice (a third vote) prevents. Where its own view cannot be read, an active resource collects
  * anyway, so the failure surfaces as a failed collection; a standby stays quiet.
  */
 def pveAddressDown = { String host ->
@@ -645,6 +654,18 @@ def pveAddressDown = { String host ->
         return false
     } catch (IOException unreachable) {
         return true
+    }
+}
+
+// Whether this node's own corosync service is running: true, false, or null when its services
+// cannot be read (then the check is skipped rather than guessed).
+def pveCorosyncRunning = { ->
+    try {
+        def service = (pveNodeGet('/nodes/' + pveSelfNode() + '/services') ?: [])
+            .find { (it.name ?: it.service)?.toString() == 'corosync' }
+        service == null ? null : service.get('active-state')?.toString() == 'active'
+    } catch (Exception unreadable) {
+        null
     }
 }
 
@@ -660,15 +681,27 @@ def pveRole = { ->
             // A standalone host added by hand: no cluster, so it is the cluster.
             def standalone = !(pveGet('/cluster/status') ?: []).any { it.type?.toString() == 'cluster' }
             result = [collect: standalone, why: standalone ? 'standalone host' : 'no cluster role']
+        } else if (role == 'active' && pveHostProp('pve.node') == null) {
+            result = [collect: true, why: 'active cluster resource']
         } else if (role == 'active') {
-            def isNode = pveHostProp('pve.node') != null
-            def quorate = !isNode || pveQuorate(ownStatus())
-            result = [collect: quorate, why: quorate ? 'active' : 'active, but this node has no quorum']
+            def status = ownStatus()
+            def clustered = status.any { it.type?.toString() == 'cluster' }
+            if (clustered && pveCorosyncRunning() == false) {
+                result = [collect: false, why: 'active, but corosync is not running on this node']
+            } else {
+                def twoNode = status.count { it.type?.toString() == 'node' } == 2
+                def ok = pveQuorate(status) || twoNode
+                result = [collect: ok, why: ok ? 'active' : 'active, but this node has no quorum']
+            }
         } else if (role == 'standby' && active?.startsWith('address:')) {
             def down = pveAddressDown(active.substring('address:'.length()))
             result = [collect: down, why: down ? 'standby, cluster address down' : 'standby, cluster address answers']
         } else if (role == 'standby' && active) {
             def status = ownStatus()
+            if (pveCorosyncRunning() == false) {
+                pveRoleResult = [collect: false, why: 'standby, but corosync is not running on this node', role: role]
+                return pveRoleResult
+            }
             def row = status.find { it.type?.toString() == 'node' && it.name?.toString() == active }
             // A two-node cluster loses quorum whenever either node is down, so there the standby
             // takes over without it; the active node, without quorum, has already stopped.

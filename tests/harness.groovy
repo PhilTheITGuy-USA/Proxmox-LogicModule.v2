@@ -637,8 +637,31 @@ withFixtures(['/cluster/status': statusWith([online: 0], [:], 1)]) {
 // without quorum; the active node still stops without it (user, 2026-10-26).
 withFixtures(['/cluster/status': statusWith([online: 0], [:], 0)]) {
     note('role-two-node', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == true &&
-                          roleOf(nodeProps + ['pve.cluster.role': 'active'])?.collect == false,
-         'in a two-node cluster the standby did not take over, or the active node collected without quorum')
+                          roleOf(nodeProps + ['pve.cluster.role': 'active'])?.collect == true,
+         'in a two-node cluster a node without quorum did not collect (the other may simply be down)')
+}
+// A node whose own corosync is not running has a stale view -- frozen membership, a quorum
+// flag that flips between polls (lab, 2026-10-26) -- so it never collects, whatever it says.
+withFixtures(['/cluster/status': statusWith([:], [:], 1),
+              '/nodes/pve2/services': [[name: 'corosync', 'active-state': 'inactive']]]) {
+    note('role-corosync-down', roleOf(nodeProps + ['pve.cluster.role': 'active'])?.collect == false &&
+                               roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == false,
+         'a node whose corosync is down collected on its stale view')
+}
+withFixtures(['/cluster/status': statusWith([:], [:], 1),
+              '/nodes/pve2/services': [[name: 'corosync', 'active-state': 'active']]]) {
+    note('role-corosync-up', roleOf(nodeProps + ['pve.cluster.role': 'active'])?.collect == true,
+         'a node with corosync running did not collect')
+}
+// A node's cluster modules read from its own API first: a standby that has taken over must
+// report its own view, not the one at pve.api.url, which may be the stale node it replaces.
+withFixtures(['/cluster/status': statusWith([online: 0], [:], 1)]) {
+    server2Requests.clear()
+    def ownFirst = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Nodes.collect.groovy'),
+        [hostProps: hostProps + nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1',
+                                             'pve.api.url': 'http://127.0.0.1:' + server2.address.port]])
+    note('role-own-api-first', ownFirst.exit == 0 && !ownFirst.stdout.trim().isEmpty() && server2Requests.isEmpty(),
+         "a node read through pve.api.url instead of its own API: ${ownFirst.exit} / ${server2Requests}")
 }
 // Three nodes or more: a standby without quorum waits, since the majority side may still collect.
 def threeNodes = { Map pve1, Integer quorate -> statusWith(pve1, [:], quorate) + [[type: 'node', name: 'pve3', nodeid: 3, online: 1, ip: '10.0.0.3']] }

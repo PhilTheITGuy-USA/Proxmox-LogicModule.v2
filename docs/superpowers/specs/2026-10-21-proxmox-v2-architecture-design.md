@@ -85,7 +85,10 @@ weak point removed.
 **How a standby knows to take over.** Every cluster module begins with one preamble check
 (§3.8), using the properties the NetScan writes (NetScan spec §5.1):
 
-- on the **active** resource: collect;
+- on the **active cluster resource** (a cluster address): collect;
+- on an **active node**: collect if its own corosync is running and it is quorate **or the
+  cluster has two nodes** (user, 2026-10-26: the survivor of a lost peer in a two-node cluster
+  has no quorum, and must still report);
 - on a **standby node** behind an active node: collect only if `/cluster/status` reports the
   active node offline, and the standby is quorate **or the cluster has two nodes** (user,
   2026-10-26). A two-node cluster loses quorum whenever either node is down, so requiring quorum
@@ -99,6 +102,23 @@ weak point removed.
   `InetAddress.isReachable`, a real ICMP echo only where the Collector has the privilege for one
   and a TCP echo otherwise [inferred], so the install guide requires the address to answer both
   ping and 8006.
+
+- on **any node whose own corosync is not running** (its `/nodes/<self>/services`): never
+  collect (user, 2026-10-26). S8 showed why: with corosync stopped on Node-A, its API kept
+  answering with frozen membership (every node online) and a quorum flag that flipped between
+  0 and 1 from poll to poll, so the active node kept collecting beside the standby. One more call,
+  to the node itself; where the services cannot be read the check is skipped, not guessed;
+- **a node's cluster modules read from that node's own API first,** then `pve.api.url` and
+  `pve.api.hosts` (user, 2026-10-26): a standby that has taken over must report its own view, not
+  the stale one at `pve.api.url`, which in S8 was the very node it stood in for.
+
+Options weighed for the stale view (2026-10-26): asking the standby to confirm the active node is
+online (trusts another node's view, itself stale if that node's corosync is down; one more call to
+another node); a majority vote of every node (one call per node per check); letting the NetScan
+move the role (up to an hour without cluster alerts, and the instances move). Checking the node's
+own corosync was chosen: stale views come from exactly that, it needs no other node, and its one
+gap is shared by every option -- a two-node cluster whose nodes cannot reach each other at all gets
+two collectors, which a QDevice prevents.
 
 Otherwise the module prints nothing and exits 0, so its datapoints read No Data. No Data does not
 alert by default, so the pair never alerts twice. A node that is not quorate never counts itself
