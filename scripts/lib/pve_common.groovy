@@ -6,11 +6,14 @@
  * body, so the assembled script that ships inside the module JSON is self-contained.
  * Edit helpers here once rather than in each body.
  *
+ * Properties are read from netscanProps when the script runs as a NetScan, else from
+ * hostProps, so the same helpers serve modules and the NetScan alike.
+ *
  * Resource properties consumed:
  *   pve.api.url       Base URL, e.g. https://pve.example.com:8006
  *                     Defaults to https://<system.hostname>:<pve.api.port> when unset.
  *   pve.api.port      Default 8006. Only used to build the fallback URL.
- *   pve.api.token.credential     Full token string: user@realm!tokenid=secret
+ *   pve.token.credential  Full token string: user@realm!tokenid=secret
  *   pve.api.timeout   Connect and read timeout in ms. Default 10000.
  *   pve.api.insecure  "true" to accept self-signed certificates. Lab use only.
  */
@@ -25,8 +28,11 @@ import java.security.cert.X509Certificate
 
 // ---------------------------------------------------------------- properties
 
+def pveProps = binding.hasVariable('netscanProps') ? netscanProps
+             : binding.hasVariable('hostProps') ? hostProps : [:]
+
 def pveHostProp = { String key, String fallback = null ->
-    def value = hostProps.get(key)
+    def value = pveProps.get(key)
     (value == null || value.toString().trim().isEmpty()) ? fallback : value.toString().trim()
 }
 
@@ -59,14 +65,14 @@ if (!pveBaseUrl) {
         pveBaseUrl = 'https://' + hostname + ':' + pveHostProp('pve.api.port', '8006')
     }
 }
-def pveToken = pveHostProp('pve.api.token.credential')
+def pveToken = pveHostProp('pve.token.credential')
 def pveTimeout = pveHostProp('pve.api.timeout', '10000') as int
 
 def pveConfigError = null
 if (!pveBaseUrl) {
     pveConfigError = 'Cannot determine the Proxmox API URL: set pve.api.url, or ensure system.hostname resolves.'
 } else if (!pveToken) {
-    pveConfigError = 'Missing pve.api.token.credential. Expected the full token string: user@realm!tokenid=secret'
+    pveConfigError = 'Missing pve.token.credential. Expected the full token string: user@realm!tokenid=secret'
 }
 
 if (pveHostProp('pve.api.insecure', 'false').toBoolean()) {

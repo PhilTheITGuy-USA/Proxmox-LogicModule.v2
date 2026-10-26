@@ -113,7 +113,7 @@ def runScript = { File file, Map bindings ->
 def hostProps = [
     'system.hostname': '127.0.0.1',
     'pve.api.url'    : baseUrl,
-    'pve.api.token.credential'  : TOKEN,
+    'pve.token.credential'  : TOKEN,
     'pve.api.timeout': '5000',
 ]
 
@@ -300,7 +300,7 @@ note('api-down', dead.stdout.trim().isEmpty(), 'emitted datapoints while the API
 note('api-down', dead.stderr.toLowerCase().contains('failed'), 'did not explain the failure on stderr')
 
 // A rejected token must read as a permissions problem, not as an empty cluster.
-def badAuth = runScript(guestAdFile, [hostProps: hostProps + ['pve.api.token.credential': 'wrong@pam!bad=nope']])
+def badAuth = runScript(guestAdFile, [hostProps: hostProps + ['pve.token.credential': 'wrong@pam!bad=nope']])
 note('api-auth', badAuth.exit == 2, "expected exit 2 on HTTP 401, got ${badAuth.exit}")
 note('api-auth', badAuth.stderr.contains('token'), 'did not mention the token on stderr')
 
@@ -308,7 +308,7 @@ note('api-auth', badAuth.stderr.contains('token'), 'did not mention the token on
 def unconfigured = runScript(new File(scriptsDir, 'Proxmox_VE_Nodes.collect.groovy'),
                              [hostProps: ['system.hostname': 'pve.example.com']])
 note('unconfigured', unconfigured.exit == 2, "expected exit 2 with no token, got ${unconfigured.exit}")
-note('unconfigured', unconfigured.stderr.contains('pve.api.token.credential'),
+note('unconfigured', unconfigured.stderr.contains('pve.token.credential'),
      'did not name the missing property on stderr')
 
 // ------------------------------------------------------------ PropertySource
@@ -571,6 +571,17 @@ def runSource = { String source, Map bindings ->
 }
 
 def preamble = new File(ROOT, 'scripts/lib/pve_common.groovy').text
+
+// v1's property must not configure v2: a resource carrying only it is unconfigured.
+def v1Only = runScript(new File(scriptsDir, 'Proxmox_VE_Nodes.collect.groovy'),
+    [hostProps: ['pve.api.url': baseUrl, 'pve.api.token.credential': TOKEN]])
+note('token-v2', v1Only.exit == 2 && v1Only.stderr.contains('pve.token.credential'),
+     "v1's token property configured a v2 module: ${v1Only.exit} / ${v1Only.stderr}")
+// A NetScan has netscanProps and no hostProps; the preamble must load there.
+def nsProps = runSource(preamble + '\nreturn [pveToken, pveHostProp("pve.api.url")]',
+    [netscanProps: ['pve.api.url': baseUrl, 'pve.token.credential': TOKEN]])
+note('props-netscan', nsProps.thrown == null && nsProps.exit == [TOKEN, baseUrl],
+     "preamble under netscanProps gave ${nsProps.exit} / ${nsProps.thrown}")
 def helpers = runSource(preamble + """
 return [
     cluster : pveTopoKey('pve-cluster', null),
