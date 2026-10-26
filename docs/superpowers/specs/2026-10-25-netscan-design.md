@@ -222,8 +222,8 @@ needs its place on the map and its down state):
 
 ## 6. Deduplication
 
-**Why it matters more here than for VMware:** v1 users already have every node as a resource
-(v1 INSTALL §3.3), and often guests over SNMP or WMI. A duplicate costs a host unit.
+**Why it matters:** a portal often monitors Proxmox nodes and guests already, over SNMP, SSH or
+WMI, before the suite is installed. A duplicate costs a host unit.
 
 As VMware's, through the `lm.api` snippet [vmware]:
 
@@ -250,15 +250,13 @@ As VMware's, through the `lm.api` snippet [vmware]:
   resource, but proposed adding `automation01`, the reverse-DNS name of `192.0.2.44`, beside the
   existing `192.0.2.44` resource [S2, dry run 2026-10-25]. So this script's own match resolves
   both sides to addresses, and §5.3 no longer swaps an IP for its DNS name by default.
-- **Upgrading from v1 means `hostname.source=lm`,** so the existing node resources and SNMP guests
-  are adopted, and the install guide says so. LogicMonitor's exclusion above skips a match; it
-  does not update it, so adoption has to come from the script or from the NetScan's "Criteria for
-  updating existing resources" (default "Resources discovered by this NetScan") [unverified, S3].
-  An adopted v1 node keeps v1's `pve.api.token.credential` until it is deleted by hand, and with
-  it v1's modules: the install guide says to delete it.
+- **Adopting resources that already exist** (a node or guest monitored over SNMP) is
+  `hostname.source=lm`. LogicMonitor's exclusion above skips a match; it does not update it, so
+  adoption has to come from the script or from the NetScan's "Criteria for updating existing
+  resources" (default "Resources discovered by this NetScan") [unverified, S3].
 - **Adoption and `system.categories`:** VMware writes `system.categories` outright [vmware].
-  Whether that replaces an adopted device's categories (dropping v1's `ProxmoxVE`, and anything
-  else) or merges is [unverified, S3]. If it replaces, the run emits the union of the device's
+  Whether that replaces an adopted device's categories (dropping whatever its own modules set) or
+  merges is [unverified, S3]. If it replaces, the run emits the union of the device's
   categories and the role's, which needs the device listing to carry its properties
   [unverified, S3].
 

@@ -57,7 +57,9 @@ v2's token property is **`pve.token.credential`**, never v1's `pve.api.token.cre
   article (user, 2026-10-25): Technology Type, Compatibility, Setup Requirements, Add Resources
   (numbered NetScan steps with `Property | Value | Example | Required` tables), Manually Assigning
   Properties, Considerations, Troubleshooting, NetScan Troubleshooting, LogicModules in Package
-  (`Display Name | Type | Description | Replaces`), Migration from Legacy Modules. Keep that
+  (`Display Name | Type | Description | Replaces`). LogicMonitor's "Migration from Legacy
+  Modules" section is left out: no one runs either version, so there is no migration (user,
+  2026-10-25). Keep that
   outline, write the wording ourselves, and keep it in step with the specs; *(not yet verified)*
   marks design intent no lab run has confirmed.
 

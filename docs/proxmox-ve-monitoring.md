@@ -316,64 +316,45 @@ and the run reports it.
 
 ## Proxmox VE LogicModules in Package
 
-Proxmox VE modules are organised by the resource role they apply to.
+Proxmox VE modules are organised by the resource role they apply to. This is the first release,
+so no module replaces another.
 
 **Proxmox VE Cluster modules** (apply on `ProxmoxVE_Cluster`; only the active resource collects)
 
 | Display Name | Type | Description | Replaces |
 |---|---|---|---|
-| Proxmox VE Cluster Status | DataSource | Quorum, HA manager health, migrations, nodes online and a cluster health score | `Proxmox_VE_Cluster` (v1) |
-| Proxmox VE Cluster Nodes | DataSource | Each node's online state, seen from the cluster | `Proxmox_VE_Nodes` (v1), in part |
-| Proxmox VE Guest Status | DataSource | Power state, lock and HA state of every VM and container | `Proxmox_VE_GuestStatus` (v1) |
-| Proxmox VE Guest Performance | DataSource | CPU, memory, network and disk of every VM and container | `Proxmox_VE_GuestPerformance` (v1) |
-| Proxmox VE Storage Capacity | DataSource | Capacity and availability of every storage, per node | `Proxmox_VE_StorageCapacity` (v1) |
-| Proxmox VE Ceph | DataSource | Ceph health, placement groups and capacity | `Proxmox_VE_Ceph` (v1) |
-| Proxmox VE Ceph OSD | DataSource | Each OSD's state, fill level and latency | `Proxmox_VE_CephOSD` (v1) |
-| Proxmox VE Backups | DataSource | Backup jobs, each guest's last backup, unprotected guests | `Proxmox_VE_Backups` (v1) |
-| Proxmox VE Snapshots | DataSource | Snapshot count and age per guest, hourly | `Proxmox_VE_Snapshots` (v1) |
-| Proxmox VE Topology | TopologySource | Cluster to node, node to guest | `Proxmox_VE_Topology` (v1) |
+| Proxmox VE Cluster Status | DataSource | Quorum, HA manager health, migrations, nodes online and a cluster health score | — |
+| Proxmox VE Cluster Nodes | DataSource | Each node's online state, seen from the cluster | — |
+| Proxmox VE Guest Status | DataSource | Power state, lock and HA state of every VM and container | — |
+| Proxmox VE Guest Performance | DataSource | CPU, memory, network and disk of every VM and container | — |
+| Proxmox VE Storage Capacity | DataSource | Capacity and availability of every storage, per node | — |
+| Proxmox VE Ceph | DataSource | Ceph health, placement groups and capacity | — |
+| Proxmox VE Ceph OSD | DataSource | Each OSD's state, fill level and latency | — |
+| Proxmox VE Backups | DataSource | Backup jobs, each guest's last backup, unprotected guests | — |
+| Proxmox VE Snapshots | DataSource | Snapshot count and age per guest, hourly | — |
+| Proxmox VE Topology | TopologySource | Cluster to node, node to guest | — |
 
 **Proxmox VE Node modules** (apply on `ProxmoxVE_Node`)
 
 | Display Name | Type | Description | Replaces |
 |---|---|---|---|
-| Proxmox VE Node Detail | DataSource | CPU, memory, uptime, load, swap, root filesystem, CPU/IO/memory pressure, and the node's view of quorum | `Proxmox_VE_NodeDetail`, `Proxmox_VE_Nodes` (v1), in part |
-| Proxmox VE Node Disks | DataSource | SMART health, size and SSD wear of each disk | `Proxmox_VE_Disks` (v1) |
-| Proxmox VE Node Services | DataSource | State of the Proxmox-managed systemd services | `Proxmox_VE_NodeServices` (v1) |
-| Proxmox VE Node Certificates | DataSource | TLS certificate expiry | `Proxmox_VE_Certificates` (v1) |
-| Proxmox VE Node Subscription | DataSource | Subscription status and renewal date | `Proxmox_VE_Subscription` (v1) |
-| Proxmox VE Node Replication | DataSource | Replication job failures, staleness and duration | `Proxmox_VE_Replication` (v1) |
+| Proxmox VE Node Detail | DataSource | CPU, memory, uptime, load, swap, root filesystem, CPU/IO/memory pressure, and the node's view of quorum | — |
+| Proxmox VE Node Disks | DataSource | SMART health, size and SSD wear of each disk | — |
+| Proxmox VE Node Services | DataSource | State of the Proxmox-managed systemd services | — |
+| Proxmox VE Node Certificates | DataSource | TLS certificate expiry | — |
+| Proxmox VE Node Subscription | DataSource | Subscription status and renewal date | — |
+| Proxmox VE Node Replication | DataSource | Replication job failures, staleness and duration | — |
 
 **Proxmox VE PropertySources and NetScan**
 
 | Display Name | Type | Description | Replaces |
 |---|---|---|---|
-| `Proxmox_VE_Info` | PropertySource | Proxmox version, release and cluster membership; sets no category | `addCategory_Proxmox_VE` (v1), in part |
-| `addERI_Proxmox_VE_Node` | PropertySource (ERI) | The node's topology identity | `addERI_Proxmox_VE` (v1) |
-| `addERI_Proxmox_VE_GuestResource` | PropertySource (ERI) | Links a guest resource to its vertex on the map | `addERI_Proxmox_VE_Guest` (v1) |
-| `Proxmox_VE_NetScan.groovy` | Enhanced Script NetScan | Creates, groups and updates the cluster, node and guest resources | v1's manual setup |
+| `Proxmox_VE_Info` | PropertySource | Proxmox version, release and cluster membership; sets no category | — |
+| `addERI_Proxmox_VE_Node` | PropertySource (ERI) | The node's topology identity | — |
+| `addERI_Proxmox_VE_GuestResource` | PropertySource (ERI) | Links a guest resource to its vertex on the map | — |
+| `Proxmox_VE_NetScan.groovy` | Enhanced Script NetScan | Creates, groups and updates the cluster, node and guest resources | — |
 
 **Note:** Guest resources get no Proxmox API module. Monitor what runs inside a guest (SNMP, WMI,
 SSH) as for any resource; its hypervisor metrics stay with the cluster modules.
 
 **Recommendation:** Import the dashboards after the modules, so every widget finds its module.
-
-## Migration from Legacy Modules
-
-v2 is a separate package: it needs no v1 module installed and changes none. Its modules and its
-token property, `pve.token.credential`, have names v1 does not use, so v1 and v2 can run side by
-side while you move over, and v1 never applies itself to a resource v2 creates.
-
-Moving from v1 does not convert anything. Guest instances keep their identifiers, but v1's
-history stays on v1's resource and does not move to the cluster resource. v1 remains readable
-until you delete it.
-
-**Recommendation:**
-
-1. Install v2 and run its NetScan with `hostname.source=lm`, so the node resources v1 already has
-   are adopted rather than duplicated *(not yet verified)*.
-2. Check the new dashboards.
-3. Delete `pve.api.token.credential` from the adopted nodes. That property is what applies v1.
-4. Disable, then delete, v1's modules.
-
-Run both only briefly: both poll the same API.

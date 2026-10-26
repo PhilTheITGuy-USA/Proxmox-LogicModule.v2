@@ -150,7 +150,7 @@ modules rewritten without their fan-out.
 
 **Module names are new** (user ruling, 2026-10-24), split by role as VMware splits `VMware_vSphere_*`
 from `VMware_ESXi_*`: `Proxmox_VE_Cluster_*` and `Proxmox_VE_Node_*`. None collides with a v1 name,
-so v1 and v2 can be imported side by side (§3.5). **v2 is standalone** (user, 2026-10-25): it
+so v1 and v2 can be imported into one portal, as the lab's is (§3.5). **v2 is standalone** (user, 2026-10-25): it
 neither needs v1 installed nor changes it. Every v2 module starts as a copy, in this repository,
 of a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 
@@ -262,31 +262,19 @@ documents "Manually Assigning Properties to Resources".
   the map keeps one cluster vertex. After a takeover the key moves at the standby's next
   discovery. How the map draws the hour in between is [unverified, S8].
 
-### 3.5 Upgrade from v1
+### 3.5 No migration from v1
 
-Moving from instances to resources does not convert anything, and LogicMonitor says the same of
-its own VMware migration. The rules:
+**There is no migration path, by design** (user, 2026-10-25): neither version has any users, so
+v2 is installed fresh and nothing converts v1's instances, history or properties.
 
-- **v2 needs no v1** (user, 2026-10-25): a fresh install is v2 alone, and nothing below applies.
-- Run v1 and v2 side by side only briefly, because both poll the same API. The new names (§3.2)
-  keep the two from replacing each other on import. **Categories alone would not keep v1 off v2's
-  resources:** v1's `addCategory_Proxmox_VE` applies on `true()` and tags any resource holding
-  `pve.api.token.credential` with `ProxmoxVE`, which applies all of v1 [v1, `pve_common.groovy`
-  62–69; found 2026-10-25]. v2's token is therefore **`pve.token.credential`** (user, 2026-10-25),
-  which v1 never reads, so v1 does not apply to a resource v2 created. A v1 node v2 adopts (NetScan
-  spec §6) still holds v1's property and v1's modules until that property is deleted, which ends
-  the overlap for that node.
-- While both run, the cluster key `proxmoxve--<cluster>` sits on two instances (v1's
-  `Proxmox_VE_Cluster` and v2's `Proxmox_VE_Cluster_Status`), and v1's `addERI_Proxmox_VE` and
-  v2's `addERI_Proxmox_VE_Node` stamp the same node key. Same keys, so the node ERIs merge
-  harmlessly; the doubled cluster key is a multi-match whose drawing is untested, which is one
-  more reason to keep the overlap short.
-- Then delete v1's token property from the adopted nodes and disable v1's modules. v1 instance
-  history stays readable until v1 is deleted. No module is shared, so removing v1 removes nothing
-  v2 uses.
-
-The v1 guest wildvalues carry over unchanged to the cluster role's resources. History does not, because
-the instances live on a different resource. This is stated once, in the install guide.
+One consequence remains, for testing only: the lab portal runs v1. v2's token property is
+`pve.token.credential`, never v1's `pve.api.token.credential`, because v1's
+`addCategory_Proxmox_VE` applies on `true()` and tags any resource holding v1's property with
+`ProxmoxVE`, which applies all of v1 to it [v1, `pve_common.groovy` 62–69]. The new module names
+(§3.2) keep the two from replacing each other on import. With both in one portal, the cluster key
+`proxmoxve--<cluster>` sits on a v1 and a v2 instance, and both node ERI modules stamp the same
+node key; the node keys merge, and the doubled cluster key's drawing is untested, which matters
+only in the lab.
 
 ### 3.6 When a guest should be a resource
 
