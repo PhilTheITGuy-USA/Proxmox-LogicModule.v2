@@ -37,8 +37,7 @@ import com.santaba.agent.groovy.utils.GroovyScriptHelper as GSH
 import com.logicmonitor.mod.Snippets
 
 try {
-    def mac = pveGuestMacMatch(pveHostProp('auto.network.mac_address'),
-        pveHostProp('pve.guest.mac_prefix'))
+    def mac = pveGuestEriMac()
     if (!mac) {
         return 0
     }

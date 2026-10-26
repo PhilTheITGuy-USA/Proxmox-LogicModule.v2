@@ -295,7 +295,9 @@ def pveTopoNodeName = { ->
     // An address is never a node name: pvecm status lists members by corosync address, and
     // an address copied into pve.topology.node would key the node as "192".
     def isName = { String value -> value && !(value.trim() ==~ /\d{1,3}(\.\d{1,3}){3}/) && !value.contains(':') }
-    def node = pveHostProp('pve.topology.node')
+    // pve.node is what the NetScan writes; pve.topology.node is the hand-set fallback.
+    def node = pveHostProp('pve.node')
+    if (!isName(node)) { node = pveHostProp('pve.topology.node') }
     if (!isName(node)) {
         def hostname = ['system.sysname', 'system.hostname']
             .collect { pveHostProp(it) }
@@ -410,6 +412,18 @@ def pveGuestMacMatch = { String mac, String prefixProperty ->
     if (prefixes.isEmpty()) { prefixes = ['bc:24:11'] }
     def normalised = mac.trim().toLowerCase()
     return prefixes.any { normalised.startsWith(it) } ? normalised : null
+}
+
+/*
+ * The MAC a guest resource is keyed by. A guest the NetScan created carries the MAC of its
+ * first Proxmox NIC as pve.guest.mac, which proves it is a Proxmox guest whatever its MAC
+ * looks like; otherwise the MAC in-guest monitoring reported, if it has Proxmox's prefix
+ * (or one set in pve.guest.mac_prefix).
+ */
+def pveGuestEriMac = { ->
+    def own = pveHostProp('pve.guest.mac')
+    if (own) { return own.toLowerCase() }
+    pveGuestMacMatch(pveHostProp('auto.network.mac_address'), pveHostProp('pve.guest.mac_prefix'))
 }
 
 /*

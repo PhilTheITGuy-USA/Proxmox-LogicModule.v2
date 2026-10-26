@@ -82,20 +82,20 @@ def build() -> Dashboard:
     # --------------------------------------------------- rows 7-12: node detail
 
     d.graph(7, 1, 4, 3, "Node CPU Utilisation",
-            [d.series(NODE_DETAIL, "CPUUsagePercent", display="area")], "%")
+            [d.series(NODE_DETAIL, "CPUUsagePercent", display="area", legend="##HOSTNAME##")], "%")
     d.graph(7, 5, 4, 3, "Node Memory Utilisation",
-            [d.series(NODE_DETAIL, "MemoryUsagePercent", display="area")], "%")
+            [d.series(NODE_DETAIL, "MemoryUsagePercent", display="area", legend="##HOSTNAME##")], "%")
     d.graph(7, 9, 4, 3, "Node Load Per Core",
-            [d.series(NODE_DETAIL, "LoadPerCore")], "#", maximum="NaN",
+            [d.series(NODE_DETAIL, "LoadPerCore", legend="##HOSTNAME##")], "#", maximum="NaN",
             description="Load average normalised by core count, which is the form that "
                         "compares across differently sized nodes.")
 
     d.graph(10, 1, 4, 3, "Node IO Wait",
-            [d.series(NODE_DETAIL, "IOWaitPercent", display="area")], "%")
+            [d.series(NODE_DETAIL, "IOWaitPercent", display="area", legend="##HOSTNAME##")], "%")
     d.graph(10, 5, 4, 3, "Node Root Filesystem Used",
-            [d.series(NODE_DETAIL, "RootFSUsedPercent", display="area")], "%")
+            [d.series(NODE_DETAIL, "RootFSUsedPercent", display="area", legend="##HOSTNAME##")], "%")
     d.graph(10, 9, 4, 3, "Node Swap Used",
-            [d.series(NODE_DETAIL, "SwapUsagePercent", display="area")], "%")
+            [d.series(NODE_DETAIL, "SwapUsagePercent", display="area", legend="##HOSTNAME##")], "%")
 
     # ------------------------------------------------------- rows 13-18: guests
 

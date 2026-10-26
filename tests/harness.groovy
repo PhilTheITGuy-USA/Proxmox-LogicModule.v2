@@ -828,6 +828,9 @@ note('topo-identity', identityOf(clusterProp + ['system.sysname': 'pve3',
 note('topo-identity', identityOf(clusterProp + ['pve.topology.node': 'pve4',
                                                 'system.sysname': 'pve3'])?.node == 'pve4',
      'pve.topology.node did not override the derived name')
+// The NetScan writes pve.node; it names the node even on a resource added by its address.
+note('topo-identity', identityOf(clusterProp + ['pve.node': 'pve7', 'system.hostname': '10.0.0.7'])?.node == 'pve7',
+     'pve.node did not name the node')
 // An address names nothing. Guessing would stamp a key that matches no vertex.
 note('topo-identity', identityOf(clusterProp + ['system.hostname': '10.0.0.12']) == null,
      'an IPv4 address was taken as a node name')
@@ -1003,8 +1006,16 @@ note('addERI', eriScript.contains('pveTopoNodeIdentity()') &&
 def guestEriScript = new File(ROOT, 'scripts/addERI_Proxmox_VE_GuestResource.groovy').text
 def guestEriDefn = new JsonSlurper().parse(new File(ROOT, 'modules/addERI_Proxmox_VE_GuestResource.json'))
 
-note('addERI-guest', guestEriScript.contains('pveGuestMacMatch('),
-     'the guest ERI PropertySource matches the MAC without pveGuestMacMatch')
+note('addERI-guest', guestEriScript.contains('pveGuestEriMac('),
+     'the guest ERI PropertySource does not take its MAC from pveGuestEriMac')
+// A guest the NetScan created carries its Proxmox MAC as pve.guest.mac; that wins over
+// whatever MAC in-guest monitoring reported, and needs no prefix test.
+def eriMac = { Map props -> runSource(preamble + '\nreturn pveGuestEriMac()', [hostProps: props]).exit }
+note('guest-eri-mac', eriMac(['pve.guest.mac': 'BC:24:11:AA:BB:CC', 'auto.network.mac_address': 'bc:24:11:00:00:01']) == 'bc:24:11:aa:bb:cc' &&
+                      eriMac(['pve.guest.mac': '52:54:00:12:34:56']) == '52:54:00:12:34:56' &&
+                      eriMac(['auto.network.mac_address': 'bc:24:11:00:00:01']) == 'bc:24:11:00:00:01' &&
+                      eriMac(['auto.network.mac_address': '00:50:56:00:00:01']) == null,
+     'pveGuestEriMac did not prefer pve.guest.mac, or matched a non-Proxmox MAC')
 note('addERI-guest', guestEriScript.contains("lmtopo.emitEri('virt.proxmoxve', 3,") &&
                      guestEriScript.contains("'VirtualMachineResource'") &&
                      guestEriScript.contains('lmtopo.printEriArray('),
@@ -1015,9 +1026,9 @@ note('addERI-guest', !guestEriScript.contains('rawERIs'),
 // make the module a no-op on every resource it applies to.
 note('addERI-guest', !guestEriScript.contains('if (pveConfigError) {'),
      'the guest ERI PropertySource returns on pveConfigError, which every guest sets')
-note('addERI-guest', guestEriScript.contains("pveHostProp('auto.network.mac_address')") &&
-                     guestEriScript.contains("pveHostProp('pve.guest.mac_prefix')"),
-     'the guest ERI PropertySource does not read the MAC and the prefix override')
+note('addERI-guest', preamble.contains("pveHostProp('auto.network.mac_address')") &&
+                     preamble.contains("pveHostProp('pve.guest.mac_prefix')"),
+     'pveGuestEriMac does not read the MAC and the prefix override')
 note('addERI-guest', guestEriDefn.appliesTo ==
          'pve.guest.mac || ((auto.network.mac_address =~ "^[bB][cC]:24:11" || pve.guest.mac_prefix) && ' +
          '(isLinux() || isWindows()))',
