@@ -142,9 +142,19 @@ the standby exists for.
 - **Adding an address later:** the next NetScan run creates the cluster resource as active,
   turns the active node into the standby, and sets the old standby's role to `none`. New data
   lands on the cluster resource; the old active node keeps its history, now as the standby.
-- **Not yet seen:** a standby taking over when the active resource is shut down, and whether the
-  standby's open alerts clear when it goes quiet again (spike S8, §5). If they stay open, a
-  standby sends its "all clear" values once before going quiet.
+- **The hand-back** (user, 2026-10-26, after S8). S8 showed a standby's alerts do **not** clear
+  when it goes quiet -- No Data never clears an alert -- so a standby that has been collecting
+  collects **once more** after the resource ahead of it returns, and its healthy values clear what
+  it raised. It remembers that it was collecting through the Collector's `lm.cache` (`cacheSet`,
+  `cacheGet`, `cacheRemove`), which keeps a value between runs (S7, Collector debug console,
+  2026-10-26); each cluster module keeps its own record, under its own name, for two hours,
+  renewed on each poll it stands in. Where `lm.cache` cannot be loaded the hand-back is skipped.
+- **S8, on the lab (2026-10-26):** with corosync stopped on Node-A at 14:32, Node-A's
+  cluster modules read No Data on every poll and Node-B's collected on every poll with its own
+  view (`NodesOnline 1`, `NodesOffline 1`, `Quorate 0`); after corosync returned at 14:56 the role
+  went back. During the takeover Node-B no longer saw Node-A's guests as running
+  (`GuestsRunning` 8 -> 1): from the surviving side, Proxmox reports the other node's guests as
+  unknown, which Guest Status shows as not running (it ships without a threshold, so nothing pages).
 
 **The role is a property, not a category** (user, 2026-10-25, after S5). Spike S5 showed that a NetScan re-run
 overwrites a property's value but never removes a category it stopped sending (NetScan spec §10),

@@ -669,8 +669,59 @@ def pveCorosyncRunning = { ->
     }
 }
 
+/*
+ * State a module keeps between its runs on one Collector: lm.cache there, a map the harness
+ * binds as pveTestState here, nothing where neither exists (then the hand-back below is
+ * skipped). Loaded by reflection, so the preamble still runs where the snippet classes do not.
+ */
+def pveStateStore = null
+def pveState = { ->
+    if (pveStateStore != null) { return pveStateStore }
+    if (binding.hasVariable('pveTestState')) {
+        def map = pveTestState
+        pveStateStore = [read: { String k -> map[k] }, write: { String k, String v, int ttl -> map[k] = v },
+                         drop: { String k -> map.remove(k) }]
+        return pveStateStore
+    }
+    try {
+        def snippets = Class.forName('com.logicmonitor.mod.Snippets')
+        def helper = Class.forName('com.santaba.agent.groovy.utils.GroovyScriptHelper')
+        def loader = helper.getInstance(GroovySystem.version).getScript('Snippets', snippets.getLoader()).withBinding(getBinding())
+        def quiet = new PrintStream(new ByteArrayOutputStream())
+        def lmDebug = loader.load('lm.debug', '1').debugSnippetFactory(quiet, false, false, 'proxmox-ve')
+        def cache = loader.load('lm.cache', '0').cacheSnippetFactory(lmDebug, 'proxmox-ve')
+        pveStateStore = [read: { String k -> cache.cacheGet(k) }, write: { String k, String v, int ttl -> cache.cacheSet(k, v, ttl) },
+                         drop: { String k -> cache.cacheRemove(k) }]
+    } catch (Throwable unavailable) {
+        pveStateStore = [read: { String k -> null }, write: { String k, String v, int ttl -> }, drop: { String k -> }]
+    }
+    return pveStateStore
+}
+
+/*
+ * The hand-back. Alerts a standby raised while standing in do not clear when it goes quiet --
+ * No Data never clears an alert -- so a standby that was collecting collects once more after
+ * the resource ahead of it returns: its healthy values clear those alerts. Each module keeps
+ * its own record, under its own label, for two hours, renewed on every poll it stands in.
+ */
+def pveHandBack = { String label, Map result ->
+    if (!label) { return result }
+    def key = 'handback:' + (pveHostProp('pve.cluster') ?: '') + ':' +
+              (pveHostProp('pve.node') ?: pveHostProp('system.hostname') ?: '') + ':' + label
+    def state = pveState()
+    if (result.collect) {
+        state.write(key, 'collecting', 7200)
+        return result
+    }
+    if (state.read(key)) {
+        state.drop(key)
+        return result + [collect: true, why: result.why + '; hand-back: one more poll to clear its alerts']
+    }
+    return result
+}
+
 def pveRoleResult = null
-def pveRole = { ->
+def pveRole = { String label = null ->
     if (pveRoleResult != null) { return pveRoleResult }
     def role = pveHostProp('pve.cluster.role')
     def active = pveHostProp('pve.cluster.active')
@@ -695,7 +746,7 @@ def pveRole = { ->
             }
         } else if (role == 'standby' && active?.startsWith('address:')) {
             def down = pveAddressDown(active.substring('address:'.length()))
-            result = [collect: down, why: down ? 'standby, cluster address down' : 'standby, cluster address answers']
+            result = pveHandBack(label, [collect: down, why: down ? 'standby, cluster address down' : 'standby, cluster address answers'])
         } else if (role == 'standby' && active) {
             def status = ownStatus()
             if (pveCorosyncRunning() == false) {
@@ -707,7 +758,7 @@ def pveRole = { ->
             // takes over without it; the active node, without quorum, has already stopped.
             def twoNode = status.count { it.type?.toString() == 'node' } == 2
             def takeOver = (pveQuorate(status) || twoNode) && (row == null || row.online?.toString() != '1')
-            result = [collect: takeOver, why: takeOver ? 'standby, ' + active + ' is offline' : 'standby, ' + active + ' is collecting']
+            result = pveHandBack(label, [collect: takeOver, why: takeOver ? 'standby, ' + active + ' is offline' : 'standby, ' + active + ' is collecting'])
         } else {
             result = [collect: false, why: 'no cluster role']
         }

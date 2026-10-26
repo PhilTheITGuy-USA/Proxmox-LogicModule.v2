@@ -10,7 +10,7 @@ if (pveConfigError) {
     return 2
 }
 // Only the resource that holds the cluster role now collects; the other prints nothing.
-if (!pveRole().collect) {
+if (!pveRole('Proxmox_VE_Cluster_GuestPerformance').collect) {
     return 0
 }
 

@@ -663,6 +663,28 @@ withFixtures(['/cluster/status': statusWith([online: 0], [:], 1)]) {
     note('role-own-api-first', ownFirst.exit == 0 && !ownFirst.stdout.trim().isEmpty() && server2Requests.isEmpty(),
          "a node read through pve.api.url instead of its own API: ${ownFirst.exit} / ${server2Requests}")
 }
+// Hand-back (user, 2026-10-26; S8): alerts a standby raised while standing in do not clear when
+// it goes quiet, so after the active node returns it collects once more -- healthy values clear
+// them -- then stops. It remembers that it was collecting between runs, through lm.cache on a
+// Collector and a plain map here.
+def state = [:]
+def roleWithState = { Map props, String label ->
+    runSource(preamble + '\nreturn pveRole(label)', [hostProps: hostProps + props, label: label, pveTestState: state]).exit
+}
+def standbyProps = nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1']
+def taking = withFixtures(['/cluster/status': statusWith([online: 0], [:], 1)]) { roleWithState(standbyProps, 'Cluster_Status') }
+def back = withFixtures(['/cluster/status': statusWith([:], [:], 1)]) { roleWithState(standbyProps, 'Cluster_Status') }
+def after = withFixtures(['/cluster/status': statusWith([:], [:], 1)]) { roleWithState(standbyProps, 'Cluster_Status') }
+note('role-handback', taking?.collect == true && back?.collect == true && back?.why?.contains('hand-back') && after?.collect == false,
+     "hand-back was: taking over ${taking}, back ${back}, after ${after}")
+def other = withFixtures(['/cluster/status': statusWith([:], [:], 1)]) { roleWithState(standbyProps, 'Cluster_Backups') }
+note('role-handback-per-module', other?.collect == false, "a module that never stood in handed back: ${other}")
+// Every cluster collect script names itself to the role check, so each hands back on its own.
+scriptsDir.listFiles().findAll { it.name ==~ /Proxmox_VE_Cluster_.*\.collect\.groovy/ }.each { f ->
+    note('role-handback-label', f.text.contains("pveRole('" + f.name.replace('.collect.groovy', '') + "')"),
+         "${f.name} does not name itself to pveRole")
+}
+
 // Three nodes or more: a standby without quorum waits, since the majority side may still collect.
 def threeNodes = { Map pve1, Integer quorate -> statusWith(pve1, [:], quorate) + [[type: 'node', name: 'pve3', nodeid: 3, online: 1, ip: '10.0.0.3']] }
 withFixtures(['/cluster/status': threeNodes([online: 0], 0)]) {
