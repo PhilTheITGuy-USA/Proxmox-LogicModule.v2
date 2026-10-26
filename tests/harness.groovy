@@ -1290,6 +1290,39 @@ note('snapshots', snapBroken.exit == 0 && parseBatch(snapBroken.stdout).isEmpty(
 def snapDead = withFixtures(['/cluster/resources?type=vm': null]) { discoverWith(snapCollect, hostProps) }
 note('snapshots', snapDead.exit == 2, "an unreadable guest list exited ${snapDead.exit}")
 
+// ------------------------------- scale: 16 nodes, 1,000 guests (A§3.9, Q6)
+//
+// The design's call budgets, asserted per script, so a change that adds an O(guests) or an
+// O(nodes) call fails here rather than on a customer's cluster.
+
+def scale = new GroovyShell().evaluate(new File(ROOT, 'tests/fixtures/scale.groovy'))
+def atScale = { String file, Map props = hostProps ->
+    withFixtures(scale) {
+        long started = System.currentTimeMillis()
+        def run = discoverWith(new File(scriptsDir, file), props)
+        run.millis = System.currentTimeMillis() - started
+        run
+    }
+}
+def scaleStatusAd = atScale('Proxmox_VE_Cluster_GuestStatus.ad.groovy')
+note('scale-guest-ad', scaleStatusAd.exit == 0 && scaleStatusAd.requests.count { it.endsWith('/config') } == 1000 &&
+                       scaleStatusAd.requests.size() <= 1003 && scaleStatusAd.stdout.readLines().count { it.trim() } == 1000,
+     "GuestStatus discovery at scale: exit ${scaleStatusAd.exit}, ${scaleStatusAd.requests.size()} requests, " +
+     "${scaleStatusAd.stdout.readLines().count { it.trim() }} instances / ${scaleStatusAd.stderr.take(200)}")
+note('scale-budget', scaleStatusAd.millis < 45000 && !scaleStatusAd.stderr.contains('time budget'),
+     "GuestStatus discovery took ${scaleStatusAd.millis} ms at scale")
+def scaleSnap = atScale('Proxmox_VE_Cluster_Snapshots.collect.groovy')
+note('scale-snapshots', scaleSnap.exit == 0 && scaleSnap.requests.size() <= 1002 &&
+                        parseBatch(scaleSnap.stdout).size() == 1000,
+     "Snapshots at scale: exit ${scaleSnap.exit}, ${scaleSnap.requests.size()} requests, ${parseBatch(scaleSnap.stdout).size()} guests")
+def scaleStatus = atScale('Proxmox_VE_Cluster_Status.collect.groovy')
+note('scale-cluster-status', scaleStatus.exit == 0 && scaleStatus.requests.size() <= 4 + 2 * 16 + 16,
+     "Cluster_Status at scale made ${scaleStatus.requests.size()} requests: ${scaleStatus.requests.countBy { it.replaceAll('pve[0-9]+', 'N') }}")
+['Proxmox_VE_Cluster_GuestPerformance.collect.groovy', 'Proxmox_VE_Cluster_StorageCapacity.collect.groovy'].each { f ->
+    def bulk = atScale(f)
+    note('scale-bulk', bulk.exit == 0 && bulk.requests.size() == 1, "${f} made ${bulk.requests.size()} requests at scale")
+}
+
 server.stop(0)
 server2.stop(0)
 
