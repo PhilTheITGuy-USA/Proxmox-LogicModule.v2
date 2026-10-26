@@ -112,10 +112,15 @@ def pveNetscanPlan = { Map input ->
     def apiUrl = prop('pve.api.url')
     def apiHosts = nodes.collect { it.ip?.toString() }.findAll { it }.join(',')
 
-    // The cluster's own address: set explicitly, or the API address when it is no node's.
+    // The cluster's own address: set explicitly, or the API address when it is no node's --
+    // not a node's name, its name with a domain, nor a name that resolves (addressIps, which
+    // the body looks up) to a node's address.
     def address = pveNsHost(prop('pve.netscan.cluster.address') ?: apiUrl)
     def nodeAddresses = nodes.collectMany { [it.name?.toString()?.toLowerCase(), pveNsHost(it.ip?.toString())] }.findAll { it } as Set
-    def ownAddress = !standalone && address && !(address in nodeAddresses) ? address : null
+    def nodeIps = nodes.collect { pveTopoIp(it.ip?.toString()) }.findAll { it } as Set
+    def isNode = address in nodeAddresses || address?.tokenize('.')?.first() in nodeAddresses ||
+                 (input.addressIps ?: []).any { pveTopoIp(it?.toString()) in nodeIps }
+    def ownAddress = !standalone && address && !isNode ? address : null
 
     // Every resource gets the token set, with explicit defaults.
     def tokenSet = [
@@ -163,6 +168,13 @@ def pveNetscanPlan = { Map input ->
         def api = checked?.api == true
         def why = !checked ? 'not checked' : !api ? (checked.why ?: 'API did not answer') :
                   checked.ping == false ? 'no ping' : 'ok'
+        // Unreachable only when the cluster has the node online and its API did not answer the
+        // Collector: an offline or unchecked node keeps what it had, since false removes the
+        // node modules and their history with them.
+        def online = row.online == null || row.online.toString() in ['1', 'true']
+        def kept = (input.existing ?: []).find { it.props?.get('pve.serial') == cluster + '::node::' + name }
+                                         ?.props?.get('pve.netscan.reachable')
+        def reachable = api ? 'true' : checked && online ? 'false' : (kept in ['true', 'false'] ? kept : 'true')
         resources << [hostname: byName ? name : (row.ip?.toString() ?: name), displayname: name,
                       hostProps: tokenSet + [
                           'system.categories'    : standalone ? 'ProxmoxVE_Cluster,ProxmoxVE_Node' : 'ProxmoxVE_Node',
@@ -170,7 +182,7 @@ def pveNetscanPlan = { Map input ->
                           'pve.serial'           : cluster + '::node::' + name,
                           'pve.cluster.role'     : roleOf[name],
                           'pve.cluster.active'   : activeOf[name],
-                          'pve.netscan.reachable': api ? 'true' : 'false',
+                          'pve.netscan.reachable': reachable,
                           'pve.netscan.status'   : why],
                       groupName: [standalone ? root + '/Host - ' + name : root + '/Cluster - ' + cluster + '/Nodes']]
     }
@@ -243,10 +255,14 @@ def pveNetscanPlan = { Map input ->
             x != null && x == y
         }
         def kept = []
+        def dropped = []
         resources.each { res ->
             def serial = res.hostProps['pve.serial']
             def own = existing.find { it.props?.get('pve.serial') == serial }
             if (own) {
+                // A guest whose config was not read this run keeps the MAC it was keyed by.
+                def mac = own.props?.get('pve.guest.mac')
+                if (res.hostProps['pve.guest.mac'] == 'none' && mac && mac != 'none') { res.hostProps['pve.guest.mac'] = mac }
                 if (own.hostname != res.hostname && !sameAddress(own.hostname, res.hostname)) {
                     res.hostProps['pve.netscan.status'] = 'address changed: was ' + own.hostname + ', now ' + res.hostname
                     hostnameUpdates << [id: own.id, hostname: res.hostname]
@@ -269,14 +285,51 @@ def pveNetscanPlan = { Map input ->
             } else {
                 report << ('collision: ' + res.displayname + ' (' + res.hostname + ') matches existing ' +
                            other.id + ' ' + other.hostname + ' ' + other.displayName + '; not sent')
+                dropped << res
             }
         }
         resources = kept
+
+        // A role resource that was not sent must not leave half a pair: the standby of a
+        // missing active is made active, with no standby of its own.
+        dropped.findAll { it.hostProps['pve.cluster.role'] in ['active', 'standby'] }.each { gone ->
+            def role = gone.hostProps['pve.cluster.role']
+            def heir = role == 'active' ? resources.find { it.hostProps['pve.cluster.role'] == 'standby' } : null
+            if (heir) { heir.hostProps['pve.cluster.role'] = 'active'; heir.hostProps['pve.cluster.active'] = 'none' }
+            report << ('cluster role incomplete: ' + role + ' ' + gone.displayname + ' not sent' + (heir ? '; ' + heir.displayname + ' is active' : ''))
+        }
+
+        /*
+         * A re-run never removes a property, so a resource that held the role and is not sent
+         * this run -- left out by pve.netscan.nodes=false, or a cluster address no longer set --
+         * would keep collecting beside the new holder. It is sent again with role none, under
+         * the hostname it has.
+         */
         def sent = resources.collect { it.hostProps['pve.serial'] } as Set
+        def released = existing.findAll { it.props?.get('pve.cluster') == cluster && it.props?.get('pve.serial') &&
+                                          !(it.props['pve.serial'] in sent) &&
+                                          it.props?.get('pve.cluster.role') in ['active', 'standby'] }
+        released.each { gone ->
+            def serial = gone.props['pve.serial']
+            resources << [hostname: gone.hostname, displayname: gone.displayName,
+                          hostProps: ['pve.serial': serial, 'pve.cluster.role': 'none', 'pve.cluster.active': 'none',
+                                      'pve.netscan.status': 'no longer holds the cluster role'],
+                          groupName: [serial == cluster ? root + '/Cluster - ' + cluster : root + '/Cluster - ' + cluster + '/Nodes']]
+            report << (gone.displayName + ': no longer holds the cluster role')
+        }
+
+        // An orphan is a resource whose guest or node is gone from Proxmox, nothing else: a
+        // guest a filter now leaves out is still there.
+        def vmids = (input.resources ?: []).findAll { it.vmid != null }.collect { it.vmid.toString() } as Set
+        def nodeNames = nodes*.name*.toString() as Set
         existing.findAll { it.props?.get('pve.cluster') == cluster && it.props?.get('pve.serial') &&
-                           !(it.props['pve.serial'] in sent) }.each { gone ->
-            orphans << [id: gone.id, hostname: gone.hostname, displayName: gone.displayName, serial: gone.props['pve.serial']]
-            report << ('orphan: ' + gone.displayName + ' (' + gone.hostname + ', ' + gone.props['pve.serial'] +
+                           !(it.props['pve.serial'] in sent) && !(it in released) }.each { gone ->
+            def serial = gone.props['pve.serial'].toString()
+            def rest = serial.startsWith(cluster + '::') ? serial.substring(cluster.length() + 2) : null
+            def missing = rest == null ? false : rest.startsWith('node::') ? !(rest.substring(6) in nodeNames) : !(rest in vmids)
+            if (!missing) { return }
+            orphans << [id: gone.id, hostname: gone.hostname, displayName: gone.displayName, serial: serial]
+            report << ('orphan: ' + gone.displayName + ' (' + gone.hostname + ', ' + serial +
                        ') is no longer in Proxmox; retire it by hand')
         }
     }

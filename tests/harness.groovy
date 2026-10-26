@@ -1384,7 +1384,7 @@ note('ns-pair-offline', byHost['192.168.10.11']?.hostProps?.get('pve.cluster.rol
                         byHost['fd00::12']?.hostProps?.get('pve.cluster.active') == 'pve1' &&
                         byHost['192.168.10.11']?.hostProps?.get('pve.cluster.active') == 'none',
      "role pair was ${p1.resources*.hostProps}")
-note('ns-reach', byHost['fd00::12']?.hostProps?.get('pve.netscan.reachable') == 'false' &&
+note('ns-reach', byHost['fd00::12']?.hostProps?.get('pve.netscan.reachable') == 'true' &&
                  byHost['fd00::12']?.hostProps?.get('pve.netscan.status') == 'offline' &&
                  byHost['192.168.10.11']?.hostProps?.get('pve.netscan.status') == 'ok' &&
                  byHost['192.168.10.11']?.hostProps?.get('pve.netscan.reachable') == 'true',
@@ -1590,12 +1590,17 @@ def paramMap = { Map props ->
 def snippetFakes = stubClasses.loadClass('com.logicmonitor.mod.Snippets').fakes
 def emitted = []
 def portalDevices = []
+def portalEstimateMs = 10
+def portalLookup = [:]   // display name -> device
 snippetFakes['lm.emit'] = [resource: { List resources, Boolean debugMode -> emitted.addAll(resources) }]
 snippetFakes['lm.debug'] = [debugSnippetFactory: { Object o, Object d, Object l, String c -> [LMDebugPrint: { String m -> }] }]
 snippetFakes['proto.http'] = [httpSnippetFactory: { Object props -> [getProxyInfo: { -> [:] }] }]
 snippetFakes['lm.api'] = [lmApiSnippetFactory: { Object props, Object http, Object dbg ->
-    [getApiId: { -> 'id' }, getApiKey: { -> 'key' }, apiCallInfo: { String what, Map args -> [timeEstimateMs: 10] },
-     getPortalDevices: { Map args -> portalDevices }] }]
+    [getApiId: { -> 'id' }, getApiKey: { -> 'key' }, apiCallInfo: { String what, Map args -> [timeEstimateMs: portalEstimateMs] },
+     getPortalDevices: { Map args -> portalDevices },
+     findPortalDevice: { String name, Map args -> portalLookup[name] },
+     findPortalDeviceByName: { String name, Map args -> null },
+     findPortalDeviceBySingleProperty: { String k, String v, String op, Map args -> null }] }]
 def runNetscan = { Map props ->
     emitted.clear()
     def out = new ByteArrayOutputStream(), err = new ByteArrayOutputStream()
@@ -1625,6 +1630,80 @@ def withGuestsBody = withFixtures(['/nodes/pve1/qemu/101/config': [name: 'web-01
 }
 note('netscan-guests', withGuestsBody.exit == 0 && withGuestsBody.resources.any { it.hostname == '192.168.10.50' && it.hostProps['pve.vmid'] == '101' },
      "the NetScan did not create guest 101: ${withGuestsBody.resources*.hostname} / ${withGuestsBody.stderr.take(300)}")
+
+// ----------------------------------------- final review fixes (2026-10-26)
+
+// C1: a node's DNS name, or a name resolving to a node's address, is that node, not a cluster address.
+note('ns-node-fqdn', !plan(nsBase + [props: nsBase.props + ['pve.api.url': 'https://pve1.example.com:8006']]).resources
+                        .any { it.hostProps['system.categories'] == 'ProxmoxVE_Cluster' },
+     'a node FQDN in pve.api.url was taken for a cluster address')
+note('ns-node-resolved', !plan(nsBase + [addressIps: ['192.168.10.11'],
+                                         props: nsBase.props + ['pve.api.url': 'https://alias.example.com:8006']]).resources
+                            .any { it.hostProps['system.categories'] == 'ProxmoxVE_Cluster' },
+     'a name resolving to a node address was taken for a cluster address')
+note('ns-vip-resolved', plan(nsBase + [addressIps: ['10.9.9.9'],
+                                       props: nsBase.props + ['pve.api.url': 'https://pve-vip.example.com:8006']]).resources
+                           .any { it.hostname == 'pve-vip.example.com' },
+     'a VIP resolving to no node address was not a cluster address')
+
+// C2: on a portal too large to list, guests are still looked up before they are sent.
+portalEstimateMs = 10 ** 9
+portalLookup['web-01'] = [id: 31, name: '192.168.9.9', displayName: 'web-01', customProperties: []]
+def largePortal = withFixtures(['/nodes/pve1/qemu/101/config': [name: 'web-01', net0: 'virtio=BC:24:11:0E:00:02,bridge=vmbr0', ipconfig0: 'ip=192.168.10.50/24']]) {
+    runNetscan(bodyProps + ['pve.netscan.guests': 'true', 'pve.netscan.guests.filter.vmid': '101'])
+}
+portalEstimateMs = 10
+portalLookup.clear()
+note('netscan-large-portal', largePortal.exit == 0 && !largePortal.resources.any { it.hostProps['pve.vmid'] == '101' } &&
+                             largePortal.stderr.contains('collision'),
+     "on a large portal guest 101 was sent unchecked: ${largePortal.resources*.hostname} / ${largePortal.stderr.take(300)}")
+
+// I1: 'none' is no MAC, and a guest whose config was not read keeps the MAC it had.
+note('guest-eri-none', eriMac(['pve.guest.mac': 'none']) == null, 'pve.guest.mac=none was used as a MAC')
+def keptMac = plan(nsGuestBase + [configs: nsGuestBase.configs.findAll { it.key != 101 },
+                                  existing: [[id: 77, hostname: '192.0.2.101', displayName: 'web (101)',
+                                              props: ['pve.serial': 'pve-cluster::101', 'pve.guest.mac': 'bc:24:11:00:01:01']]]])
+note('ns-mac-kept', keptMac.resources.find { it.hostProps['pve.serial'] == 'pve-cluster::101' }?.hostProps?.get('pve.guest.mac') == 'bc:24:11:00:01:01',
+     "a guest whose config was not read lost its MAC: ${keptMac.resources.find { it.hostProps['pve.serial'] == 'pve-cluster::101' }?.hostProps}")
+
+// I2: an orphan is a resource whose guest or node is gone from Proxmox, nothing else.
+def notOrphan = plan(nsGuestBase + [existing: [[id: 81, hostname: 'dhcp-ct', displayName: 'dhcp-ct',
+                                                props: ['pve.cluster': 'pve-cluster', 'pve.serial': 'pve-cluster::103']]]])
+note('ns-orphan-present', !(notOrphan.orphans*.id).contains(81) && !notOrphan.report.any { it.contains('orphan') && it.contains('dhcp-ct') },
+     "a guest still in Proxmox was reported as an orphan: ${notOrphan.orphans} / ${notOrphan.report}")
+
+// I3: a resource that loses the role is sent with role none; a role resource that cannot be sent
+// does not leave half a pair.
+def vipNodesOff = plan(nsBase + [existing: [[id: 2, hostname: 'fd00::12', displayName: 'pve2',
+                                             props: ['pve.cluster': 'pve-cluster', 'pve.serial': 'pve-cluster::node::pve2', 'pve.cluster.role': 'standby']]],
+                                 props: nsBase.props + ['pve.api.url': 'https://pve-vip.example.com:8006', 'pve.netscan.nodes': 'false']])
+note('ns-role-dropped', vipNodesOff.resources.find { it.hostProps['pve.serial'] == 'pve-cluster::node::pve2' }?.hostProps?.get('pve.cluster.role') == 'none',
+     "a former standby left out by nodes=false kept its role: ${vipNodesOff.resources*.hostProps*.get('pve.serial')}")
+def vipGone = plan(nsBase + [existing: [[id: 3, hostname: 'pve-vip.example.com', displayName: 'pve-cluster',
+                                         props: ['pve.cluster': 'pve-cluster', 'pve.serial': 'pve-cluster', 'pve.cluster.role': 'active']]]])
+def oldCluster = vipGone.resources.find { it.hostname == 'pve-vip.example.com' }
+note('ns-role-address-gone', oldCluster?.hostProps?.get('pve.cluster.role') == 'none' && !(vipGone.orphans*.id).contains(3),
+     "a cluster resource whose address went kept its role, or was called an orphan: ${oldCluster} / ${vipGone.orphans}")
+def activeClash = plan(nsBase + [existing: [[id: 9, hostname: '10.99.0.1', displayName: 'pve1', props: [:]]]])
+def survivor = activeClash.resources.find { it.hostProps['pve.node'] == 'pve2' }
+note('ns-role-collision', !activeClash.resources.any { it.hostProps['pve.node'] == 'pve1' } &&
+                          survivor?.hostProps?.get('pve.cluster.role') == 'active' &&
+                          activeClash.report.any { it.toLowerCase().contains('role') && it.contains('pve1') },
+     "a colliding active node left a standby behind it: ${survivor?.hostProps} / ${activeClash.report}")
+
+// I4: a node online in the cluster whose API the Collector cannot reach is unreachable.
+def apiDown = plan(nsBase + [status: statusWith([:], [:], 1).collect { it.name == 'pve1' ? it + [ip: '192.168.10.11'] : it },
+                             reach: [pve1: [api: true, ping: true], pve2: [api: false, ping: true, why: 'API at fd00::12 did not answer']]])
+note('ns-reach-unreachable', apiDown.resources.find { it.hostProps['pve.node'] == 'pve2' }?.hostProps?.get('pve.netscan.reachable') == 'false',
+     'a node online in the cluster whose API did not answer was not marked unreachable')
+
+// I5: a request for one node fails over at most once: every address only proxies to that node.
+def bases = runSource(preamble + '\nreturn [pveBasesFor("/nodes/pve1/status").size(), pveBasesFor("/cluster/status").size()]',
+    [hostProps: hostProps + ['pve.api.hosts': '127.0.0.1:1,127.0.0.1:2,127.0.0.1:3,127.0.0.1:4']])
+note('failover-node-path', bases.exit == [2, 5], "addresses tried per path were ${bases.exit} / ${bases.thrown}")
+def statusBudget = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Status.collect.groovy'), [hostProps: hostProps + ['pve.api.budget.ms': '0']])
+note('status-budget', statusBudget.exit == 0 && statusBudget.stdout.contains('Quorate=') && statusBudget.stderr.contains('time budget'),
+     "Cluster_Status ignored the time budget: ${statusBudget.exit} / ${statusBudget.stderr.take(200)}")
 
 // ------------------------------- scale: 16 nodes, 1,000 guests (A§3.9, Q6)
 //

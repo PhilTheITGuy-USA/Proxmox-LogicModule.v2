@@ -830,12 +830,13 @@ def main() -> int:
 
     if netscan is not None:
         (DIST / NETSCAN_DIR).mkdir(parents=True, exist_ok=True)
-        (DIST / NETSCAN_DIR / NETSCAN_BODY.name).write_text(netscan, encoding="utf-8")
+        # LF, so the size printed below is the size on disk, on Windows too.
+        (DIST / NETSCAN_DIR / NETSCAN_BODY.name).write_text(netscan, encoding="utf-8", newline="\n")
         # The same script for the Collector debug console, where a run's reasons can be read:
         # a NetScan's own stderr is shown nowhere in the portal.
         header, rest = netscan.split("\n", 1)
         console = (header + "\n" + NETSCAN_CONSOLE_SETUP + rest)
-        (DIST / NETSCAN_DIR / (NETSCAN_BODY.stem + ".console.groovy")).write_text(console, encoding="utf-8")
+        (DIST / NETSCAN_DIR / (NETSCAN_BODY.stem + ".console.groovy")).write_text(console, encoding="utf-8", newline="\n")
         print(f"  {NETSCAN_BODY.stem:34} netscan      {len(netscan.encode('utf-8')):6} bytes")
 
     if dashboards:

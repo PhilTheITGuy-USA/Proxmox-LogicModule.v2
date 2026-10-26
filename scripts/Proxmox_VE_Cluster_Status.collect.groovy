@@ -41,8 +41,18 @@ try {
      * from the pressure stall figures in its rrddata -- one call per online node. A node
      * whose rrddata cannot be read is left out of the score rather than guessed at.
      */
+    // One call per online node, twice over: both loops stop at the time budget,
+    // pve.api.budget.ms (default 45000), so a slow cluster costs data, not the whole poll.
+    def deadline = System.currentTimeMillis() + (pveHostProp('pve.api.budget.ms', '45000') as long)
+    def overBudget = { String what ->
+        if (System.currentTimeMillis() < deadline) { return false }
+        System.err.println(what + ': time budget reached (pve.api.budget.ms)')
+        return true
+    }
     def stallByNode = [:]
+    def stallBudget = false
     nodes.findAll { (it.online == null || it.online as boolean) && it.name }.each { node ->
+        if (stallBudget || (stallBudget = overBudget('Health score: pressure figures'))) { return }
         try {
             def row = pveLatestRrd(pveGet('/nodes/' + node.name + '/rrddata?timeframe=hour&cf=AVERAGE') ?: [])
             def stall = pveNodeStall(row, [loadavg: [row?.loadavg], cpuinfo: [cpus: row?.maxcpu]])
@@ -145,8 +155,10 @@ try {
     def completed = 0
     def failed = []
     def counted = true
+    def migrationBudget = false
     nodes.findAll { (it.online == null ? true : it.online as boolean) && it.name }.each { node ->
         migrationTypes.each { type ->
+            if (migrationBudget || (migrationBudget = overBudget('Migrations'))) { counted = false; return }
             // Per-node try: one unreachable node must not cost the others their data.
             try {
                 def path = '/nodes/' + node.name + '/tasks?typefilter=' + type + '&limit=100'

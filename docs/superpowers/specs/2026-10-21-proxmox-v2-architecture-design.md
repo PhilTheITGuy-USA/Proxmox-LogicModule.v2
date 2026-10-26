@@ -495,7 +495,14 @@ these rules into every O(guests) and O(nodes) loop:
    for each module type is [unverified]; S2 reads it). If the budget runs out, the run emits what
    it has, says so, and withholds the rest: no fabricated values. If S2's per-call latency says
    1,000 guests would not fit, the loop spreads the guests over several runs with a cursor in
-   `lm.cache`. That is designed, and built only if measured.
+   `lm.cache`. That is designed, and built only if measured. The same budget bounds
+   `Proxmox_VE_Cluster_Status`'s per-node loops (rrddata for the health score, task history for
+   migrations), which are O(nodes) but cost a timeout each for a node that hangs (final review,
+   2026-10-26).
+6. **A request for one node fails over once at most.** A `/nodes/<name>/...` path is answered
+   by that node, whichever address proxies it, so trying every address in `pve.api.hosts` for a
+   node that hangs costs a timeout per address; the cluster role tries two (final review,
+   2026-10-26).
 
 **On the LogicMonitor side:** each cluster-level guest module holds 1,000 instances on its
 cluster resource, and Backups one per guest per job. Whether the portal limits instances per

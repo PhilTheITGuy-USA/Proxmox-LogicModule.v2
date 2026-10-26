@@ -320,7 +320,8 @@ resources the NetScan creates.
   - An empty `data` array means the token authenticates but has no permissions: with
     `--privsep 1` it needs its own ACL.
 - **A node's modules do not apply:** its `pve.netscan.reachable` is `false`, and
-  `pve.netscan.status` gives the reason. The Collector could not reach that node's own address;
+  `pve.netscan.status` gives the reason. The node was online in the cluster, but the Collector
+  could not reach its own address (a node that is merely down keeps its modules);
   open port 8006 from the Collector, or set `pve.netscan.node.hostname=name` if the cluster
   address is on a network the Collector cannot reach.
 - **The cluster resource shows as down:** its hostname does not answer ping. With a VIP or proxy,

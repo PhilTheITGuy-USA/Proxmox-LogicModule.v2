@@ -147,7 +147,11 @@ Main spec §3.1 gives the rule and why: a cluster resource without an address of
 and a dead resource suppresses its alerts [S2, 2026-10-25]. The NetScan decides which case a
 cluster is in, from the cluster address: `pve.netscan.cluster.address` if set (§2), else the host
 part of `pve.api.url`. If that is neither a node's name nor a node's address, it is the cluster's
-own address (a VIP, a proxy, a DNS name or a round-robin name).
+own address (a VIP, a proxy, a DNS name or a round-robin name). A node's name with a domain
+(`pve1.example.com`) is that node, and so is a name that resolves to a node's address: the run
+resolves the address first (final review, 2026-10-26: a node's FQDN in `pve.api.url` had been
+taken for a cluster address, making a cluster resource that pinged as up while that node was
+down).
 
 | Case | Active | Standby |
 |---|---|---|
@@ -177,6 +181,14 @@ own address (a VIP, a proxy, a DNS name or a round-robin name).
 - **An address that appears later** (a VIP added): the run creates the cluster resource as
   active, makes the old active node the standby, and sets the old standby's role to `none`, which
   detaches the cluster modules there and deletes their (mostly empty) history.
+- **A resource that loses the role and is not otherwise sent** -- a former role node left out by
+  `pve.netscan.nodes=false`, or a cluster resource whose address is no longer set -- is sent
+  again, under the hostname it has, with `pve.cluster.role` = `none`; a re-run never removes a
+  property, so without this it would go on collecting beside the new holder. It needs the LM
+  credentials, which are what show the run that resource (final review, 2026-10-26).
+- **A role resource that cannot be sent** (a §6 collision): the standby of a missing active is
+  made active, with no standby, and the report says "cluster role incomplete" (final review,
+  2026-10-26), rather than leave a standby behind an active that does not exist.
 - **The run's output states the case,** e.g. "cluster address `pve-vip.example.com`: separate
   cluster resource, standby Node-A" or "no cluster address: active Node-A, standby
   Node-B". For round-robin DNS it adds the warning of main spec §3.1. A round-robin name is
@@ -200,8 +212,12 @@ needs its place on the map and its down state):
   NetScan cannot remove a category [S5].
 - **Properties:** the token set of §2, `pve.cluster`, `pve.node` = the node name (so no module has
   to infer it, and `pveTopoNodeName` has its answer [v1]), `pve.serial` =
-  `<cluster>::node::<name>`, and **`pve.netscan.reachable`** = `true` / `false` from step 3's API
-  check, and `pve.netscan.status` = `ok`, or the reason when the API check or step 3's ping
+  `<cluster>::node::<name>`, and **`pve.netscan.reachable`** = `false` only when `/cluster/status`
+  has the node online and step 3's API check failed, `true` when the check passed, and otherwise
+  -- the node offline, or its check skipped -- the value it had (`true` for a new node). An
+  offline node is the standby's case, not the Collector's: marking it `false` would detach its
+  node modules and delete their history every time a node went down (final review, 2026-10-26).
+  And `pve.netscan.status` = `ok`, or the reason when the API check or step 3's ping
   failed, so a recovered node is overwritten back to `ok` [S5].
 - **The node API modules apply only where `pve.netscan.reachable` is not `false`.** A node the
   Collector cannot reach keeps its resource, its ERI and its place on the map, and raises no
@@ -245,6 +261,9 @@ needs its place on the map and its down state):
 - **Categories:** `ProxmoxVE_Guest`.
 - **Properties:** `pve.cluster`, `pve.node`, `pve.vmid`, `pve.guest.type`, `pve.pool` (`none` when
   the guest is in no pool), `pve.tags` (Proxmox's own `;`-list, `none` when untagged), `pve.guest.mac` (first NIC's MAC, as `pveGuestMac` reads it [v1]),
+  `none` when it has no NIC; a guest whose config this run could not read keeps the MAC it was
+  given, so its ERI does not change (final review, 2026-10-26), and `addERI_Proxmox_VE_GuestResource`
+  treats `none` as no MAC. Then
   `netscan.powerstate` [vmware], `pve.serial` = `<cluster>::<vmid>`, as VMware's `vcenter.serial`
   is `<vCenter UUID>::<VM UUID>` [vmware]. **Never the token:** no guest module calls the Proxmox
   API (main spec §3.2).
@@ -270,7 +289,8 @@ the NetScan uses `lm.api` as below, kept in one place of the body so it can come
 
 - **Portal size first.** The snippet estimates how long listing every device would take; under
   `lmapi.timelimit.sec` it lists them all once (name, display name, current Collector) and matches
-  in memory, otherwise it queries the portal once per resource [vmware].
+  in memory, otherwise it queries the portal once per resource [vmware] -- guests included,
+  which a first version left unchecked on a large portal (final review, 2026-10-26).
 - **Match order:** for a guest, **`pve.serial` first** (`<cluster>::<vmid>`; the VMID never
   changes, whatever happens to the guest's name or address) (user, 2026-10-25); then, for every resource,
   display name, then hostname, then — nodes — the `/cluster/status` address, as VMware also tries
@@ -329,8 +349,10 @@ already monitored by its address [S2].
 - **Adds and moves, never deletes** [vmware]. A guest removed from Proxmox, or a node removed from
   the cluster, keeps its resource.
 - **Reporting the orphans:** with the LM credentials, the run lists devices carrying this
-  cluster's `pve.cluster` and a Proxmox category whose `pve.serial` it did not emit this run, and
-  reports them for an operator to retire.
+  cluster's `pve.cluster` whose `pve.serial` names a guest no longer in `/cluster/resources` or a
+  node no longer in `/cluster/status`, and reports them for an operator to retire. Not emitting a
+  resource is not enough: a guest a filter now leaves out, or one that collided, is still in
+  Proxmox (final review, 2026-10-26). A large portal, queried one resource at a time, lists none.
 - **A re-run overwrites and adds, never removes** [S5]: a changed value is rewritten (`pve.node`
   after a migration, `pve.api.hosts` after a node joins, `pve.netscan.reachable`); a property, a
   category or a group it stops sending stays. Hence §3 step 7's every-property rule, §4's
@@ -350,9 +372,9 @@ already monitored by its address [S2].
   v1's 401/403 wording [v1]. Nothing is deleted, so no resource is harmed.
 - **An empty `/cluster/resources` with a valid token** is v1's under-privileged case [v1]: the
   run emits the cluster resource and nodes from `/cluster/status`, no guests, and says why.
-- **A node unreachable:** §5.2: still written, marked unreachable. After
-  `pve.netscan.node.maxfailures` failures the remaining checks are skipped and those nodes keep
-  the value they had.
+- **A node unreachable:** §5.2: still written, marked unreachable when the cluster has it online.
+  After `pve.netscan.node.maxfailures` failures the remaining checks are skipped and those nodes
+  keep the value they had, as an offline node does.
 - **One guest's config or address unreadable:** that guest falls through §5.3's hostname order; a
   per-node circuit breaker stops trying a node's guests after the first failure, as v1's
   Snapshots does [v1].

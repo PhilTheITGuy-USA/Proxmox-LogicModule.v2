@@ -163,9 +163,15 @@ def pveFailureStatus = { Exception failure ->
  * client error is not failed over: it would be the same at every address.
  */
 def pveActiveBase = null
-def pveGet = { String path ->
+// The addresses to try for a path. A /nodes/<name> path names one node, which every address
+// only proxies to, so a second address is tried at most: the rest would time out the same way.
+def pveBasesFor = { String path ->
     def bases = pveApiBases()
     if (pveActiveBase in bases) { bases = [pveActiveBase] + (bases - pveActiveBase) }
+    path.startsWith('/nodes/') ? bases.take(2) : bases
+}
+def pveGet = { String path ->
+    def bases = pveBasesFor(path)
     Exception last = null
     for (base in bases) {
         try {
@@ -428,7 +434,7 @@ def pveGuestMacMatch = { String mac, String prefixProperty ->
  */
 def pveGuestEriMac = { ->
     def own = pveHostProp('pve.guest.mac')
-    if (own) { return own.toLowerCase() }
+    if (own && own != 'none') { return own.toLowerCase() }
     pveGuestMacMatch(pveHostProp('auto.network.mac_address'), pveHostProp('pve.guest.mac_prefix'))
 }
 

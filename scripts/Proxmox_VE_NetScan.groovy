@@ -74,18 +74,21 @@ try {
 
     // The cluster's own address, if it has one: it must answer ping and 8006.
     def address = pveNsHost(pveHostProp('pve.netscan.cluster.address') ?: pveHostProp('pve.api.url'))
-    def nodeAddresses = nodeRows.collectMany { [it.name?.toString()?.toLowerCase(), pveNsHost(it.ip?.toString())] } as Set
-    if (address && !(address in nodeAddresses) && status.any { it.type?.toString() == 'cluster' }) {
+    // What it resolves to tells a node's other name from a cluster address (pveNetscanPlan).
+    def addressIps = []
+    if (address && pveTopoIp(address) == null) {
+        try { addressIps = InetAddress.getAllByName(address)*.hostAddress.unique() } catch (Exception ignored) { }
+    }
+    def clusterAddress = pveNetscanPlan([status: status, props: pveProps, addressIps: addressIps])
+        .resources.any { it.hostProps['pve.node'] == null }
+    if (clusterAddress) {
         if (pveAddressDown(address)) {
             report << ('cluster address ' + address + ' does not answer ping or port 8006: its resource will show as down; the standby collects')
         }
-        try {
-            def resolved = InetAddress.getAllByName(address)*.hostAddress.unique()
-            if (resolved.size() > 1) {
-                report << ('cluster address ' + address + ' is round-robin DNS (' + resolved.join(', ') +
-                           '): LogicMonitor\'s ping may land on a node that is down; a VIP or a proxy is more reliable')
-            }
-        } catch (Exception ignored) { }
+        if (addressIps.size() > 1) {
+            report << ('cluster address ' + address + ' is round-robin DNS (' + addressIps.join(', ') +
+                       '): LogicMonitor\'s ping may land on a node that is down; a VIP or a proxy is more reliable')
+        }
     }
 
     // ------------------------------------------------------------ the portal
@@ -156,11 +159,11 @@ try {
 
     // --------------------------------------------------------------- plan
     def input = [status: status, resources: resources, reach: reach, configs: configs,
-                 addresses: addresses, props: pveProps, existing: existing]
+                 addresses: addresses, props: pveProps, existing: existing, addressIps: addressIps]
     if (lmApi != null && !everyDevice) {
         // A large portal: look up only the devices this run would send.
         def found = [:]
-        pveNetscanPlan(input + [existing: null]).resources.each { res ->
+        pveNetscanPlan(input + [existing: []]).resources.each { res ->
             def serial = res.hostProps['pve.serial']
             // findPortalDeviceBySingleProperty's argument order is read off its signature,
             // (String, String, String, Map); a refusal falls back to name and hostname.
