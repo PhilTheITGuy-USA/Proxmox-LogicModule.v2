@@ -15,47 +15,42 @@ if (pveConfigError) {
 }
 
 try {
-    def nodes = (pveGet('/cluster/resources?type=node') ?: [])
-        .findAll { it.status?.toString() == 'online' }
 
     def now = System.currentTimeMillis() / 1000L
     def seen = [] as Set
 
-    nodes.each { node ->
-        def nodeName = node.node?.toString()
-        if (!nodeName) { return }
+    def nodeName = pveSelfNode()
 
-        // Replication is optional; its absence is not a collection failure.
-        try {
-            def jobs = pveGet('/nodes/' + nodeName + '/replication') ?: []
+    // Replication is optional; its absence is not a collection failure.
+    try {
+        def jobs = pveNodeGet('/nodes/' + nodeName + '/replication') ?: []
 
-            jobs.each { job ->
-                def id = job.id?.toString()
-                if (!id || seen.contains(id)) { return }
-                seen << id
+        jobs.each { job ->
+            def id = job.id?.toString()
+            if (!id || seen.contains(id)) { return }
+            seen << id
 
-                pveEmit(id, 'FailCount', job.fail_count ?: 0)
-                pveEmit(id, 'Failed', job.error ? 1 : 0)
-                pveEmit(id, 'Disabled', job.disable ? 1 : 0)
-                // pid is only populated while the job is actually running.
-                pveEmit(id, 'Running', job.pid ? 1 : 0)
+            pveEmit(id, 'FailCount', job.fail_count ?: 0)
+            pveEmit(id, 'Failed', job.error ? 1 : 0)
+            pveEmit(id, 'Disabled', job.disable ? 1 : 0)
+            // pid is only populated while the job is actually running.
+            pveEmit(id, 'Running', job.pid ? 1 : 0)
 
-                if (job.last_sync != null) {
-                    pveEmit(id, 'SecondsSinceLastSync',
-                            pveRound((now as double) - ((job.last_sync as double))))
-                }
-                if (job.duration != null) {
-                    pveEmit(id, 'DurationSeconds', pveRound((job.duration as double)))
-                }
-
-                if (job.error) {
-                    System.err.println('Replication job ' + id + ' failed: ' + job.error)
-                }
+            if (job.last_sync != null) {
+                pveEmit(id, 'SecondsSinceLastSync',
+                        pveRound((now as double) - ((job.last_sync as double))))
             }
-        } catch (Exception nodeException) {
-            System.err.println('Replication collection skipped for node ' + nodeName + ': ' +
-                nodeException.message)
+            if (job.duration != null) {
+                pveEmit(id, 'DurationSeconds', pveRound((job.duration as double)))
+            }
+
+            if (job.error) {
+                System.err.println('Replication job ' + id + ' failed: ' + job.error)
+            }
         }
+    } catch (Exception nodeException) {
+        System.err.println('Replication collection skipped for node ' + nodeName + ': ' +
+            nodeException.message)
     }
     return 0
 } catch (Exception exception) {

@@ -126,6 +126,13 @@ def hostProps = [
     'pve.api.timeout': '5000',
 ]
 
+// A node resource as the NetScan writes it: reached at its own hostname. pve.api.url points
+// nowhere, so a node module that asked the cluster API would fail; it supplies only the scheme.
+def nodeHostProps = hostProps + ['pve.api.url': 'http://127.0.0.1:1', 'pve.node': 'pve1',
+                                 'system.hostname': '127.0.0.1:' + server.address.port]
+def NODE_SCOPED = ['Proxmox_VE_Node_Disks', 'Proxmox_VE_Node_Services', 'Proxmox_VE_Node_Certificates',
+                   'Proxmox_VE_Node_Replication', 'Proxmox_VE_Node_Subscription']
+
 // Modules whose collection calls each guest's own node, so a guest on an offline node reports nothing.
 def GUEST_NODE_READ_MODULES = ['Proxmox_VE_Cluster_Snapshots']
 def AD_LINE = ~/^([A-Za-z0-9_.\-]+)##([^#]*)##([^#]*)####(.*)$/
@@ -164,7 +171,7 @@ modulesDir.listFiles({ f -> f.name.endsWith('.json') } as FileFilter).sort { it.
     def discovered = []
     def onOfflineNode = [] as Set
     if (defn.discoveryScript) {
-        def run = runScript(new File(scriptsDir, name + '.ad.groovy'), [hostProps: hostProps])
+        def run = runScript(new File(scriptsDir, name + '.ad.groovy'), [hostProps: name in NODE_SCOPED ? nodeHostProps : hostProps])
 
         note("${name}/ad", run.thrown == null, "threw ${run.thrown}")
         note("${name}/ad", run.exit == 0, "exit was ${run.exit}, expected 0")
@@ -212,7 +219,7 @@ modulesDir.listFiles({ f -> f.name.endsWith('.json') } as FileFilter).sort { it.
              "expected ${wantMethod}/${defn.instanceGroupProperty}")
     }
 
-    def bindings = [hostProps: hostProps]
+    def bindings = [hostProps: name in NODE_SCOPED ? nodeHostProps : hostProps]
     if (instanceBindings[name]) { bindings.taskProps = instanceBindings[name] }
     def run = runScript(new File(scriptsDir, name + '.collect.groovy'), bindings)
 
@@ -648,6 +655,18 @@ scriptsDir.listFiles().findAll { it.name ==~ /Proxmox_VE_Cluster_.*\.collect\.gr
     note('role-silent', silent.exit == 0 && silent.stdout.trim().isEmpty(),
          "${f.name} printed or failed with role none: ${silent.exit} / ${silent.stdout.take(80)}")
 }
+// --------------------------------------------------- node scope (A§3.2)
+
+def nodeRun = discoverWith(new File(scriptsDir, 'Proxmox_VE_Node_Disks.ad.groovy'), nodeHostProps)
+note('node-scope', nodeRun.exit == 0 && !nodeRun.requests.any { it.startsWith('/cluster/resources') } &&
+                   nodeRun.requests.every { !it.startsWith('/nodes/') || it.startsWith('/nodes/pve1/') },
+     "a node module looked beyond its own node: ${nodeRun.exit} / ${nodeRun.requests}")
+def selfFromStatus = runSource(preamble + '\nreturn pveSelfNode()', [hostProps: nodeHostProps.findAll { it.key != 'pve.node' }])
+note('node-self', selfFromStatus.exit == 'pve1', "pveSelfNode from the local row gave ${selfFromStatus.exit} / ${selfFromStatus.thrown}")
+def noFailover = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Disks.ad.groovy'),
+    [hostProps: nodeHostProps + ['system.hostname': '127.0.0.1:1', 'pve.api.hosts': '127.0.0.1:' + server2.address.port]])
+note('node-no-failover', noFailover.exit == 2, "a node module failed over to another node: ${noFailover.exit}")
+
 // Only the collecting resource stamps instance ERIs: a standby's would double every key.
 withFixtures(['/cluster/status': statusWith([:], [:], 1)]) {
     def standbyAd = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_GuestStatus.ad.groovy'),

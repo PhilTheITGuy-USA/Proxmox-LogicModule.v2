@@ -183,6 +183,16 @@ def pveNodeGet = { String path ->
     pveGetAt(pveSelfBase, path)
 }
 
+// The node this resource is: pve.node, which the NetScan writes, else the row /cluster/status
+// marks local when this node's own API is asked.
+def pveSelfNode = { ->
+    def named = pveHostProp('pve.node')
+    if (named) { return named }
+    def local = (pveNodeGet('/cluster/status') ?: []).find { it.type?.toString() == 'node' && it.local }
+    if (local?.name) { return local.name.toString() }
+    throw new IOException('Cannot tell which node this resource is: set pve.node')
+}
+
 // --------------------------------------------------------------- cluster role
 
 /*

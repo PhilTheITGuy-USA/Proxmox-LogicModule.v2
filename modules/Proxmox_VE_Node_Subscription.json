@@ -5,14 +5,12 @@
   "group": "Proxmox VE",
   "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
   "searchKeywords": "proxmox,pve,subscription,licence,license,support,renewal",
-  "technicalNotes": "BatchScript, one /nodes/{node}/subscription call per online node per interval. O(nodes). The endpoint needs no privilege beyond authentication.\n\nnextduedate is a YYYY-MM-DD string rather than an epoch, so it is parsed as UTC midnight. A node with no subscription has no due date at all and reports none -- zero days remaining would read as 'expires today' on every unlicensed node.\n\nActive ships without a threshold: an unsubscribed node is a licensing fact, not a fault, and a homelab would alert forever. Set a threshold where a subscription is genuinely expected.",
-  "collectionMethod": "batchscript",
+  "technicalNotes": "Script, one /nodes/{node}/subscription call to this node per interval. The node is asked directly, at this resource's own hostname, and never through another node: another node would answer for itself. The endpoint needs no privilege beyond authentication.\n\nnextduedate is a YYYY-MM-DD string rather than an epoch, so it is parsed as UTC midnight. A node with no subscription has no due date at all and reports none -- zero days remaining would read as 'expires today' on every unlicensed node.\n\nActive ships without a threshold: an unsubscribed node is a licensing fact, not a fault, and a homelab would alert forever. Set a threshold where a subscription is genuinely expected.",
+  "collectionMethod": "script",
   "collectionInterval": "720m",
-  "multiInstance": true,
-  "useWildValueAsUniqueIdentifier": true,
+  "multiInstance": false,
+  "useWildValueAsUniqueIdentifier": false,
   "collectScript": "Proxmox_VE_Node_Subscription.collect.groovy",
-  "discoveryScript": "Proxmox_VE_OnlineNodes.ad.groovy",
-  "discoveryInterval": "1440m",
   "datapoints": [
     {
       "name": "Active",

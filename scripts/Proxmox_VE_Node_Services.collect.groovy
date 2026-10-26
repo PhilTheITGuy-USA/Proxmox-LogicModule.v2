@@ -1,5 +1,5 @@
 /*
- * BatchScript collection: systemd state of the Proxmox services, per node.
+ * BatchScript collection: systemd state of this node's Proxmox services.
  *
  * Three separate systemd notions are reported, because collapsing them loses the
  * distinction that matters when something is wrong:
@@ -18,34 +18,21 @@ if (pveConfigError) {
 }
 
 try {
-    def nodes = (pveGet('/cluster/resources?type=node') ?: [])
-        .findAll { it.status?.toString() == 'online' }
+    def nodeName = pveSelfNode()
+    def services = pveNodeGet('/nodes/' + nodeName + '/services') ?: []
 
-    nodes.each { node ->
-        def nodeName = node.node?.toString()
-        if (!nodeName) { return }
+    services.each { service ->
+        def name = service.name?.toString() ?: service.service?.toString()
+        if (!name) { return }
 
-        // Per-node try: one unreachable node must not cost the others their data.
-        try {
-            def services = pveGet('/nodes/' + nodeName + '/services') ?: []
+        def id = nodeName + '/' + name
+        def activeState = service.get('active-state')?.toString() ?: 'unknown'
+        def unitState = service.get('unit-state')?.toString() ?: 'unknown'
 
-            services.each { service ->
-                def name = service.name?.toString() ?: service.service?.toString()
-                if (!name) { return }
-
-                def id = nodeName + '/' + name
-                def activeState = service.get('active-state')?.toString() ?: 'unknown'
-                def unitState = service.get('unit-state')?.toString() ?: 'unknown'
-
-                pveEmit(id, 'Running', activeState == 'active' ? 1 : 0)
-                pveEmit(id, 'Failed', activeState == 'failed' ? 1 : 0)
-                pveEmit(id, 'Enabled', unitState == 'enabled' ? 1 : 0)
-                pveEmit(id, 'Installed', unitState == 'not-found' ? 0 : 1)
-            }
-        } catch (Exception nodeException) {
-            System.err.println('Service collection skipped for node ' + nodeName + ': ' +
-                nodeException.message)
-        }
+        pveEmit(id, 'Running', activeState == 'active' ? 1 : 0)
+        pveEmit(id, 'Failed', activeState == 'failed' ? 1 : 0)
+        pveEmit(id, 'Enabled', unitState == 'enabled' ? 1 : 0)
+        pveEmit(id, 'Installed', unitState == 'not-found' ? 0 : 1)
     }
     return 0
 } catch (Exception exception) {

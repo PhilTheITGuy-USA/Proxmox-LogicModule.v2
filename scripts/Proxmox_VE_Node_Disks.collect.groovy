@@ -1,5 +1,5 @@
 /*
- * BatchScript collection: physical disk health and wear, per node.
+ * BatchScript collection: health and wear of this node's physical disks.
  *
  * Two fields here are not what they look like, and both come straight from Proxmox's
  * Diskmanage:
@@ -24,63 +24,50 @@ def healthyStates = ['PASSED', 'OK']
 def unknownStates = ['UNKNOWN', 'SMART DISABLED', '']
 
 try {
-    def nodes = (pveGet('/cluster/resources?type=node') ?: [])
-        .findAll { it.status?.toString() == 'online' }
+    def nodeName = pveSelfNode()
+    def disks = pveNodeGet('/nodes/' + nodeName + '/disks/list') ?: []
 
-    nodes.each { node ->
-        def nodeName = node.node?.toString()
-        if (!nodeName) { return }
+    disks.each { disk ->
+        def devpath = disk.devpath?.toString()
+        if (!devpath) { return }
 
-        // Per-node try: one unreachable node must not cost the others their data.
-        try {
-            def disks = pveGet('/nodes/' + nodeName + '/disks/list') ?: []
+        def id = nodeName + '/' + devpath.replaceAll('^/dev/', '')
+        def health = (disk.health?.toString() ?: '').toUpperCase()
+        def known = !unknownStates.contains(health)
 
-            disks.each { disk ->
-                def devpath = disk.devpath?.toString()
-                if (!devpath) { return }
+        pveEmit(id, 'SizeBytes', disk.size ?: 0)
+        // SizeBytes stays for anything doing arithmetic; SizeGB is what a
+        // dashboard can print. See pveGB in the preamble.
+        pveEmit(id, 'SizeGB', pveGB(disk.size))
+        pveEmit(id, 'SmartHealthKnown', known ? 1 : 0)
+        pveEmit(id, 'Mounted', disk.mounted ? 1 : 0)
 
-                def id = nodeName + '/' + devpath.replaceAll('^/dev/', '')
-                def health = (disk.health?.toString() ?: '').toUpperCase()
-                def known = !unknownStates.contains(health)
+        /*
+         * The verdict is emitted only when there is one. A disk whose SMART cannot
+         * be read is not a failing disk, and emitting 0 here would alert as though
+         * it were -- the whole reason UNKNOWN is separated from FAILED above.
+         */
+        if (known) {
+            pveEmit(id, 'SmartHealthOK', healthyStates.contains(health) ? 1 : 0)
+        }
 
-                pveEmit(id, 'SizeBytes', disk.size ?: 0)
-                // SizeBytes stays for anything doing arithmetic; SizeGB is what a
-                // dashboard can print. See pveGB in the preamble.
-                pveEmit(id, 'SizeGB', pveGB(disk.size))
-                pveEmit(id, 'SmartHealthKnown', known ? 1 : 0)
-                pveEmit(id, 'Mounted', disk.mounted ? 1 : 0)
-
-                /*
-                 * The verdict is emitted only when there is one. A disk whose SMART cannot
-                 * be read is not a failing disk, and emitting 0 here would alert as though
-                 * it were -- the whole reason UNKNOWN is separated from FAILED above.
-                 */
-                if (known) {
-                    pveEmit(id, 'SmartHealthOK', healthyStates.contains(health) ? 1 : 0)
-                }
-
-                /*
-                 * wearout is a number only on SSD-like disks that report a wear attribute.
-                 * Everywhere else it is the string "N/A", which must not become a zero --
-                 * zero would read as a disk with no life left.
-                 *
-                 * Reported as a pair, for the same reason SMART health is: LifeRemainingKnown
-                 * says whether there is a wear figure at all, LifeRemainingPercent says what
-                 * it is and is withheld when there is not. A spinning disk is then an explicit
-                 * 0 beside a blank, which reads as "not applicable" rather than as a disk
-                 * this module failed to collect. A datapoint cannot say "N/A" itself --
-                 * LogicMonitor takes numbers only.
-                 */
-                def wearout = disk.wearout
-                def wearKnown = wearout != null && wearout.toString().isNumber()
-                pveEmit(id, 'LifeRemainingKnown', wearKnown ? 1 : 0)
-                if (wearKnown) {
-                    pveEmit(id, 'LifeRemainingPercent', pveRound(wearout.toString().toDouble()))
-                }
-            }
-        } catch (Exception nodeException) {
-            System.err.println('Disk collection skipped for node ' + nodeName + ': ' +
-                nodeException.message)
+        /*
+         * wearout is a number only on SSD-like disks that report a wear attribute.
+         * Everywhere else it is the string "N/A", which must not become a zero --
+         * zero would read as a disk with no life left.
+         *
+         * Reported as a pair, for the same reason SMART health is: LifeRemainingKnown
+         * says whether there is a wear figure at all, LifeRemainingPercent says what
+         * it is and is withheld when there is not. A spinning disk is then an explicit
+         * 0 beside a blank, which reads as "not applicable" rather than as a disk
+         * this module failed to collect. A datapoint cannot say "N/A" itself --
+         * LogicMonitor takes numbers only.
+         */
+        def wearout = disk.wearout
+        def wearKnown = wearout != null && wearout.toString().isNumber()
+        pveEmit(id, 'LifeRemainingKnown', wearKnown ? 1 : 0)
+        if (wearKnown) {
+            pveEmit(id, 'LifeRemainingPercent', pveRound(wearout.toString().toDouble()))
         }
     }
     return 0

@@ -16,46 +16,41 @@ if (pveConfigError) {
 }
 
 try {
-    def nodes = (pveGet('/cluster/resources?type=node') ?: [])
-        .findAll { it.status?.toString() == 'online' }
 
     def seen = [] as Set
 
-    nodes.each { node ->
-        def nodeName = node.node?.toString()
-        if (!nodeName) { return }
+    def nodeName = pveSelfNode()
 
-        /*
-         * Replication is optional and absent on clusters that do not use it, so a failure
-         * here is not a discovery failure -- it is the normal case on most installs.
-         */
-        try {
-            def jobs = pveGet('/nodes/' + nodeName + '/replication') ?: []
+    /*
+     * Replication is optional and absent on clusters that do not use it, so a failure
+     * here is not a discovery failure -- it is the normal case on most installs.
+     */
+    try {
+        def jobs = pveNodeGet('/nodes/' + nodeName + '/replication') ?: []
 
-            jobs.each { job ->
-                def id = job.id?.toString()
-                if (!id || seen.contains(id)) { return }
-                seen << id
+        jobs.each { job ->
+            def id = job.id?.toString()
+            if (!id || seen.contains(id)) { return }
+            seen << id
 
-                def guest = job.guest?.toString()
-                pveDiscover(
-                    id,
-                    'Replication ' + id,
-                    'Replication of guest ' + guest + ' to ' + (job.target ?: 'unknown'),
-                    [
-                        pve_job     : id,
-                        pve_guest   : guest,
-                        pve_target  : job.target,
-                        pve_source  : job.source,
-                        pve_schedule: job.schedule,
-                        pve_type    : job.type
-                    ]
-                )
-            }
-        } catch (Exception nodeException) {
-            System.err.println('Replication discovery skipped for node ' + nodeName + ': ' +
-                nodeException.message)
+            def guest = job.guest?.toString()
+            pveDiscover(
+                id,
+                'Replication ' + id,
+                'Replication of guest ' + guest + ' to ' + (job.target ?: 'unknown'),
+                [
+                    pve_job     : id,
+                    pve_guest   : guest,
+                    pve_target  : job.target,
+                    pve_source  : job.source,
+                    pve_schedule: job.schedule,
+                    pve_type    : job.type
+                ]
+            )
         }
+    } catch (Exception nodeException) {
+        System.err.println('Replication discovery skipped for node ' + nodeName + ': ' +
+            nodeException.message)
     }
     return 0
 } catch (Exception exception) {
