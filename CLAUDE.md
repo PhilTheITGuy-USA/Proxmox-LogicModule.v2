@@ -101,8 +101,8 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Local checks** (2026-10-26, after the NetScan trim): build clean; compile job passed;
-  harness 1,487 of 1,487; lint 0 errors, 4 warnings; both dashboards check clean.
+- **Local checks** (2026-10-26, after the console-block fix): build clean; compile job passed;
+  harness 1,488 of 1,488; lint 0 errors, 4 warnings; both dashboards check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
   portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included (user, 2026-10-26).
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
