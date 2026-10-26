@@ -1,0 +1,62 @@
+{
+  "name": "Proxmox_VE_Nodes",
+  "displayedAs": "Proxmox VE Nodes",
+  "description": "CPU, memory, uptime and availability for every node in a Proxmox VE cluster, collected cluster-wide in a single API call.",
+  "group": "Proxmox VE",
+  "appliesTo": "hasCategory(\"ProxmoxVE\")",
+  "searchKeywords": "proxmox,pve,node,hypervisor,host,virtualization",
+  "technicalNotes": "BatchScript: one /cluster/resources?type=node call per interval regardless of cluster size.\n\nInstance IDs are the Proxmox resource id (node/<name>). Load average, swap and root filesystem are not available from this endpoint and are collected by Proxmox VE Node Detail.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "5m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Nodes.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Nodes.ad.groovy",
+  "discoveryInterval": "60m",
+  "datapoints": [
+    {
+      "name": "Status",
+      "description": "1 when the node is online.",
+      "threshold": "< 1 1 1",
+      "alertBody": "Proxmox node ##INSTANCE## is offline.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "CPUUsagePercent",
+      "description": "Node CPU utilisation, percent.",
+      "threshold": "> 85 92 97",
+      "triggerInterval": 3,
+      "alertBody": "Proxmox node ##INSTANCE## is at ##VALUE##% CPU. Its guests are competing for CPU time; consider migrating some to a less busy node.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "CPUCount",
+      "description": "Logical CPUs available to the node."
+    },
+    {
+      "name": "MemoryUsedBytes",
+      "description": "Memory in use, bytes."
+    },
+    {
+      "name": "MemoryCapacityBytes",
+      "description": "Total memory, bytes."
+    },
+    {
+      "name": "MemoryUsagePercent",
+      "description": "Memory utilisation, percent.",
+      "threshold": "> 85 92 97",
+      "triggerInterval": 3,
+      "alertBody": "Proxmox node ##INSTANCE## is using ##VALUE##% of its memory. Close to the limit the host starts swapping or killing processes, guests included.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "UpTimeSeconds",
+      "description": "Seconds since the node booted."
+    }
+  ],
+  "graphs": [
+    {"title": "Node Status", "verticalLabel": "1 = online", "max": 1, "lines": [{"dp": "Status", "legend": "Online", "color": "green"}]},
+    {"title": "CPU Usage", "verticalLabel": "%", "max": 100, "lines": [{"dp": "CPUUsagePercent", "legend": "CPU", "color": "blue"}]},
+    {"title": "CPUs", "verticalLabel": "CPUs", "lines": [{"dp": "CPUCount", "legend": "Logical CPUs", "color": "blue"}]},
+    {"title": "Memory", "verticalLabel": "bytes", "scale1024": true, "lines": [{"dp": "MemoryUsedBytes", "legend": "Used", "color": "blue"}, {"dp": "MemoryCapacityBytes", "legend": "Total", "color": "black"}]},
+    {"title": "Memory Usage", "verticalLabel": "%", "max": 100, "lines": [{"dp": "MemoryUsagePercent", "legend": "Memory", "color": "blue"}]},
+    {"title": "Uptime", "verticalLabel": "seconds", "lines": [{"dp": "UpTimeSeconds", "legend": "Since boot", "color": "blue"}]}
+  ]
+}

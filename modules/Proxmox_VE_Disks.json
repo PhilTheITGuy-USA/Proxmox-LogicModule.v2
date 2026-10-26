@@ -1,0 +1,58 @@
+{
+  "name": "Proxmox_VE_Disks",
+  "displayedAs": "Proxmox VE Disks",
+  "description": "Physical disk SMART health, size and SSD life remaining for every disk on every online node.",
+  "group": "Proxmox VE",
+  "appliesTo": "hasCategory(\"ProxmoxVE\")",
+  "searchKeywords": "proxmox,pve,disk,smart,health,wearout,ssd,nvme,hardware",
+  "technicalNotes": "BatchScript, one /nodes/{node}/disks/list call per online node per interval. Requires Sys.Audit on / or on /nodes/{node}. O(nodes).\n\nThis endpoint shells out to smartctl for every disk on the node, so it runs on a deliberately long interval. Partitions are not requested: a partition's SMART health is the health of the disk beneath it, and including them would duplicate every instance.\n\nTwo fields are not what they appear, and both are handled deliberately:\n\nhealth is a string that defaults to \"UNKNOWN\" when smartctl could not be read -- that is an absence of verdict, not a failure. It is therefore reported as two datapoints: SmartHealthKnown says whether there is a verdict at all, and SmartHealthOK says what it was -- and SmartHealthOK is withheld entirely when there is no verdict. Emitting a zero there would make an unreadable disk alert exactly like a failing one, which is the mistake this split exists to prevent.\n\nwearout is the literal string \"N/A\" on anything that is not SSD-like and wherever the wear attribute is missing, so LifeRemainingPercent is emitted only when the value is genuinely numeric. A zero there would read as a disk with no life left. LifeRemainingKnown carries that distinction as a datapoint of its own, so a spinning disk reads as an explicit 0 rather than as a gap.\n\nLifeRemainingPercent is Proxmox's wearout value, which its Diskmanage source computes as 100 minus the NVMe percentage-used, and as the normalised SMART wear attribute for SATA SSDs -- both of which are life *remaining*, so the threshold alerts when it falls.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "240m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Disks.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Disks.ad.groovy",
+  "instanceGroupProperty": "auto.pve_node",
+  "discoveryInterval": "1440m",
+  "datapoints": [
+    {
+      "name": "SizeBytes",
+      "description": "Disk capacity in bytes."
+    },
+    {
+      "name": "SizeGB",
+      "description": "Disk capacity in GB (decimal, 10^9 bytes), the same figure as SizeBytes in a unit a dashboard table can print. LogicMonitor renders a raw byte count of this magnitude in scientific notation."
+    },
+    {
+      "name": "SmartHealthOK",
+      "description": "1 when SMART reports the disk as PASSED or OK, 0 when it reports a failure. Emitted only when a verdict exists: a disk whose SMART cannot be read reports no data here rather than a zero, so it cannot alert as though it were failing. Check SmartHealthKnown to tell the two situations apart.",
+      "threshold": "< 1 1 1",
+      "alertBody": "SMART reports disk ##INSTANCE## as failing. This datapoint is only reported when smartctl returned a real verdict, so this is a genuine failure verdict rather than an unreadable disk.",
+      "conditional": true
+    },
+    {
+      "name": "SmartHealthKnown",
+      "description": "1 when smartctl returned a real verdict. 0 means UNKNOWN or SMART disabled, so SmartHealthOK carries no information."
+    },
+    {
+      "name": "Mounted",
+      "description": "1 when the disk is mounted on the node."
+    },
+    {
+      "name": "LifeRemainingKnown",
+      "description": "1 when the disk reports a wear attribute, which in practice means an SSD or NVMe. 0 on a spinning disk, where LifeRemainingPercent is deliberately absent rather than zero."
+    },
+    {
+      "name": "LifeRemainingPercent",
+      "description": "SSD life remaining, percent, from Proxmox's wearout value. Reported only for disks that expose a wear attribute; absent elsewhere rather than zero. Check LifeRemainingKnown to tell a spinning disk apart from a collection failure.",
+      "threshold": "< 20 10 5",
+      "conditional": true,
+      "alertBody": "SSD ##INSTANCE## has ##VALUE##% of its rated write endurance left. Plan to replace it: a worn-out SSD can go read-only or fail without further warning."
+    }
+  ],
+  "graphs": [
+    {"title": "Disk State", "verticalLabel": "1 = yes", "max": 1, "lines": [{"dp": "SmartHealthOK", "legend": "SMART healthy", "color": "green"}, {"dp": "SmartHealthKnown", "legend": "SMART verdict known", "color": "black"}, {"dp": "Mounted", "legend": "Mounted", "color": "blue"}, {"dp": "LifeRemainingKnown", "legend": "Wear reported", "color": "fuchsia"}]},
+    {"title": "SSD Life Remaining", "verticalLabel": "%", "max": 100, "lines": [{"dp": "LifeRemainingPercent", "legend": "Life remaining", "color": "green"}]},
+    {"title": "Size", "verticalLabel": "GB", "lines": [{"dp": "SizeGB", "legend": "Capacity", "color": "blue"}]}
+  ]
+}

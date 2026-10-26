@@ -1,0 +1,100 @@
+{
+  "name": "Proxmox_VE_GuestPerformance",
+  "displayedAs": "Proxmox VE Guest Performance",
+  "description": "CPU, memory, network and disk throughput for every QEMU virtual machine and LXC container in a Proxmox VE cluster, collected cluster-wide in a single API call.",
+  "group": "Proxmox VE",
+  "appliesTo": "hasCategory(\"ProxmoxVE\")",
+  "searchKeywords": "proxmox,pve,vm,qemu,lxc,container,guest,virtualization,performance",
+  "technicalNotes": "BatchScript: one /cluster/resources?type=vm call per interval, whether the cluster has 10 guests or 5000.\n\nInstance IDs are the Proxmox resource id (qemu/<vmid>, lxc/<vmid>), which is cluster-unique and unchanged by live migration or HA failover, so instances and their history survive a guest moving between nodes.\n\nDataRateRxMB, DataRateTxMB, DiskReadRateMB and DiskWriteRateMB are declared as derive because Proxmox reports these as counters accumulated since guest start; a minimum of 0 discards the negative delta produced when a guest restarts. The counters are scaled to MB before emission, which is monotonic and so leaves the derive rate correct.\n\nDiskUsedGB and DiskUsagePercent are reported for LXC containers only. QEMU exposes no used-disk figure -- real usage inside a VM requires the guest agent, exactly as VMware requires VMware Tools -- so those datapoints are deliberately left as no-data for VMs rather than reported as zero.\n\nTemplates are excluded from discovery: they are never running and would otherwise appear as permanently down instances.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "5m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_GuestPerformance.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Guests.ad.groovy",
+  "instanceGroupProperty": "auto.pve_node",
+  "discoveryInterval": "60m",
+  "datapoints": [
+    {
+      "name": "CPUUsagePercent",
+      "description": "Guest CPU utilisation, percent of its allocated cores.",
+      "threshold": "> 90 95 98",
+      "triggerInterval": 5,
+      "alertBody": "Proxmox guest ##INSTANCE## is using ##VALUE##% of its allocated CPU. Applications in the guest will be slow; it needs more cores, or its workload needs investigating.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "CPUCount",
+      "description": "vCPUs allocated to the guest."
+    },
+    {
+      "name": "MemoryUsedMB",
+      "description": "Memory in use, MB (decimal, 10^6 bytes)."
+    },
+    {
+      "name": "MemoryCapacityMB",
+      "description": "Memory allocated to the guest, MB (decimal, 10^6 bytes)."
+    },
+    {
+      "name": "MemoryUsagePercent",
+      "description": "Memory utilisation, percent of allocation.",
+      "threshold": "> 90 95 98",
+      "triggerInterval": 5,
+      "alertBody": "Proxmox guest ##INSTANCE## is using ##VALUE##% of its allocated memory. Inside the guest this leads to swapping or processes being killed for lack of memory.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "DiskCapacityGB",
+      "description": "Root disk size, GB (decimal, 10^9 bytes)."
+    },
+    {
+      "name": "DiskUsedGB",
+      "description": "Root disk used, GB (decimal, 10^9 bytes). LXC containers only; QEMU reports no used-disk figure.",
+      "conditional": true
+    },
+    {
+      "name": "DiskUsagePercent",
+      "description": "Root disk utilisation, percent. LXC containers only.",
+      "threshold": "> 85 92 97",
+      "conditional": true,
+      "alertBody": "The root disk of container ##INSTANCE## is ##VALUE##% full. When it fills, services in the container can no longer write files or logs.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "DataRateRxMB",
+      "description": "Network MB received per second (decimal, 10^6 bytes).",
+      "type": "derive",
+      "min": "0"
+    },
+    {
+      "name": "DataRateTxMB",
+      "description": "Network MB sent per second (decimal, 10^6 bytes).",
+      "type": "derive",
+      "min": "0"
+    },
+    {
+      "name": "DiskReadRateMB",
+      "description": "MB read from block devices per second (decimal, 10^6 bytes).",
+      "type": "derive",
+      "min": "0"
+    },
+    {
+      "name": "DiskWriteRateMB",
+      "description": "MB written to block devices per second (decimal, 10^6 bytes).",
+      "type": "derive",
+      "min": "0"
+    },
+    {
+      "name": "MemoryHostMB",
+      "description": "The host's view of the guest's memory footprint, MB (decimal, 10^6 bytes). The gap between this and MemoryUsedMB is the balloon at work. Not reported by older Proxmox.",
+      "conditional": true
+    }
+  ],
+  "graphs": [
+    {"title": "CPU Usage", "verticalLabel": "%", "max": 100, "lines": [{"dp": "CPUUsagePercent", "legend": "CPU", "color": "blue"}]},
+    {"title": "vCPUs", "verticalLabel": "vCPUs", "lines": [{"dp": "CPUCount", "legend": "Allocated", "color": "blue"}]},
+    {"title": "Memory", "verticalLabel": "MB", "lines": [{"dp": "MemoryUsedMB", "legend": "Used", "color": "blue"}, {"dp": "MemoryHostMB", "legend": "Host footprint", "color": "orange"}, {"dp": "MemoryCapacityMB", "legend": "Allocated", "color": "black"}]},
+    {"title": "Memory Usage", "verticalLabel": "%", "max": 100, "lines": [{"dp": "MemoryUsagePercent", "legend": "Memory", "color": "blue"}]},
+    {"title": "Root Disk", "verticalLabel": "GB", "lines": [{"dp": "DiskUsedGB", "legend": "Used", "color": "blue"}, {"dp": "DiskCapacityGB", "legend": "Size", "color": "black"}]},
+    {"title": "Root Disk Usage", "verticalLabel": "%", "max": 100, "lines": [{"dp": "DiskUsagePercent", "legend": "Used", "color": "blue"}]},
+    {"title": "Network Throughput", "verticalLabel": "MB/sec", "lines": [{"dp": "DataRateRxMB", "legend": "Received", "color": "blue"}, {"dp": "DataRateTxMB", "legend": "Sent", "color": "green"}]},
+    {"title": "Disk Throughput", "verticalLabel": "MB/sec", "lines": [{"dp": "DiskReadRateMB", "legend": "Read", "color": "blue"}, {"dp": "DiskWriteRateMB", "legend": "Written", "color": "orange"}]}
+  ]
+}

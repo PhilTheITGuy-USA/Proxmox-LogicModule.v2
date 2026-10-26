@@ -4,18 +4,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Design work for the second generation of the Proxmox VE LogicModule suite. **Nothing is built
-yet**: there is no `build/`, `dist/`, `modules/` or test harness, so there are no build, lint or test
-commands to run here. The workspace `..\CLAUDE.md` (skill use, lint commands, lessons going back
-into the skill) applies once modules exist.
+The second generation of the Proxmox VE LogicModule suite. **The code is still v1's:** all of v1
+at commit `2e0237b` (19 modules, portal-verified on a two-node lab) was copied in verbatim on
+2026-10-25, so every v2 change shows as a diff against it (spec §3.8). None of the v2 design is
+built yet. v1 itself lives on in the sibling repo `..\Proxmox-LogicModule`.
 
-v1 is the sibling repo `..\Proxmox-LogicModule`, complete at `2e0237b` (19 modules,
-portal-verified on a two-node lab).
 **v2 is standalone** (user, 2026-10-25): it never requires v1 to be installed and never changes
-v1. The implementation plan's first task copies all of v1 at `2e0237b` (19 modules, their scripts,
-build, Docker harness, mock API, dashboard validation) into this repo verbatim; v2 customises its
-own copy from there (spec §3.8). Until then, read v1's `CLAUDE.md` and `docs/DESIGN.md` before
-proposing any build or code layout. References like "v1 DESIGN §7" in the docs here point there.
+v1; it customises its own copy.
+
+Layout, as v1's (read `docs/v1/CLAUDE.md` and `docs/v1/DESIGN.md` before changing the build or
+code layout; references like "v1 DESIGN §7" point there):
+
+- `modules/*.json` -- module definitions; `scripts/*.groovy` -- their scripts, each prepended with
+  the shared preamble `scripts/lib/pve_common.groovy` at build; `dashboards/*.py` -- dashboard
+  sources; `build/` -- `build.py` (assembles `dist/`, with its cross-checks), `dashboards.py`,
+  `groovylint.py`; `tests/` -- the Docker compile job, `harness.groovy` and its mock API fixture.
+- `dist/` is generated and gitignored: never edit or commit it.
+- `docs/v1/` -- v1's own CLAUDE.md, README, DESIGN, INSTALL and specs, as copied.
+
+Commands (from the repo root; the workspace `..\CLAUDE.md` has the PowerShell forms of the lint):
+
+```sh
+python build/build.py                                        # build dist/ and run its checks
+docker compose -f tests/docker-compose.yml run --rm compile  # groovyc, Groovy 4 / JDK 17
+docker compose -f tests/docker-compose.yml run --rm tests    # mock-API harness
+python ../logicmonitor-modules-skill/skill/scripts/lm_lint_module.py dist
+python ../logicmonitor-modules-skill/skill/scripts/lm_dashboards.py check dist/dashboards/*.json --modules modules
+```
+
+At the copy, the build output was byte-identical to v1's and to the skill's
+`tests/fixtures/proxmox/`; the compile job passed, the harness passed all 1,378 checks, the lint
+gave 0 errors and 5 warnings (v1's own), and both dashboards checked clean (2026-10-25).
 
 v2's token property is **`pve.token.credential`**, never v1's `pve.api.token.credential`: v1's
 `addCategory_Proxmox_VE` applies all of v1 to any resource holding that one (spec §3.5).

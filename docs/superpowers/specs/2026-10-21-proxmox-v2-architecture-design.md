@@ -377,8 +377,11 @@ monitored.
 **Everything is copied into this repository** from v1 commit `2e0237b` (v1 complete), the commit
 recorded here, as the skill pins its fixtures: all 19 modules' scripts and definitions as the
 starting point of §3.2's rows, and the pieces below unchanged except where stated (user,
-2026-10-25: v2 is standalone and customises its own copy). The copy is the implementation plan's
-first task, verbatim, so every later change shows as a diff against v1. That includes what v1 added after `e6873b7`: graphs on every
+2026-10-25: v2 is standalone and customises its own copy). **Done 2026-10-25,** at the user's
+request: copied verbatim with `git archive 2e0237b`, v1's documentation under `docs/v1/`, so every
+later change shows as a diff against v1. Checked the same day: every one of v1's 71 tracked files
+matches its copy; the build output is byte-identical to v1's and to the skill's portal-verified
+fixtures; the Docker compile job and the harness (1,378 checks) pass. That includes what v1 added after `e6873b7`: graphs on every
 DataSource and the build's `check_graphs`, `pveSizeLabel` sizes in instance names and descriptions,
 and the rule that end-user text points at Proxmox's own views because stderr on a successful run is
 not shown (v1 DESIGN §7). v1 keeps its own history; a later v1 fix reaches v2 only by copying it over.

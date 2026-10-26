@@ -1,0 +1,145 @@
+{
+  "name": "Proxmox_VE_Cluster",
+  "displayedAs": "Proxmox VE Cluster",
+  "description": "Corosync quorum and HA manager health for a Proxmox VE cluster. Reports safely on a standalone host by withholding the quorum datapoints rather than reporting them as healthy.",
+  "group": "Proxmox VE",
+  "appliesTo": "hasCategory(\"ProxmoxVE\")",
+  "searchKeywords": "proxmox,pve,cluster,quorum,corosync,ha,virtualization",
+  "technicalNotes": "One instance, the cluster, discovered with the fixed wildvalue cluster so a rename orphans nothing; on a cluster it carries the key Proxmox_VE_Topology draws the cluster vertex with (predef.externalResourceID proxmoxve--<cluster>, type Cluster). A standalone host keeps the instance without a key. Requires Sys.Audit on / for /cluster/status; the HA datapoints additionally read /cluster/ha/status/current and are omitted when HA is not configured or not permitted.\n\nOn a standalone host ClusterConfigured reports 0 and the quorum datapoints are not emitted at all, so they read as no-data instead of raising a false alert.\n\nCapacity rollups come from one unfiltered /cluster/resources call, which returns every node, guest and storage object at once. Quorum, capacity and HA take three calls per interval (/cluster/status, /cluster/resources, /cluster/ha/status/current), however many guests the cluster has; migrations add one call plus two per online node (below).\n\nVCPUOvercommitRatio and MemoryOvercommitRatio ship without thresholds on purpose. A defensible ratio depends on the site's capacity plan and, for memory, on how much ballooning and KSM headroom exists; a shipped default would be wrong for most clusters in one direction or the other. Templates are excluded from the allocation sums because their allocation is not committed.\n\nMigrations. MigrationsRunning counts migrations in progress across the cluster, from /cluster/tasks. MigrationsCompletedLastHour and MigrationsFailedLastHour count migrations that finished in the last hour, from each online node's own vzmigrate (container) and qmigrate (VM) history, newest 100 of each; a migration is recorded on the node it started from. That costs one call plus two per online node. Each failed migration, with the guest and Proxmox's reason, is listed in the source node's Task History in the Proxmox web interface. If any node's history cannot be read, the two hourly counts stay empty rather than undercount. A standalone host reports 0. The completed and running counts ship without thresholds: how many migrations make a burst depends on the site.",
+  "collectionMethod": "script",
+  "collectionInterval": "5m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Cluster.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Cluster.ad.groovy",
+  "discoveryInterval": "60m",
+  "datapoints": [
+    {
+      "name": "ClusterConfigured",
+      "description": "1 when this host is a member of a Proxmox cluster, 0 when standalone."
+    },
+    {
+      "name": "Quorate",
+      "description": "1 when the cluster has quorum. Not emitted on a standalone host.",
+      "threshold": "< 1 1 1",
+      "alertBody": "The Proxmox cluster containing ##HOST## has lost quorum. Guests on the minority partition cannot be started or migrated, and HA services will be fenced.\n\nThis started at ##START##, ##DURATION## ago.",
+      "conditional": true
+    },
+    {
+      "name": "Votes",
+      "description": "Current corosync votes.",
+      "conditional": true
+    },
+    {
+      "name": "ExpectedVotes",
+      "description": "Votes corosync expects for quorum.",
+      "conditional": true
+    },
+    {
+      "name": "NodesExpected",
+      "description": "Node count recorded in the cluster configuration.",
+      "conditional": true
+    },
+    {
+      "name": "NodesTotal",
+      "description": "Nodes reported by /cluster/status."
+    },
+    {
+      "name": "NodesOnline",
+      "description": "Nodes currently online."
+    },
+    {
+      "name": "NodesOffline",
+      "description": "Nodes currently offline.",
+      "threshold": "> 0 0 1",
+      "alertBody": "##VALUE## node(s) in the Proxmox cluster containing ##HOST## are offline.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "HAServicesTotal",
+      "description": "HA-managed services known to the CRM.",
+      "conditional": true
+    },
+    {
+      "name": "HAServicesError",
+      "description": "HA services in error or fence state.",
+      "threshold": "> 0 0 1",
+      "alertBody": "##VALUE## HA service(s) on the Proxmox cluster containing ##HOST## are in an error or fence state.\n\nThis started at ##START##, ##DURATION## ago.",
+      "conditional": true
+    },
+    {
+      "name": "HAMasterPresent",
+      "description": "1 when an HA manager master has been elected.",
+      "conditional": true
+    },
+    {
+      "name": "GuestsTotal",
+      "description": "Non-template guests in the cluster, running or stopped."
+    },
+    {
+      "name": "GuestsRunning",
+      "description": "Guests currently running."
+    },
+    {
+      "name": "VCPUsAllocated",
+      "description": "Total vCPUs assigned across all non-template guests."
+    },
+    {
+      "name": "VCPUsCapacity",
+      "description": "Total physical CPU threads across all nodes."
+    },
+    {
+      "name": "VCPUOvercommitRatio",
+      "description": "Allocated vCPUs per physical thread. 1.0 is fully committed, above 1.0 is oversubscribed. Ships without a threshold: a defensible ratio is entirely site-specific."
+    },
+    {
+      "name": "MemoryAllocatedBytes",
+      "description": "Total memory assigned across all non-template guests, bytes."
+    },
+    {
+      "name": "MemoryCapacityBytes",
+      "description": "Total physical memory across all nodes, bytes."
+    },
+    {
+      "name": "MemoryOvercommitRatio",
+      "description": "Assigned guest memory per byte of physical memory. Above 1.0 the cluster depends on ballooning or KSM to stay within its real memory. Ships without a threshold: how much overcommit is safe depends on the balloon configuration."
+    },
+    {
+      "name": "HAServicesRequestMismatch",
+      "description": "HA services whose current state differs from the state the CRM requested, i.e. services mid-transition. Brief mismatches are normal; a persistent one is a stuck service.",
+      "conditional": true
+    },
+    {
+      "name": "HAFencingArmed",
+      "description": "1 when the cluster's fencing is armed. A cluster that cannot fence a failed node cannot safely recover its guests. Reported only by Proxmox versions that expose fencing state.",
+      "conditional": true
+    },
+    {
+      "name": "MigrationsRunning",
+      "description": "Migrations in progress across the cluster.",
+      "conditional": true
+    },
+    {
+      "name": "MigrationsCompletedLastHour",
+      "description": "Migrations that finished successfully in the last hour.",
+      "conditional": true
+    },
+    {
+      "name": "MigrationsFailedLastHour",
+      "description": "Migrations that failed in the last hour. Each one, with its reason, is in the source node's Task History in the Proxmox web interface.",
+      "conditional": true,
+      "threshold": "> 0",
+      "alertBody": "##VALUE## guest migration(s) failed in the last hour on cluster ##INSTANCE##. A failed migration leaves the guest on its original node, so a planned maintenance or an HA recovery may not have happened. Each failed migration and Proxmox's reason for it are in the source node's Task History in the Proxmox web interface; double-click an entry for its full log.\n\nThis started at ##START##, ##DURATION## ago."
+    }
+  ],
+  "graphs": [
+    {"title": "Nodes", "verticalLabel": "nodes", "lines": [{"dp": "NodesTotal", "legend": "Total", "color": "blue"}, {"dp": "NodesOnline", "legend": "Online", "color": "green"}, {"dp": "NodesOffline", "legend": "Offline", "color": "red"}, {"dp": "NodesExpected", "legend": "Expected", "color": "black"}]},
+    {"title": "Quorum Votes", "verticalLabel": "votes", "lines": [{"dp": "Votes", "legend": "Votes", "color": "blue"}, {"dp": "ExpectedVotes", "legend": "Expected", "color": "black"}]},
+    {"title": "Cluster State", "verticalLabel": "1 = yes", "max": 1, "lines": [{"dp": "Quorate", "legend": "Quorate", "color": "green"}, {"dp": "ClusterConfigured", "legend": "Cluster configured", "color": "black"}, {"dp": "HAMasterPresent", "legend": "HA master present", "color": "fuchsia"}, {"dp": "HAFencingArmed", "legend": "HA fencing armed", "color": "blue"}]},
+    {"title": "Guests", "verticalLabel": "guests", "lines": [{"dp": "GuestsTotal", "legend": "Total", "color": "blue"}, {"dp": "GuestsRunning", "legend": "Running", "color": "green"}]},
+    {"title": "vCPU Allocation", "verticalLabel": "vCPUs", "lines": [{"dp": "VCPUsAllocated", "legend": "Allocated", "color": "blue"}, {"dp": "VCPUsCapacity", "legend": "Capacity", "color": "black"}]},
+    {"title": "Memory Allocation", "verticalLabel": "bytes", "scale1024": true, "lines": [{"dp": "MemoryAllocatedBytes", "legend": "Allocated", "color": "blue"}, {"dp": "MemoryCapacityBytes", "legend": "Capacity", "color": "black"}]},
+    {"title": "Overcommit", "verticalLabel": "ratio", "lines": [{"dp": "VCPUOvercommitRatio", "legend": "vCPU", "color": "blue"}, {"dp": "MemoryOvercommitRatio", "legend": "Memory", "color": "orange"}]},
+    {"title": "HA Services", "verticalLabel": "services", "lines": [{"dp": "HAServicesTotal", "legend": "Total", "color": "blue"}, {"dp": "HAServicesError", "legend": "In error or fence", "color": "red"}, {"dp": "HAServicesRequestMismatch", "legend": "Not yet in requested state", "color": "orange"}]},
+    {"title": "Migrations", "verticalLabel": "migrations", "lines": [{"dp": "MigrationsRunning", "legend": "Running", "color": "blue"}, {"dp": "MigrationsCompletedLastHour", "legend": "Completed, last hour", "color": "green"}, {"dp": "MigrationsFailedLastHour", "legend": "Failed, last hour", "color": "red"}]}
+  ]
+}
