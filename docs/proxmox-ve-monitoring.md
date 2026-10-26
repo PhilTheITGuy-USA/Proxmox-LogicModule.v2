@@ -120,12 +120,14 @@ Proxmox VE/                     the root group (pve.netscan.rootFolder)
   Cluster - <cluster>/          the cluster resource
     Nodes/                      one resource per node
     Guests/                     only with pve.netscan.guests=true
-      Pool - <pool>/            guests grouped by Proxmox pool
   Host - <node>/                a standalone host instead of Cluster - …
 ```
 
-Guests are never grouped by node, so a migration never moves a resource; the node is the
-`pve.node` property, for dynamic groups. Run one NetScan per cluster.
+The NetScan creates only these groups, whose membership never changes: it adds a resource to a
+group but never takes it out of one, so a group by pool would keep every guest that ever passed
+through it. Group guests by pool, tag or node with **dynamic groups** instead, on `pve.pool`,
+`pve.tags` or `pve.node` (for example, Applies To `pve.pool == "web"`); they follow the guest's
+current values. Run one NetScan per cluster.
 
 **Warning:** Each resource uses one host unit of your licence; instances do not. A cluster of
 16 nodes is 16 host units, or 17 with a cluster address; each guest you add as a resource is one
@@ -164,7 +166,6 @@ resource either way.
    | `pve.netscan.node.maxfailures` | Node checks that may fail in one run before the rest are skipped | `5` | `10` |
    | `pve.netscan.guests` | `true` adds guests as resources (one host unit each) | `true` | `false` |
    | `pve.netscan.guests.unaddressed` | `true` also adds selected guests with no address the NetScan can read; they show as down | `true` | `false` |
-   | `pve.netscan.guests.groupBy` | `pool` or `none` | `none` | `pool` |
    | `skip.device.dedupe` | `true` turns duplicate checking off | `true` | `false` |
    | `hostname.source` | On a duplicate: empty skips it and reports it; `lm` adopts the existing resource; `netscan` adds a second one | `lm` | empty |
    | `lmapi.timelimit.sec` | Above this estimate, existing resources are looked up one at a time | `90` | `60` |
@@ -190,7 +191,11 @@ resource either way.
    **Warning:** Do not edit the script. Change its behaviour only through the properties above.
 
 10. Leave **Ignore system.ips when checking existing Resources for duplicates** off, and
-    **Exclude duplicate IP addresses** at **Matching any Monitored Resources**.
+    **Exclude duplicate IP addresses** at **Matching any Monitored Resources**. Set **Criteria for
+    updating Existing Resources** to **Resources discovered by this NetScan** (the default), or to
+    **Resources that are member of selected groups** if the NetScan should adopt nodes or guests
+    you already monitor. Never **Do not update any existing resources**: the suite depends on
+    each run updating its resources.
 11. In **Schedule**, select **Run this NetScan on a schedule**. Hourly is recommended; a run with
     guests off costs two API calls plus one per node.
 12. Select **Save** or **Save and Run**.
@@ -219,9 +224,9 @@ nodes. A node carrying the role keeps its node properties too.
 
 | Property | Value | Example values | Required |
 |---|---|---|---|
-| `system.categories` | `ProxmoxVE_Cluster` on a cluster resource; `ProxmoxVE_Node,ProxmoxVE_Cluster` on a node (and on a standalone host) | `ProxmoxVE_Cluster` | Yes |
-| `pve.cluster.role` | `active` or `standby` | `standby` | Yes, on a cluster |
-| `pve.cluster.active` | On the standby: the active node's name, or `address:<host>` for a cluster resource | `address:pve-vip.example.com` | Yes, on the standby |
+| `system.categories` | `ProxmoxVE_Cluster` on a cluster resource; `ProxmoxVE_Node` on a node; both on a standalone host | `ProxmoxVE_Cluster` | Yes |
+| `pve.cluster.role` | `active`, `standby` or `none`; the cluster modules apply where it is `active` or `standby` | `standby` | Yes |
+| `pve.cluster.active` | On the standby: the active node's name, or `address:<host>` for a cluster resource; `none` elsewhere | `address:pve-vip.example.com` | Yes |
 | `pve.token.credential` | The whole token string | `monitor@pve!logicmonitor=<secret>` | Yes |
 | `pve.api.url` | API address | `https://pve-vip.example.com:8006` | Yes |
 | `pve.api.hosts` | Every node's address, for failover | `10.0.0.11,10.0.0.12` | Recommended |
@@ -319,7 +324,7 @@ and the run reports it.
 Proxmox VE modules are organised by the resource role they apply to. This is the first release,
 so no module replaces another.
 
-**Proxmox VE Cluster modules** (apply on `ProxmoxVE_Cluster`; only the active resource collects)
+**Proxmox VE Cluster modules** (apply where `pve.cluster.role` is `active` or `standby`; only the active resource collects)
 
 | Display Name | Type | Description | Replaces |
 |---|---|---|---|

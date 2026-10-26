@@ -113,12 +113,23 @@ the standby exists for.
   lookup sees it up. The install guide supports it and recommends a VIP or a proxy.
 - **Certificates:** behind a VIP or proxy, Proxmox's per-node certificates do not name the shared
   address; the user installs one that does (usual on a proxy) or sets `pve.api.insecure=true`.
-- **Adding an address later:** the next NetScan run creates the cluster resource and turns the
-  active node into the standby. New data lands on the cluster resource; the old history stays on
-  the node.
+- **Adding an address later:** the next NetScan run creates the cluster resource as active,
+  turns the active node into the standby, and sets the old standby's role to `none`. New data
+  lands on the cluster resource; the old active node keeps its history, now as the standby.
 - **Not yet seen:** a standby taking over when the active resource is shut down, and whether the
   standby's open alerts clear when it goes quiet again (spike S8, §5). If they stay open, a
   standby sends its "all clear" values once before going quiet.
+
+**The role is a property, not a category** (user, 2026-10-25, after S5). Spike S5 showed that a NetScan re-run
+overwrites a property's value but never removes a category it stopped sending (NetScan spec §10),
+so a category cannot mark something that changes. Every node and the cluster resource carry
+**`pve.cluster.role`** = `active`, `standby` or `none`, and the cluster modules apply on
+`pve.cluster.role == "active" || pve.cluster.role == "standby"`. When a resource's role becomes
+`none`, LogicMonitor detaches the cluster modules from it and deletes their history there. What
+that loses is small: the old standby's history (a standby collects only while the active resource
+is down), a node that left the cluster, or a cluster resource whose address was removed and which
+would be dead without it. The alternative, keeping the modules attached and silent behind a role
+check, kept that history but left idle modules and stale instances on the resource for good.
 
 The pair is the lowest node IDs whether those nodes are online or not, so every NetScan run
 picks the same pair and the role never moves on its own: a node being down is the standby's case,
@@ -134,7 +145,10 @@ setup requirement; the NetScan checks it and reports a failure (NetScan spec §3
 same caveat about Java's ping.
 
 **Categories are set by whoever creates the resource,** the NetScan or a user adding one by hand,
-never inferred later from whether a token works. The token is set explicitly where it is needed:
+never inferred later from whether a token works, and they mark only what a resource *is*
+(`ProxmoxVE_Cluster` on the cluster resource, `ProxmoxVE_Node` on a node, both on a standalone
+host, `ProxmoxVE_Guest` on a guest): S5 showed a NetScan merges categories and never removes one,
+so nothing that can change is a category. The token is set explicitly where it is needed:
 the NetScan writes it onto cluster and node resources, as VMware's NetScan writes `esx.pass`. So
 there is no stale category to clean up.
 
@@ -180,10 +194,9 @@ of a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 Node-local storage stays in `Proxmox_VE_Cluster_StorageCapacity`, which already reads every store,
 local or shared, in its one call.
 
-**Cluster modules apply wherever the cluster role is,** `hasCategory("ProxmoxVE_Cluster")`: on the
-cluster resource, and on the active and standby nodes, which carry `ProxmoxVE_Node,ProxmoxVE_Cluster`
-(§3.1). Each starts with the preamble's role check and prints nothing unless it is the resource
-that should collect.
+**Cluster modules apply wherever the cluster role is,** `pve.cluster.role == "active" ||
+pve.cluster.role == "standby"` (§3.1): the cluster resource and a node, or two nodes. Each starts
+with the preamble's role check and prints nothing unless it is the resource that should collect.
 
 **The cluster health score** (user's proposal, 2026-10-25; inputs checked on the lab's API the
 same day). `/cluster/resources` gives each node's `cpu`, `maxcpu`, `mem`, `maxmem` and `status` in
@@ -493,7 +506,8 @@ answered (2026-10-25).
 | S1 | Q1 | read the VMware VM modules' AppliesTo | **done** 2026-10-25, from LogicMonitor's exports |
 | S2 | Q2 | a throwaway NetScan against the lab cluster that creates resources in a test group; detail in NetScan spec §10. **Run 2026-10-25:** resources and groups created; a cluster resource without an address is dead whatever collects on it (§3.1) | one import, one run, then delete the group |
 | S3 | Q3 | the same NetScan run against the v1 node resources and a guest already monitored over SNMP | the same run |
-| S5, S6 | NetScan re-runs; guest-address privileges (S6 done 2026-10-25: `PVEAuditor` suffices on 9.2.3) | NetScan spec §10 | two runs; API calls from a workstation |
+| S5 | NetScan re-runs | NetScan spec §10. **Done 2026-10-25:** a re-run overwrites values and adds properties, categories and groups, but never removes any; the cluster role became a property (§3.1) | four runs of a throwaway NetScan |
+| S6 | guest-address privileges | NetScan spec §10. **Done 2026-10-25:** `PVEAuditor` suffices on 9.2.3 | API calls from a workstation |
 | S7 | Q4 | a throwaway TopologySource and DataSource on one Collector, one writing an `lm.cache` key and the other reading it | one import each, then deleted |
 | S4 | failover; `/nodes/localhost` | the preamble with two addresses, the first unreachable; and one `GET /nodes/localhost/status` over HTTPS | harness plus one Collector debug run |
 | S8 | the standby (§3.1): does it take over when the active node is shut down, and do its open alerts clear when it goes quiet again? | the built `Cluster_Status` on the lab's two nodes; shut down the active one, raise an alert on the standby, start the active one again | one import, one node restart |

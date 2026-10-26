@@ -81,13 +81,17 @@ node, guest and storage object is an instance on the token-holding node":
   named `Proxmox_VE_Cluster_*` / `Proxmox_VE_Node_*` so they never overwrite v1's on import;
   each starts from a v1 module (spec §3.2 maps them). Guest hypervisor metrics stay
   instances on the cluster role, wildvalues unchanged so a migration keeps history.
-- **An Enhanced Script NetScan** creates and groups resources (`Cluster - <name>/Nodes|Guests`,
-  never grouped by node), deduplicates against existing devices (display name, hostname, MAC),
-  and never deletes.
+- **An Enhanced Script NetScan** creates and groups resources (`Cluster - <name>/Nodes|Guests`),
+  deduplicates against existing devices (display name, hostname, address, MAC), and never
+  deletes.
 - **Licensing drives defaults:** every resource is one host unit, instances are free -- hence
   guests-as-resources is opt-in.
 - **The cluster role is an active and a standby resource** (spec §3.1, after spike S2): a cluster
   resource plus a standby node where the cluster has its own address (VIP, proxy, DNS name), else
   the two lowest-ID nodes. A resource without an answering address is dead in LogicMonitor, and a
   dead resource suppresses its alerts; script data never keeps it alive. The standby collects
-  only while the resource ahead of it is down.
+  only while the resource ahead of it is down. The role is the property `pve.cluster.role`, never a
+  category.
+- **A NetScan re-run overwrites and adds, never removes** (spike S5): so every property is sent
+  every run with an explicit value (`none`, `ok`), categories mark only what a resource is, and the
+  NetScan writes only groups whose membership never changes; pools and tags are dynamic groups.

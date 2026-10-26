@@ -4,7 +4,9 @@ Status: **draft for review**, 2026-10-25; revised the same day with the user's a
 and with what LogicMonitor's vSphere NetScan script shows (supplied by the user 2026-10-25,
 summarised in research §2a, not copied); revised again after spike S2 (2026-10-25): the cluster
 role is an active and a standby resource (§5.1), guest hostnames stay IPs (§5.3), deduplication
-compares addresses (§6). Part of the v2 architecture spec
+compares addresses (§6); revised after spike S5 (2026-10-25): every property is sent every run,
+the cluster role is a property, and only unchanging groups are written (§4, §5). Part of the v2
+architecture spec
 (`2026-10-21-proxmox-v2-architecture-design.md`, §3.3), which it details. Nothing here is built.
 Built on v1 complete at `2e0237b`.
 
@@ -58,11 +60,18 @@ arrive, so some properties from outside the NetScan do.
 | `pve.netscan.guests` | `false` | create guest resources. Off by default: each is 1 HU (main spec §3.7) |
 | `pve.netscan.guests.filter.pool`, `.tag`, `.node`, `.vmid`, `.type`, `.status` | none | comma-separated allow-lists; a guest must pass every one that is set. `.vmid` takes ranges (`100-199`), `.type` is `qemu` / `lxc`, `.status` is `running` / `stopped` |
 | `pve.netscan.guests.unaddressed` | `false` | `true` also creates selected guests the run found no address for, with their name as hostname; they do not answer ping, so LogicMonitor shows them dead (§5.3) (user, 2026-10-25, spec review) |
-| `pve.netscan.guests.groupBy` | `pool` | `pool` groups guests under `Guests/Pool - <pool>`; `none` keeps them flat. Never by node (§4) |
 | `skip.device.dedupe` | `false` | VMware's name and meaning [vmware]: `true` turns §6 off |
 | `hostname.source` | empty | VMware's name and meaning [vmware], §6: empty skips and reports a collision, `lm` adopts the existing device, `netscan` renames the new one |
 | `lmapi.timelimit.sec` | `60` | VMware's [vmware]: above this estimate, §6 queries the portal one device at a time |
 | LogicMonitor API credentials | none | read by the `lm.api` snippet itself from the NetScan's properties [vmware]; their property names are LogicMonitor's (`lmaccess.id` / `lmaccess.key` in its documentation) [unverified]. They do not arrive unless entered [S2] |
+
+**The NetScan's "Criteria for updating Existing Resources"** decides which existing resources a
+run may update, not how [S5, user 2026-10-25]. Its options: *All matching resources*, *Resources
+discovered by this NetScan* (the default), *Resources that are member of selected groups*,
+*Resources monitored by selected Collectors*, *Do not update any existing resources*. The default
+suits an install with nothing already monitored. Adopting resources that existed before (§6)
+needs *member of selected groups*, scoped to their groups, or *All matching resources*. *Do not
+update* breaks the design, which depends on re-runs rewriting properties (§7).
 
 **The LogicMonitor-side properties keep VMware's names** so that anyone who has run the vSphere
 NetScan already knows them. **Filters are properties the script reads,** so the harness can test
@@ -91,7 +100,10 @@ them; whether the NetScan UI's own filter rows also apply is [unverified, S2].
 5. **The cluster role (§5.1):** decide the case from the cluster address and take the pair by
    `nodeid`. No API call.
 6. **Deduplicate** each resource against the portal (§6).
-7. **Emit** the list through `lm.emit`'s `resource` call [vmware]. Each entry is a map of
+7. **Emit** the list through `lm.emit`'s `resource` call [vmware]. **Every property of §5 is sent
+   on every run, with an explicit value where it has none** (`ok`, `none`) (user, 2026-10-25, after S5): a re-run
+   overwrites a value but never removes a property it stopped sending [S5], so leaving one out
+   would leave its old value standing. Rules and dynamic groups test for `none`, not for absence. Each entry is a map of
    `hostname`, `displayname`, `hostProps` (a map, `system.categories` among them) and `groupName`
    (a list of group paths, so one resource can sit in several groups) [vmware].
 
@@ -105,16 +117,25 @@ calls an hour; with all 1,000 guests selected, about 2,018 (§12).
   Cluster - <cluster>/          the cluster resource, where the cluster has an address (§5.1)
     Nodes/                      every node resource, the role nodes among them
     Guests/                     only if pve.netscan.guests
-      Pool - <pool>/            with groupBy=pool; guests in no pool stay in Guests/
   Host - <node>/                a standalone host instead of Cluster - …
     Guests/
 ```
 
 One NetScan per cluster, as VMware runs one per vCenter [vmware]; the ten of Q6 write side by side
-under one `rootFolder`. **Guests are never grouped by node,** because a migration would move the
-resource every time; VMware likewise groups VMs by cluster, pool and folder, never by host
-[vmware]. The node is the `pve.node` property instead, and a per-node view is one dynamic group on
-it. Proxmox tags become `pve.tags` for dynamic groups too.
+under one `rootFolder`.
+
+**Only groups whose membership never changes** (user, 2026-10-25, after S5). A re-run adds a resource to the groups it
+names but never takes it out of a group it stopped naming: S5's resource ended in both its old and
+its new group [S5]. So a pool group would collect every guest that ever passed through it, and,
+since LogicMonitor grants permissions by group, a guest moved from one tenant's pool to another's
+would stay visible to the first. The NetScan therefore writes only `Cluster - <cluster>`, `Nodes`,
+`Guests` and `Host - <node>`, which a resource never leaves. **Pools, tags and nodes are
+properties** (`pve.pool`, `pve.tags`, `pve.node`) for **dynamic groups**, which follow a
+property's current value; the install guide shows one per pool. VMware groups VMs by cluster, pool
+and folder [vmware]; this suite does pools through dynamic groups instead, and never groups by
+node, since a migration would move the guest each time. Removing old memberships through the
+LogicMonitor API is possible later; it would make access control depend on optional credentials,
+so it is not phase 1.
 
 ## 5. The resources it writes
 
@@ -133,13 +154,15 @@ own address (a VIP, a proxy, a DNS name or a round-robin name).
 | a standalone host | its one resource, `ProxmoxVE_Cluster,ProxmoxVE_Node` (main spec §3.1) | none |
 | a one-node cluster, no address | that node | none, until a second node joins |
 
-- **A node carrying the role** keeps its node hostname and display name (§5.2) and gets
-  `ProxmoxVE_Node,ProxmoxVE_Cluster`.
+- **A node carrying the role** keeps its node hostname, display name and category (§5.2); the
+  role is the property below, which the cluster modules apply on (main spec §3.1).
 - **Properties on both role resources,** beside the token set of §2: `pve.cluster` = the cluster
   name, `pve.api.url` as given, `pve.api.hosts` = every node's `/cluster/status` address ordered
-  by `nodeid`, **`pve.cluster.role`** = `active` / `standby`, and on the standby
-  **`pve.cluster.active`** = what it stands behind: the active node's name, or `address:<host>`
-  for a cluster resource. The cluster resource's `pve.serial` is `<cluster>`; a node keeps its
+  by `nodeid`, **`pve.cluster.role`** = `active` / `standby`, and **`pve.cluster.active`** = on
+  the standby, what it stands behind (the active node's name, or `address:<host>` for a cluster
+  resource), `none` elsewhere. Every other node gets `pve.cluster.role` = `none` and
+  `pve.cluster.active` = `none`, so a node that loses the role is overwritten, not left with its
+  old value [S5]. The cluster resource's `pve.serial` is `<cluster>`; a node keeps its
   own (§5.2).
 - **The cluster modules never use a role resource's hostname;** they reach the API through
   `pve.api.url`, failing over through `pve.api.hosts`.
@@ -150,8 +173,8 @@ own address (a VIP, a proxy, a DNS name or a round-robin name).
   the cluster, or when a cluster address appears or goes, and the run then reports it. The
   install guide says how to move the role by hand (before retiring a role node, say).
 - **An address that appears later** (a VIP added): the run creates the cluster resource as
-  active and makes the old active node the standby; the old standby loses the role. Its category
-  goes, so its cluster instances stop collecting; their history stays readable.
+  active, makes the old active node the standby, and sets the old standby's role to `none`, which
+  detaches the cluster modules there and deletes their (mostly empty) history.
 - **The run's output states the case,** e.g. "cluster address `pve-vip.example.com`: separate
   cluster resource, standby Node-A" or "no cluster address: active Node-A, standby
   Node-B". For round-robin DNS it adds the warning of main spec §3.1. A round-robin name is
@@ -171,12 +194,13 @@ needs its place on the map and its down state):
   address; the install guide says so.
 - **Display name:** the node name.
 - **Categories:** `ProxmoxVE_Node`, always: it is what the resource *is*, and the ERI and topology
-  need nothing else. The active and standby nodes of §5.1 add `ProxmoxVE_Cluster`.
+  need nothing else. The cluster role is `pve.cluster.role` (§5.1), never a category, because a
+  NetScan cannot remove a category [S5].
 - **Properties:** the token set of §2, `pve.cluster`, `pve.node` = the node name (so no module has
   to infer it, and `pveTopoNodeName` has its answer [v1]), `pve.serial` =
   `<cluster>::node::<name>`, and **`pve.netscan.reachable`** = `true` / `false` from step 3's API
-  check, with `pve.netscan.status` carrying the reason when `false`, and a failed ping from step 3
-  whatever `pve.netscan.reachable` says.
+  check, and `pve.netscan.status` = `ok`, or the reason when the API check or step 3's ping
+  failed, so a recovered node is overwritten back to `ok` [S5].
 - **The node API modules apply only where `pve.netscan.reachable` is not `false`.** A node the
   Collector cannot reach keeps its resource, its ERI and its place on the map, and raises no
   collection errors; the next run that reaches it switches them on. VMware instead adds such a host
@@ -212,8 +236,8 @@ needs its place on the map and its down state):
 - **Display name:** the guest name; if two selected guests share one, ` (<vmid>)` is appended to
   both, every run, so the pair's names do not depend on which was seen first.
 - **Categories:** `ProxmoxVE_Guest`.
-- **Properties:** `pve.cluster`, `pve.node`, `pve.vmid`, `pve.guest.type`, `pve.pool`, `pve.tags`
-  (Proxmox's own `;`-list), `pve.guest.mac` (first NIC's MAC, as `pveGuestMac` reads it [v1]),
+- **Properties:** `pve.cluster`, `pve.node`, `pve.vmid`, `pve.guest.type`, `pve.pool` (`none` when
+  the guest is in no pool), `pve.tags` (Proxmox's own `;`-list, `none` when untagged), `pve.guest.mac` (first NIC's MAC, as `pveGuestMac` reads it [v1]),
   `netscan.powerstate` [vmware], `pve.serial` = `<cluster>::<vmid>`, as VMware's `vcenter.serial`
   is `<vCenter UUID>::<VM UUID>` [vmware]. **Never the token:** no guest module calls the Proxmox
   API (main spec §3.2).
@@ -251,14 +275,15 @@ As VMware's, through the `lm.api` snippet [vmware]:
   existing `192.0.2.44` resource [S2, dry run 2026-10-25]. So this script's own match resolves
   both sides to addresses, and §5.3 no longer swaps an IP for its DNS name by default.
 - **Adopting resources that already exist** (a node or guest monitored over SNMP) is
-  `hostname.source=lm`. LogicMonitor's exclusion above skips a match; it does not update it, so
-  adoption has to come from the script or from the NetScan's "Criteria for updating existing
-  resources" (default "Resources discovered by this NetScan") [unverified, S3].
-- **Adoption and `system.categories`:** VMware writes `system.categories` outright [vmware].
-  Whether that replaces an adopted device's categories (dropping whatever its own modules set) or
-  merges is [unverified, S3]. If it replaces, the run emits the union of the device's
-  categories and the role's, which needs the device listing to carry its properties
+  `hostname.source=lm`, **and** a "Criteria for updating Existing Resources" that lets the run
+  update them (§2): under the default, *Resources discovered by this NetScan*, a resource the
+  NetScan did not create is never updated [S5]. LogicMonitor's duplicate-IP exclusion skips a
+  match; it does not update it. Which fields the portal matches on under the other options is
   [unverified, S3].
+- **Adoption and `system.categories`:** a NetScan merges the categories it sends with those a
+  resource already has, and keeps categories added by hand [S5], so an adopted device keeps
+  whatever its own modules set. Whether the same holds for a resource the NetScan did not create
+  is [unverified, S3].
 
 Without LogicMonitor API credentials, or with `skip.device.dedupe`, there is no lookup and the
 run's output says so.
@@ -270,10 +295,14 @@ run's output says so.
 - **Reporting the orphans:** with the LM credentials, the run lists devices carrying this
   cluster's `pve.cluster` and a Proxmox category whose `pve.serial` it did not emit this run, and
   reports them for an operator to retire.
-- **Properties stay current only if a re-run rewrites them:** `pve.node` after a migration,
-  `pve.api.hosts` after a node joins, the token after a rotation, `pve.netscan.reachable`. VMware's
-  "add or move" implies it [vmware]; S5 proves it, including what happens to a property a later
-  run no longer emits.
+- **A re-run overwrites and adds, never removes** [S5]: a changed value is rewritten (`pve.node`
+  after a migration, `pve.api.hosts` after a node joins, `pve.netscan.reachable`); a property, a
+  category or a group it stops sending stays. Hence §3 step 7's every-property rule, §4's
+  unchanging groups and §5.1's role property. The display name follows every run, in both
+  directions, on the same resource [S5]. A token rotation is a rewrite like any value
+  [inferred: the value is masked, so S5 could not show it]. A guest whose address changes may
+  become a second resource, since the hostname is what the run matched on [unverified]; the run
+  reports any guest whose address differs from the one on its resource.
 - **Token (Q7): one per cluster,** held by that cluster's NetScan and written onto its cluster and
   node resources, as VMware writes its credentials onto every host it adds [vmware]. Rotation is
   one edit: the NetScan's `pve.token.credential`, then a run. A token also set on a group is
@@ -330,7 +359,7 @@ cluster modules, so it runs during implementation.
 | S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group. **Done 2026-10-25, except the items still open at the end.** The script ran first in a Groovy 4 / JDK 17 container against the lab (18 calls, 0.9 s without reverse DNS), then in the portal as dry runs: properties entered as custom credentials, the token masked; every emitted entry listed, unresolvable hostnames (`Labcluster`, `Migration-Test`) included; LogicMonitor's duplicate-IP exclusion held back every entry whose IP matched an existing resource, both v1 nodes included (§6). The dry-run screen gives counts (Scanned / Found / Added), not per-device labels. The spike's resources carry no token, so v1 cannot apply to them. **The real run** (filter `104,106,107`, nodes on, reverse DNS off): "Scanned 6, Found 6, Added 3", as predicted: `Labcluster`, `Webapp01` (`192.0.2.200`) and `Migration-Test` created; `.44`, `.51`, `.211` excluded as duplicates. The run record fills in over a minute or two, duplicates first. The NetScan **creates the group path** (`Proxmox VE v2 spike/Cluster - Labcluster/Guests`). On the Collector: 20 calls in 700 ms; medians config 15 ms, container interfaces 36 ms, VM agent 189 ms, node status 11–42 ms, so ~50 ms per container and ~205 ms per VM in a row. `netscanProps` carried every custom property and also `netapp.ssl`, which the user did not enter, so properties from outside the NetScan reach it; no `lmaccess.*` arrived on its own. **`Labcluster` was dead,** and nothing revived it: a script DataSource (`S2_KeepAlive`), `PingMulti-` at 0% loss to both nodes, or a loopback hostname, which instead drew the Collector's and Hyper-V's modules (main spec §3.1). A resource deleted and re-added by the NetScan came back with its old properties until it was also purged from **Recently Deleted**. Still open: the UI filter rows, credential inheritance, timeouts |
 | S8 | the standby of §5.1: takeover when the active resource is shut down; whether the standby's open alerts clear when it goes quiet; the map during the hour after a takeover (main spec §3.4) | the built cluster modules on the lab's two nodes; shut the active node down, raise an alert on the standby, start the active node again |
 | S3 | adopting a device the NetScan did not create; `system.categories` merge or replace; a portal lookup by MAC | the same NetScan with `hostname.source=lm` against the existing v1 node resources and the SNMP guest `Debian-Test` |
-| S5 | a re-run rewriting properties and moving groups; what happens to a property no longer emitted | run twice, migrating a guest and changing a NetScan property between runs |
+| S5 | a re-run rewriting properties and moving groups; what happens to a property no longer emitted | **Done 2026-10-25.** A throwaway NetScan emitting one resource (`s5-test.invalid`) differently per run: resource ID 171 throughout, so matched by hostname; a changed value rewritten, a new property added, a property no longer sent **kept**; categories **merged** (`S5_Drop` kept after it was dropped, `S5_Manual` added by hand kept); the resource added to its new group and **kept in the old**; a display name change applied, and reverted when the old name was sent again. The "Criteria for updating Existing Resources" options choose which resources a run may update, not how (§2) |
 | S6 | the guest-agent privilege on 9.2.3; `/lxc/<vmid>/interfaces` on 9.2.3 | **Done 2026-10-25.** v1's token (`monitor@pve!logicmonitor`, privsep 0, `PVEAuditor` on `/`), from a workstation against Node-B: `/cluster/status`, `/cluster/resources`, and for each of the 7 running guests its interfaces call and `/config` — all 200. Results in §5.3. 9.2.3's `PVEAuditor` = `Datastore.Audit, Mapping.Audit, Pool.Audit, SDN.Audit, Sys.Audit, VM.Audit, VM.GuestAgent.Audit` (`pveum role list`) |
 
 ## 11. Questions
