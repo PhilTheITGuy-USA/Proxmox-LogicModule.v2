@@ -37,6 +37,27 @@ try {
     pveEmit(null, 'NodesOffline', nodes.size() - online)
 
     /*
+     * The cluster health score: nodes online, weighted by how stalled each online node is,
+     * from the pressure stall figures in its rrddata -- one call per online node. A node
+     * whose rrddata cannot be read is left out of the score rather than guessed at.
+     */
+    def stallByNode = [:]
+    nodes.findAll { (it.online == null || it.online as boolean) && it.name }.each { node ->
+        try {
+            def row = pveLatestRrd(pveGet('/nodes/' + node.name + '/rrddata?timeframe=hour&cf=AVERAGE') ?: [])
+            def stall = pveNodeStall(row, [loadavg: [row?.loadavg], cpuinfo: [cpus: row?.maxcpu]])
+            if (stall != null) { stallByNode[node.name.toString()] = stall }
+        } catch (Exception rrdException) {
+            System.err.println('Health score: no pressure figures for node ' + node.name + ': ' + rrdException.message)
+        }
+    }
+    def health = pveHealthScore(entries, stallByNode)
+    pveEmit(null, 'NodesOnlinePercent', health.NodesOnlinePercent)
+    if (health.HealthScore != null) {
+        pveEmit(null, 'HealthScore', health.HealthScore)
+    }
+
+    /*
      * Capacity rollups. One unfiltered /cluster/resources call returns every node, guest
      * and storage object, so the whole-environment view costs one request whatever the
      * cluster size -- the same argument that makes the BatchScript modules work.

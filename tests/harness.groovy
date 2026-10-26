@@ -665,6 +665,25 @@ def noFailover = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Disks.ad.groovy
     [hostProps: nodeHostProps + ['system.hostname': '127.0.0.1:1', 'pve.api.hosts': '127.0.0.1:' + server2.address.port]])
 note('node-no-failover', noFailover.exit == 2, "a node module failed over to another node: ${noFailover.exit}")
 
+// ------------------------------------------------ cluster health score (A§3.2)
+
+def hs = { rows, stalls -> runSource(preamble + '\nreturn pveHealthScore(rows, stalls)',
+    [hostProps: hostProps, rows: rows, stalls: stalls]).exit }
+def twoNodes = statusWith([:], [:], 1)
+note('health', hs(twoNodes, [pve1: 10d, pve2: 30d]) == [NodesOnline: 2d, NodesTotal: 2d, NodesOnlinePercent: 100d, HealthScore: 80d],
+     "two healthy nodes gave ${hs(twoNodes, [pve1: 10d, pve2: 30d])}")
+note('health-offline', hs(statusWith([:], [online: 0], 1), [pve1: 0d])?.HealthScore == 25d,
+     "an offline node did not count twice (ratio and mean): ${hs(statusWith([:], [online: 0], 1), [pve1: 0d])}")
+note('health-quorum', hs(statusWith([:], [:], 0), [pve1: 0d, pve2: 0d])?.HealthScore == 0d, 'no quorum did not score 0')
+note('health-fallback', hs(twoNodes, [:]) != null && !hs(twoNodes, [:]).containsKey('HealthScore'),
+     "a score was fabricated with no node input: ${hs(twoNodes, [:])}")
+note('health-standalone', hs([[type: 'node', name: 'pve-a', online: 1, local: 1]], ['pve-a': 0d])?.HealthScore == 100d,
+     'a standalone host was not counted quorate')
+def statusRun = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Status.collect.groovy'), [hostProps: hostProps])
+def sv = statusRun.stdout.readLines().findAll { it ==~ /^[A-Za-z0-9_]+=.*/ }.collectEntries { def kv = it.split('=', 2); [(kv[0]): kv[1] as double] }
+// The fixture: pve1 online, worst pressure CPU 2.5, pve2 offline -> 100 x 1/2 x mean(1 - 0.025, 0) = 24.38
+note('health-collect', sv.NodesOnlinePercent == 50d && sv.HealthScore == 24.38d, "Cluster_Status printed ${sv.subMap(['NodesOnlinePercent', 'HealthScore'])}")
+
 // ---------------------------------------- Cluster_Nodes keeps only Status (A§3.2)
 
 def clusterNodesRun = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Nodes.collect.groovy'), [hostProps: hostProps])
