@@ -14,16 +14,18 @@ import com.santaba.agent.groovy.utils.GroovyScriptHelper as GSH
 
 def inConsole = !binding.hasVariable('netscanProps')
 def debug = inConsole || pveHostProp('pve.netscan.debug', 'false') == 'true'
+// A NetScan's stderr is not shown anywhere in the portal; the debug console shows stdout.
+def say = { String message -> inConsole ? println('# ' + message) : System.err.println(message) }
 
 // The Enhanced Script NetScan needs Collector 32.400 or later.
 def collectorVersion = AgentVersion.AGENT_VERSION.toInteger()
 if (collectorVersion < 32400) {
-    System.err.println('This NetScan needs Collector 32.400 or later; this one runs ' +
+    say('This NetScan needs Collector 32.400 or later; this one runs ' +
         String.format('%.3f', collectorVersion / 1000.0d) + '.')
     return 1
 }
 if (pveConfigError) {
-    System.err.println(pveConfigError)
+    say(pveConfigError)
     return 1
 }
 
@@ -179,12 +181,11 @@ try {
     // read in the portal after a scheduled run, where stderr is not shown.
     def collecting = planned.resources.find { it.hostProps['pve.cluster.role'] == 'active' }
     if (collecting) { collecting.hostProps['pve.netscan.report'] = report.join(' | ').take(4000) }
-    if (inConsole) { report.each { println '# ' + it } }
-    else { report.each { System.err.println(it) } }
+    report.each { say(it) }
 
     emit.resource(planned.resources, debug)
     return 0
 } catch (Exception failure) {
-    System.err.println('Proxmox VE NetScan failed: ' + failure.message)
+    say('Proxmox VE NetScan failed: ' + failure.class.simpleName + ': ' + failure.message)
     return 1
 }

@@ -51,6 +51,21 @@ PREAMBLE = SCRIPTS / "lib" / "pve_common.groovy"
 NETSCAN_LIB = SCRIPTS / "lib" / "pve_netscan.groovy"
 NETSCAN_BODY = SCRIPTS / "Proxmox_VE_NetScan.groovy"
 NETSCAN_DIR = "netscan"
+NETSCAN_CONSOLE_SETUP = """\
+// DEBUG CONSOLE VERSION. Paste into the Collector debug console (!groovy) to see why a NetScan
+// run found nothing: it prints its report and errors here. Fill in the properties below with
+// the NetScan's own values; credentials are masked in what it prints.
+if (!binding.hasVariable('hostProps')) { binding.setVariable('hostProps', new com.santaba.common.util.ParamMap()) }
+[
+    'pve.api.url'                   : 'https://<node or cluster address>:8006',
+    'pve.token.credential'          : '<user@realm!tokenid=secret>',
+    'pve.api.insecure'              : 'true',
+    'pve.netscan.guests'            : 'true',
+    'pve.netscan.guests.filter.vmid': '104',
+    'lmaccess.id'                   : '<LogicMonitor API token Access ID, or leave empty>',
+    'lmaccess.key'                  : '<Access Key, or leave empty>',
+].each { key, value -> if (!value.startsWith('<')) { hostProps.put(key, value) } }
+"""
 
 # LogicMonitor's datapoint dataType enum: 1 boolean, 2 byte, 3 short, 4 int, 5 long,
 # 6 float, 7 double, 8 ulong. Everything here is a double; the API returns byte counts
@@ -794,6 +809,11 @@ def main() -> int:
     if netscan is not None:
         (DIST / NETSCAN_DIR).mkdir(parents=True, exist_ok=True)
         (DIST / NETSCAN_DIR / NETSCAN_BODY.name).write_text(netscan, encoding="utf-8")
+        # The same script for the Collector debug console, where a run's reasons can be read:
+        # a NetScan's own stderr is shown nowhere in the portal.
+        header, rest = netscan.split("\n", 1)
+        console = (header + "\n" + NETSCAN_CONSOLE_SETUP + rest)
+        (DIST / NETSCAN_DIR / (NETSCAN_BODY.stem + ".console.groovy")).write_text(console, encoding="utf-8")
         print(f"  {NETSCAN_BODY.stem:34} netscan      {len(netscan.encode('utf-8')):6} bytes")
 
     if dashboards:
