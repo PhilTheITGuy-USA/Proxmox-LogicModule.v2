@@ -1301,6 +1301,66 @@ note('snapshots', snapBroken.exit == 0 && parseBatch(snapBroken.stdout).isEmpty(
 def snapDead = withFixtures(['/cluster/resources?type=vm': null]) { discoverWith(snapCollect, hostProps) }
 note('snapshots', snapDead.exit == 2, "an unreadable guest list exited ${snapDead.exit}")
 
+// ------------------------------------------- the NetScan plan (N§4, §5.1, §5.2)
+//
+// pveNetscanPlan is pure: it turns what the NetScan read into the resources it emits. The
+// Collector-only body (lm.api, lm.emit) is a thin layer over it.
+
+def netscanLibFile = new File(ROOT, 'scripts/lib/pve_netscan.groovy')
+def netscanLib = netscanLibFile.exists() ? netscanLibFile.text : ''
+def plan = { Map input ->
+    def run = runSource(preamble + '\n' + netscanLib + '\nreturn pveNetscanPlan(input)', [netscanProps: input.props, input: input])
+    if (run.thrown) { note('ns-runs', false, "pveNetscanPlan threw ${run.thrown}") }
+    run.exit ?: [resources: [], report: []]
+}
+def nsBase = [status: fixtures['/cluster/status'], resources: [],
+              reach: [pve1: [api: true, ping: true], pve2: [api: false, ping: false, why: 'offline']],
+              configs: [:], addresses: [:], existing: [],
+              props: ['pve.api.url': 'https://192.168.10.11:8006', 'pve.token.credential': TOKEN]]
+def p1 = plan(nsBase)
+def byHost = p1.resources.collectEntries { [(it.hostname): it] }
+note('ns-noaddress', p1.resources.size() == 2 && !p1.resources.any { it.hostProps['system.categories'] == 'ProxmoxVE_Cluster' },
+     "a cluster resource was made although the API address is a node: ${p1.resources*.hostname}")
+note('ns-pair-offline', byHost['192.168.10.11']?.hostProps?.get('pve.cluster.role') == 'active' &&
+                        byHost['fd00::12']?.hostProps?.get('pve.cluster.role') == 'standby' &&
+                        byHost['fd00::12']?.hostProps?.get('pve.cluster.active') == 'pve1' &&
+                        byHost['192.168.10.11']?.hostProps?.get('pve.cluster.active') == 'none',
+     "role pair was ${p1.resources*.hostProps}")
+note('ns-reach', byHost['fd00::12']?.hostProps?.get('pve.netscan.reachable') == 'false' &&
+                 byHost['fd00::12']?.hostProps?.get('pve.netscan.status') == 'offline' &&
+                 byHost['192.168.10.11']?.hostProps?.get('pve.netscan.status') == 'ok' &&
+                 byHost['192.168.10.11']?.hostProps?.get('pve.netscan.reachable') == 'true',
+     "reachability was ${p1.resources*.hostProps}")
+note('ns-node-props', byHost['192.168.10.11']?.displayname == 'pve1' &&
+                      byHost['192.168.10.11']?.hostProps?.subMap(['system.categories', 'pve.node', 'pve.cluster', 'pve.serial', 'pve.api.hosts', 'pve.token.credential']) ==
+                      ['system.categories': 'ProxmoxVE_Node', 'pve.node': 'pve1', 'pve.cluster': 'pve-cluster',
+                       'pve.serial': 'pve-cluster::node::pve1', 'pve.api.hosts': '192.168.10.11,fd00::12', 'pve.token.credential': TOKEN],
+     "node properties were ${byHost['192.168.10.11']?.hostProps}")
+note('ns-nodename', plan(nsBase + [props: nsBase.props + ['pve.netscan.node.hostname': 'name']]).resources*.hostname.sort() == ['pve1', 'pve2'],
+     'pve.netscan.node.hostname=name did not use node names')
+note('ns-groups', p1.resources*.groupName.flatten().unique() == ['Proxmox VE/Cluster - pve-cluster/Nodes'], "groups ${p1.resources*.groupName}")
+note('ns-explicit', p1.resources.every { r -> ['pve.netscan.status', 'pve.cluster.role', 'pve.cluster.active', 'pve.netscan.reachable'].every { r.hostProps[it] } },
+     'a property was left out instead of set explicitly')
+def p2 = plan(nsBase + [props: nsBase.props + ['pve.api.url': 'https://pve-vip.example.com:8006']])
+def cl = p2.resources.find { it.hostname == 'pve-vip.example.com' }
+note('ns-address', cl?.hostProps?.get('pve.cluster.role') == 'active' && cl?.groupName == ['Proxmox VE/Cluster - pve-cluster'] &&
+     cl?.hostProps?.get('system.categories') == 'ProxmoxVE_Cluster' && cl?.displayname == 'pve-cluster' &&
+     p2.resources.find { it.hostname == '192.168.10.11' }?.hostProps?.get('pve.cluster.active') == 'address:pve-vip.example.com' &&
+     p2.resources.find { it.hostname == 'fd00::12' }?.hostProps?.get('pve.cluster.role') == 'none',
+     "address case was ${p2.resources*.hostname} / ${p2.resources*.hostProps}")
+def p2b = plan(nsBase + [props: nsBase.props + ['pve.netscan.cluster.address': 'pve-vip.example.com']])
+note('ns-address-prop', p2b.resources.any { it.hostname == 'pve-vip.example.com' }, 'pve.netscan.cluster.address was not used')
+def p3 = plan(nsBase + [status: [[type: 'node', name: 'pve-a', nodeid: 1, online: 1, local: 1, ip: '10.0.0.9']],
+                        reach: ['pve-a': [api: true, ping: true]], props: nsBase.props + ['pve.api.url': 'https://10.0.0.9:8006']])
+note('ns-standalone', p3.resources.size() == 1 && p3.resources[0].hostProps['system.categories'] == 'ProxmoxVE_Cluster,ProxmoxVE_Node' &&
+     p3.resources[0].groupName == ['Proxmox VE/Host - pve-a'] && p3.resources[0].hostProps['pve.cluster.role'] == 'active',
+     "standalone was ${p3.resources}")
+def p4 = plan(nsBase + [props: nsBase.props + ['pve.netscan.nodes': 'false', 'pve.api.url': 'https://pve-vip.example.com:8006']])
+note('ns-nodes-off', p4.resources*.hostname.sort() == ['192.168.10.11', 'pve-vip.example.com'],
+     "pve.netscan.nodes=false kept ${p4.resources*.hostname}")
+note('ns-report', p1.report.any { it.contains('no cluster address') && it.contains('active pve1') && it.contains('standby pve2') },
+     "the run did not say which case it found: ${p1.report}")
+
 // ------------------------------- scale: 16 nodes, 1,000 guests (A§3.9, Q6)
 //
 // The design's call budgets, asserted per script, so a change that adds an O(guests) or an

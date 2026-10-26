@@ -45,6 +45,13 @@ DASHBOARDS = ROOT / "dashboards"
 DIST = ROOT / "dist"
 PREAMBLE = SCRIPTS / "lib" / "pve_common.groovy"
 
+# The NetScan is not a LogicModule: it is pasted into an Enhanced Script NetScan. Its body is
+# Collector-only (lm.api, lm.emit), and its planning logic lives in a second library, which
+# only the NetScan gets. Built outside dist/scripts/, where the compile job does not reach.
+NETSCAN_LIB = SCRIPTS / "lib" / "pve_netscan.groovy"
+NETSCAN_BODY = SCRIPTS / "Proxmox_VE_NetScan.groovy"
+NETSCAN_DIR = "netscan"
+
 # LogicMonitor's datapoint dataType enum: 1 boolean, 2 byte, 3 short, 4 int, 5 long,
 # 6 float, 7 double, 8 ulong. Everything here is a double; the API returns byte counts
 # that exceed int range and percentages that need decimals.
@@ -158,6 +165,14 @@ def assemble(body_name: str) -> str:
     """Prepend the shared preamble to a module body."""
     body = read(SCRIPTS / body_name)
     return read(PREAMBLE).rstrip() + "\n\n" + ("-" * 0) + body.lstrip("\n")
+
+
+def assemble_netscan() -> str | None:
+    """The NetScan script: the preamble, the NetScan library, then the body; None until the
+    body exists."""
+    if not NETSCAN_BODY.exists():
+        return None
+    return "\n\n".join(read(path).rstrip() for path in (PREAMBLE, NETSCAN_LIB, NETSCAN_BODY)) + "\n"
 
 
 def expand_datapoint(dp: dict, batch: bool) -> dict:
@@ -675,6 +690,10 @@ def main() -> int:
 
     problems.extend(check_doc_counts(definitions))
 
+    netscan = assemble_netscan()
+    if netscan is not None:
+        problems.extend(balance_check(NETSCAN_BODY.name, netscan))
+
     dashboards, dashboard_problems = build_dashboards(definitions)
     problems.extend(dashboard_problems)
 
@@ -718,6 +737,11 @@ def main() -> int:
             continue
         dp_count = len(module["datapoints"])
         print(f"  {module['name']:34} {module['collectionMethod']:12} {dp_count:2} datapoints")
+
+    if netscan is not None:
+        (DIST / NETSCAN_DIR).mkdir(parents=True, exist_ok=True)
+        (DIST / NETSCAN_DIR / NETSCAN_BODY.name).write_text(netscan, encoding="utf-8")
+        print(f"  {NETSCAN_BODY.stem:34} netscan      {len(netscan.encode('utf-8')):6} bytes")
 
     if dashboards:
         (DIST / "dashboards").mkdir(parents=True, exist_ok=True)
