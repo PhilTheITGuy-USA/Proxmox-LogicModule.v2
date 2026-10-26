@@ -64,7 +64,7 @@ if (!binding.hasVariable('hostProps')) { binding.setVariable('hostProps', new co
     'pve.netscan.guests.filter.vmid': '104',
     'lmaccess.id'                   : '<LogicMonitor API token Access ID, or leave empty>',
     'lmaccess.key'                  : '<Access Key, or leave empty>',
-].each { key, value -> if (!value.startsWith('<')) { hostProps.put(key, value) } }
+].each { key, value -> if (!value.startsWith('<')) { hostProps.set(key, value) } }
 """
 
 # LogicMonitor's datapoint dataType enum: 1 boolean, 2 byte, 3 short, 4 int, 5 long,
