@@ -53,6 +53,10 @@ lines (`note('<name>', ...)` names each check). Rebuild before running it -- it 
 
 ## Build rules that bite
 
+- **`statusNames` on a datapoint** (`{"0": "Offline", "1": "Online"}`) becomes LogicMonitor's
+  `statusDisplayNames`, shape from LM's monitoring-recipes template, portal-confirmed 2026-10-27. `check_status_names` reads
+  the values off the script's `pveEmit(..., 'Name', cond ? 1 : 0)` and refuses names for any
+  other set, and an alert body that doesn't use `##ALERTVALUEDISPLAYSTATUSNAME##`.
 - **Each module ships only the preamble it reaches, without comments** (`shake_preamble`,
   `strip_comments`): an embedded script is capped at **49,135 characters** (portal API, 2026-10-26),
   checked by `check_script_lengths`. A preamble closure must be defined before the closures that
@@ -109,11 +113,11 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Local checks** (2026-10-27, after Node Disks `SizeBytes` was dropped and the dashboard exports
-  went in): build clean; compile job passed; harness 1,489 of 1,489 (the six fewer were
-  `SizeBytes` lines); lint 0 errors, 4 warnings; both dashboard exports check clean.
+- **Local checks** (2026-10-27, after the review fixes, the lab-detail scrub and the status
+  names): build clean; compile job passed; harness 1,489 of 1,489; lint 0 errors, 4 warnings;
+  both dashboard exports check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
-  portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included; the dashboards in `dashboards/` are the portal's exports of the final layout (user, 2026-10-27). Node Disks without `SizeBytes` is not yet re-imported.
+  portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included; the dashboards in `dashboards/` are the portal's exports of the final layout (user, 2026-10-27). Every module re-imported 2026-10-27 with the review's notes (user). The status-names build re-imported too (user, 2026-10-27): the names show on the datapoints, and an alert on a stopped guest's `Status` (a temporary `< 1` threshold) read "Status: Not running (0)".
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
   replication), 2026-10-26: S2, S3, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
   Node-B (standby) and the guest Webapp01, and a re-run adds nothing and leaves the expected

@@ -1,11 +1,12 @@
 # Proxmox VE Monitoring
 
-> **Draft, 2026-10-25.** v2 is designed but not built. This page follows the layout of
-> LogicMonitor's own [VMware vSphere Monitoring](https://www.logicmonitor.com/support/vmware-vsphere-monitoring)
+> **Draft, 2026-10-27.** v2 is built, imported into a portal and run against a two-node lab
+> cluster. This page follows the layout of LogicMonitor's own
+> [VMware vSphere Monitoring](https://www.logicmonitor.com/support/vmware-vsphere-monitoring)
 > article and describes the suite as the specs define it
 > (`docs/superpowers/specs/2026-10-21-proxmox-v2-architecture-design.md` and
 > `2026-10-25-netscan-design.md`). Anything marked *(not yet verified)* is design intent that no
-> lab run has confirmed. Module display names are proposed and fixed at build.
+> lab run has confirmed.
 
 LogicMonitor monitors Proxmox VE clusters and standalone hosts out of the box through the Proxmox
 VE REST API. One NetScan per cluster creates a resource for the cluster, one for each node and,
@@ -37,6 +38,8 @@ Designed for up to 10 clusters of 16 nodes and 1,000 guests each.
 ## Setup Requirements
 
 - The Proxmox VE LogicModules (see [LogicModules in Package](#proxmox-ve-logicmodules-in-package))
+- The NetScan script and the dashboards, which LM Exchange does not carry (see
+  [Getting the NetScan Script and Dashboards](#getting-the-netscan-script-and-dashboards))
 - A Collector at version 32.400 or later, which the Enhanced Script NetScan requires
 - HTTPS access from that Collector to port 8006 on **every** node, not only the API address:
   each node's modules ask that node directly
@@ -57,6 +60,20 @@ Designed for up to 10 clusters of 16 nodes and 1,000 guests each.
 
 **Note:** Without the guest-agent privilege the NetScan still runs: it uses the address in the
 guest's configuration, or the guest's name, as the hostname, and reports that it did.
+
+### Getting the NetScan Script and Dashboards
+
+LM Exchange carries LogicModules only. The NetScan script and the two dashboards come from the
+suite's repository, [github.com/PhilTheITGuy-USA/Proxmox-LogicModule.v2](https://github.com/PhilTheITGuy-USA/Proxmox-LogicModule.v2) *(not yet public)*:
+
+| File | Where in the repository |
+|---|---|
+| `Proxmox_VE_NetScan.groovy` | `dist/netscan/`, after `python build/build.py` |
+| `Proxmox_VE.json`, `Proxmox_VE_Infrastructure.json` (dashboards) | `dashboards/`, or `dist/dashboards/` after the build |
+
+The build also writes every module's JSON to `dist/`, for a portal without LM Exchange access.
+Without the NetScan, the modules apply only to resources you categorise by hand (see
+[Manually Assigning Properties to Resources](#manually-assigning-properties-to-resources)).
 
 ### Creating an API Token for Proxmox VE
 
@@ -222,8 +239,9 @@ resource either way.
    Whether the Filters section's own rows also apply to these is *(not yet verified)*; setting
    them as properties in step 7 always works.
 
-9. Under **Script**, select **Embed a Groovy script** and paste the NetScan script shipped with
-   the package (`Proxmox_VE_NetScan.groovy`).
+9. Under **Script**, select **Embed a Groovy script** and paste the NetScan script,
+   `Proxmox_VE_NetScan.groovy` (see
+   [Getting the NetScan Script and Dashboards](#getting-the-netscan-script-and-dashboards)).
 
    **Warning:** Do not edit the script. Change its behaviour only through the properties above.
 
@@ -268,7 +286,9 @@ without the credentials it cannot look, and it adds no guests rather than risk d
 
 If you add resources through the Advanced NetScan, it sets every property below and keeps it
 current. Add resources manually only where a NetScan cannot run, and give each the category of
-its role in `system.categories`.
+its role in `system.categories`. The suite has no `addCategory_*` PropertySource that would set
+them for you: the modules apply only by these categories and `pve.cluster.role`, so that a
+module never applies itself to a resource that is not Proxmox.
 
 ### Cluster Role
 
@@ -317,10 +337,34 @@ If the API is behind a VIP, a load balancer or a nonstandard port, set `pve.api.
 cluster modules fail over across `pve.api.hosts` when that address does not answer; node modules
 always ask their own node.
 
+### Units
+
+Each datapoint's name ends in its unit: `Bytes`, `MB`, `GB`, `Percent`, `Ms`, `Seconds`, `Hours`
+or `Days`. MB and GB are decimal (10^6 and 10^9 bytes), as drive and link capacities are
+labelled. The units follow the figure's use, so they differ between modules:
+
+| Unit | Modules |
+|---|---|
+| Bytes, as Proxmox or Ceph reports them | Node Detail (memory, swap, root filesystem, KSM), Cluster Status (memory), Ceph and Ceph OSD (raw use) |
+| MB, and MB per second for rates | Guest Performance (memory, network and disk rates) |
+| GB | Storage Capacity, Node Disks, Backups (latest backup size), Guest Performance (disk) |
+
+LogicMonitor prints a byte count of that size in scientific notation, so the capacities that
+dashboard tables show are in GB.
+
 ### Import LogicModules
 
-Import every module listed under [LogicModules in Package](#proxmox-ve-logicmodules-in-package),
-then the dashboards. The modules apply by category, so nothing else needs to be set on the
+Import in this order, so that each module finds what it depends on:
+
+1. The PropertySources, in the portal (**Modules > My Module Toolbox > Add > Import from file**):
+   `Proxmox_VE_Info`, `addERI_Proxmox_VE_Node` and `addERI_Proxmox_VE_GuestResource`. The
+   ERI PropertySources go before the TopologySource, so the keys the map matches on are on the
+   resources when it first runs.
+2. The DataSources and the TopologySource, every other module listed under
+   [LogicModules in Package](#proxmox-ve-logicmodules-in-package).
+3. The dashboards, so every widget finds its module.
+
+The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
 ## Troubleshooting

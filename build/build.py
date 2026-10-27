@@ -99,6 +99,17 @@ DATAPOINT_DEFAULTS = {
 # a LogicMonitor field, so it is stripped before the datapoint reaches the export.
 CONDITIONAL_KEY = "conditional"
 
+# "statusNames": {"0": "Offline", "1": "Online"} in a definition names a status datapoint's
+# values, so an alert reads "Offline (0)" through ##ALERTVALUEDISPLAYSTATUSNAME## rather than
+# a bare 0. The build expands it into LogicMonitor's statusDisplayNames list, whose shape --
+# objects, metricValue a string, operator "EQ" -- is copied from LogicMonitor's
+# monitoring-recipes datasource template (Example_BatchScript_AD.json); a portal kept it and
+# rendered the name in an alert on 2026-10-27. check_status_names holds the names to the
+# values the script prints.
+STATUS_NAMES_KEY = "statusNames"
+STATUS_NAME_TOKEN = "##ALERTVALUEDISPLAYSTATUSNAME##"
+STATUS_EMIT_RE = r"""pveEmit\(\s*[^,]+,\s*'{name}',[^\n]*\?\s*(\d+)\s*:\s*(\d+)\s*\)"""
+
 # Every script in this suite now has a module definition. The PropertySource export
 # schema was unverifiable for a long time, so addCategory_Proxmox_VE shipped as an
 # assembled script to paste into the UI; two published exports settled it on 2026-09-22
@@ -272,6 +283,14 @@ def expand_datapoint(dp: dict, batch: bool) -> dict:
     out = dict(DATAPOINT_DEFAULTS)
     out.update(dp)
     out.pop(CONDITIONAL_KEY, None)
+    names = out.pop(STATUS_NAMES_KEY, None)
+    if names:
+        out["statusDisplayNames"] = [
+            {"statusDisplayName": label, "metricValue": value, "operator": "EQ"}
+            # zfill orders the values numerically without failing on a malformed key,
+            # which check_status_names then reports by name.
+            for value, label in sorted(names.items(), key=lambda item: str(item[0]).zfill(12))
+        ]
     # The post-processor key is the name printed by the script; they are always the same
     # here, and keeping them coupled is what makes the drift check below meaningful.
     #
@@ -667,6 +686,45 @@ def check_module(defn: dict, module: dict) -> list[str]:
         problems.append(f"{name}: multiInstance requires an Active Discovery script")
 
     problems.extend(check_graphs(defn))
+    problems.extend(check_status_names(defn))
+    return problems
+
+
+def check_status_names(defn: dict) -> list[str]:
+    """
+    A status name must name a value the script can print, and every value it can print.
+
+    The datapoints that carry names are printed as `cond ? 1 : 0`, so the values are read off
+    that expression. A name for a value never printed is dead, and a printed value with no
+    name shows as a bare number beside the named ones. An alert body on a named datapoint
+    must use the name, or naming it changes nothing anyone reads.
+    """
+    name = defn["name"]
+    problems: list[str] = []
+    script = read(SCRIPTS / defn["collectScript"])
+    for dp in defn["datapoints"]:
+        names = dp.get(STATUS_NAMES_KEY)
+        if names is None:
+            continue
+        where = f"{name}: datapoint '{dp['name']}'"
+        if not isinstance(names, dict) or not names or not all(
+                isinstance(k, str) and k.isdigit() and isinstance(v, str) and v.strip()
+                for k, v in names.items()):
+            problems.append(f"{where} statusNames must map value strings (\"0\") to non-empty names")
+            continue
+        printed = re.findall(STATUS_EMIT_RE.format(name=re.escape(dp["name"])), script)
+        if len(printed) != 1:
+            problems.append(f"{where} has statusNames, but the script does not print it once "
+                            f"as `cond ? a : b`, so its values cannot be checked")
+            continue
+        values = set(printed[0])
+        if set(names) != values:
+            problems.append(f"{where} statusNames name {sorted(names)}, but the script "
+                            f"prints {sorted(values)}")
+        body = dp.get("alertBody")
+        if body and STATUS_NAME_TOKEN not in body:
+            problems.append(f"{where} has statusNames, but its alertBody never uses "
+                            f"{STATUS_NAME_TOKEN}")
     return problems
 
 

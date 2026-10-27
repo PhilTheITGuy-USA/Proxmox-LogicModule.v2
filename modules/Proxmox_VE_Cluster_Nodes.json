@@ -5,7 +5,7 @@
   "group": "Proxmox VE",
   "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
   "searchKeywords": "proxmox,pve,node,hypervisor,host,virtualization",
-  "technicalNotes": "BatchScript: one /cluster/resources?type=node call per interval regardless of cluster size.\n\nInstance IDs are the Proxmox resource id (node/<name>). Only Status is reported here, because a node that is down cannot report itself down; its CPU, memory, uptime, load, swap and root filesystem are collected on the node's own resource by Proxmox VE Node Detail, so their alerts are raised on the node.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice.",
+  "technicalNotes": "BatchScript: one /cluster/resources?type=node call per interval regardless of cluster size.\n\nInstance IDs are the Proxmox resource id (node/<name>). Only Status is reported here, because a node that is down cannot report itself down; its CPU, memory, uptime, load, swap and root filesystem are collected on the node's own resource by Proxmox VE Node Detail, so their alerts are raised on the node.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.\n\nRequires Sys.Audit on /nodes/{node}, which the PVEAuditor role includes.",
   "collectionMethod": "batchscript",
   "collectionInterval": "5m",
   "multiInstance": true,
@@ -18,7 +18,8 @@
       "name": "Status",
       "description": "1 when the node is online.",
       "threshold": "< 1 1 1",
-      "alertBody": "Proxmox node ##INSTANCE## is offline.\n\nThis started at ##START##, ##DURATION## ago."
+      "alertBody": "Proxmox node ##INSTANCE## is offline.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago.",
+      "statusNames": {"0": "Offline", "1": "Online"}
     }
   ],
   "graphs": [

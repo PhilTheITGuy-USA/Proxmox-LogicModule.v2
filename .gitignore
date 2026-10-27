@@ -9,3 +9,6 @@ desktop.ini
 
 __pycache__/
 *.pyc
+
+# Lab names and addresses, kept out of the repo
+CLAUDE.local.md
