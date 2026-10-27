@@ -1636,6 +1636,36 @@ def bodyProps = ['pve.api.url': baseUrl, 'pve.token.credential': TOKEN, 'pve.api
 def body = runNetscan(bodyProps)
 note('netscan-body', netscanFile.exists() && body.thrown == null && body.exit == 0 && body.resources*.displayname.sort() == ['pve1', 'pve2'],
      "the NetScan body ran ${body.exit} / ${body.thrown} / ${body.resources*.displayname} / ${body.stderr.take(300)}")
+// The whole console copy, filled in as a user would and run as the debug console runs it: no
+// netscanProps, hostProps made by the block itself (lab 2026-10-26: it returned 1, "Cannot
+// determine the Proxmox API URL").
+def consoleFilled = new File(ROOT, 'dist/netscan/Proxmox_VE_NetScan.console.groovy').text
+    .replace("'https://<node or cluster address>:8006'", "'" + baseUrl + "'")
+    .replace("'<user@realm!tokenid=secret>'", "'" + TOKEN + "'")
+    .replace("'pve.api.insecure'              : 'true',",
+             "'pve.api.insecure': 'true', 'pve.api.timeout': '2000', 'pve.netscan.cluster.address': '192.168.10.11',")
+emitted.clear()
+def consoleOut = new ByteArrayOutputStream()
+def consoleExit = null
+Throwable consoleThrown = null
+def realStdout = System.out
+try {
+    System.setOut(new PrintStream(consoleOut, true, 'UTF-8'))
+    consoleExit = new GroovyShell(stubClasses, new Binding()).evaluate(consoleFilled)
+} catch (Throwable t) { consoleThrown = t } finally { System.setOut(realStdout) }
+def consoleStdout = new String(consoleOut.toByteArray(), 'UTF-8')
+note('netscan-console-run', consoleThrown == null && consoleExit == 0 && emitted*.displayname.sort() == ['pve1', 'pve2'] &&
+                            consoleStdout.contains('# set: pve.api.url, pve.token.credential') && !consoleStdout.contains(TOKEN.tokenize('=').last()),
+     "the filled-in console copy ran ${consoleExit} / ${consoleThrown} / ${emitted*.displayname} / ${consoleStdout.take(400)}")
+// The plain NetScan pasted into the debug console has no properties: it says which file to use.
+def plainOut = new ByteArrayOutputStream()
+def plainExit = null
+try {
+    System.setOut(new PrintStream(plainOut, true, 'UTF-8'))
+    plainExit = new GroovyShell(stubClasses, new Binding()).evaluate(netscanFile)
+} catch (Throwable ignored) { } finally { System.setOut(realStdout) }
+note('netscan-console-hint', plainExit != 0 && new String(plainOut.toByteArray(), 'UTF-8').contains('Proxmox_VE_NetScan.console.groovy'),
+     "the plain NetScan in the console did not point to the console copy: ${new String(plainOut.toByteArray(), 'UTF-8').take(300)}")
 def active = body.resources.find { it.hostProps['pve.cluster.role'] == 'active' }
 note('netscan-report', active?.hostProps?.get('pve.netscan.report')?.contains('no cluster address') == true,
      "the run's report was not on the active resource: ${active?.hostProps}")
@@ -1644,7 +1674,8 @@ note('netscan-size', netscanFile.length() <= 31 * 1024, "the NetScan script is $
 // The console copy's property block: LogicMonitor refuses an empty property ("Properties cannot
 // be empty", lab 2026-10-26), so a value left blank is skipped, and no lab value ships in it.
 def consoleText = new File(ROOT, 'dist/netscan/Proxmox_VE_NetScan.console.groovy').text
-def block = consoleText.substring(consoleText.indexOf('\n[') + 1, consoleText.indexOf('\n', consoleText.indexOf('].each')))
+def blockStart = consoleText.indexOf('def pveConsoleProps')
+def block = consoleText.substring(blockStart, consoleText.indexOf('\n', consoleText.indexOf("println('# not filled in")))
 def blanked = block.replaceFirst(/('lmaccess\.id'\s*:\s*)'[^']*'/, '$1\'\'')
 def strictSet = [:]
 def strictProps = [set: { String key, String value ->
@@ -1655,6 +1686,16 @@ def consoleRun = runSource(blanked, [hostProps: strictProps])
 note('netscan-console-props', consoleRun.thrown == null && !strictSet.containsKey('lmaccess.id') &&
                               !block.contains("'104'") && blanked != block,
      "the console property block failed on a blank value or ships a lab value: ${consoleRun.thrown} / ${strictSet.keySet()}")
+// A value still holding a <placeholder> anywhere is not set, and the block says, by name only,
+// what it set and what it did not ("Cannot determine the Proxmox API URL" told the user neither).
+strictSet.clear()
+def filled = block.replace("'<user@realm!tokenid=secret>'", "'u@pam!t=s3cret'")
+def namedRun = runSource(filled, [hostProps: strictProps])
+note('netscan-console-names', namedRun.thrown == null && !strictSet.containsKey('pve.api.url') &&
+                              strictSet['pve.token.credential'] == 's3cret'.with { 'u@pam!t=' + it } &&
+                              namedRun.stdout.contains('not filled in') && namedRun.stdout.contains('pve.api.url') &&
+                              namedRun.stdout.contains('pve.token.credential') && !namedRun.stdout.contains('s3cret'),
+     "the console block set a placeholder or did not name what it set: ${strictSet.keySet()} / ${namedRun.stdout.take(300)}")
 // Guests on, the portal listed: guest 101 on pve1 has a config and is created.
 def withGuestsBody = withFixtures(['/nodes/pve1/qemu/101/config': [name: 'web-01', net0: 'virtio=BC:24:11:0E:00:02,bridge=vmbr0', ipconfig0: 'ip=192.168.10.50/24']]) {
     runNetscan(bodyProps + ['pve.netscan.guests': 'true', 'pve.netscan.guests.filter.vmid': '101'])

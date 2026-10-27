@@ -25,7 +25,8 @@ if (collectorVersion < 32400) {
     return 1
 }
 if (pveConfigError) {
-    say(pveConfigError)
+    // In the debug console there are no NetScan properties: only the console copy sets them.
+    say(pveConfigError + (inConsole ? ' In the debug console, run Proxmox_VE_NetScan.console.groovy with its properties filled in.' : ''))
     return 1
 }
 

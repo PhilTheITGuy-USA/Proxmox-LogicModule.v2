@@ -54,11 +54,11 @@ NETSCAN_DIR = "netscan"
 NETSCAN_CONSOLE_SETUP = """\
 // DEBUG CONSOLE VERSION. Paste into the Collector debug console (!groovy) to see why a NetScan
 // run found nothing: it prints its report and errors here. Fill in the properties below with
-// the NetScan's own values; credentials are masked in what it prints. A value left as
-// '<...>' or '' is not set, as a property the NetScan does not have (LogicMonitor refuses an
-// empty one).
+// the NetScan's own values; credentials are masked in what it prints. A value that is '' or
+// still holds a <...> is not set, as a property the NetScan does not have (LogicMonitor refuses
+// an empty one). The first lines printed name what was set and what was not; never the values.
 if (!binding.hasVariable('hostProps')) { binding.setVariable('hostProps', new com.santaba.common.util.ParamMap()) }
-[
+def pveConsoleProps = [
     'pve.api.url'                   : 'https://<node or cluster address>:8006',
     'pve.token.credential'          : '<user@realm!tokenid=secret>',
     'pve.api.insecure'              : 'true',
@@ -67,7 +67,11 @@ if (!binding.hasVariable('hostProps')) { binding.setVariable('hostProps', new co
     'hostname.source'               : '<lm to adopt matches, netscan to add beside them; unset, skip and report>',
     'lmaccess.id'                   : '<LogicMonitor API token Access ID; unset, no duplicate checking>',
     'lmaccess.key'                  : '<Access Key>',
-].each { key, value -> if (value && !value.startsWith('<')) { hostProps.set(key, value) } }
+]
+def pveConsoleUnset = pveConsoleProps.findAll { !it.value || it.value.contains('<') }.keySet()
+pveConsoleProps.each { key, value -> if (!(key in pveConsoleUnset)) { hostProps.set(key, value) } }
+println('# set: ' + ((pveConsoleProps.keySet() - pveConsoleUnset).join(', ') ?: 'nothing'))
+println('# not filled in, so not set: ' + (pveConsoleUnset.join(', ') ?: 'none'))
 """
 
 # LogicMonitor's datapoint dataType enum: 1 boolean, 2 byte, 3 short, 4 int, 5 long,
