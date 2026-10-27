@@ -131,7 +131,9 @@ the standby exists for.
 
 - **Cost:** no host unit (the standby is a node resource that exists anyway); every cluster
   instance exists twice, active and standby (2,000 guest instances at 1,000 guests, free);
-  the check, one `/cluster/status` call shared through `lm.cache` per minute (S7); during an
+  the check, two calls a node makes to itself (`/cluster/status`, `/nodes/<self>/services`) on
+  each cluster-module poll, about 180 an hour, and none on a cluster resource or behind a
+  cluster address (§3.9's table; as built, not shared through `lm.cache`, 2026-10-26); during an
   outage the history sits on the standby.
 - **Only two simultaneous failures,** the active and the standby, bring back the gap.
 - **Round-robin DNS** works but is the weakest: LogicMonitor's ping may resolve the name to a
@@ -462,13 +464,13 @@ cluster per hour:
 
 | Where | Calls/hour | Of which O(guests), hourly |
 |---|---|---|
-| Active cluster role (the cluster resource or a node) | ~2,550 (with the shared config read below; ~3,550 without), + 192 for the health score's `rrddata` reads at 16 nodes | ~2,000: one guest-config read (GuestStatus discovery and Topology together) and one snapshot read per guest |
-| Standby (§3.1) | ~60: the role check, one `/cluster/status` a minute shared through `lm.cache`; the hourly discoveries of the cluster modules (~1,000 config reads at 1,000 guests, unless the shared read of rule 1 covers both resources) | up to ~1,000 |
+| Active cluster role (the cluster resource or a node) | ~2,550 (with the shared config read below; ~3,550 without), + 192 for the health score's `rrddata` reads at 16 nodes, + ~180 for the role check on a node (none on a cluster resource) | ~2,000: one guest-config read (GuestStatus discovery and Topology together) and one snapshot read per guest |
+| Standby (§3.1) | ~210: the role check on each of the ~89 cluster-module polls an hour, two calls to itself (`/cluster/status`, `/nodes/<self>/services`), none behind a cluster address, which is checked by ping and port 8006; and the cluster modules' hourly discoveries, which on a standby list without reading guest configs (code, 2026-10-26: the role check is not shared through `lm.cache`, as an earlier draft said) | 0 |
 | Each node resource | ~55, to itself: ~31 as in v1, + 24 for the pressure and quorum reads of `Node_Detail` | 0 |
 | 16 nodes | ~880 | 0 |
 | NetScan, guests off | 18 | 0 (up to ~2,000 with every guest selected) |
-| **One cluster** | **~3,700, about 1 a second**, plus up to ~1,000 for the standby's hourly discovery | |
-| **Ten clusters** | **~37,000**, up to ~47,000, spread over their Collectors | |
+| **One cluster** | **~4,000, about 1 a second** | |
+| **Ten clusters** | **~40,000**, spread over their Collectors | |
 
 The largest 5-minute cost is `Proxmox_VE_Cluster_Status`'s migration history, 2 calls per node
 every 5 minutes (~430 an hour at 16 nodes); acceptable, and the first to move to a longer interval

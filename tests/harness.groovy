@@ -1758,6 +1758,15 @@ note('ns-lm-keeps-name', adopting.resources.find { it.hostProps['pve.vmid'] == '
                          adopting.report.any { it.startsWith('adopted: ') && it.contains('Web Server') && it.contains('6') },
      "with hostname.source=lm the name was ${adopted.resources.find { it.hostProps['pve.vmid'] == '101' }?.displayname} / ${adopting.report}")
 
+// M9: the NetScan keys a guest by the same NIC the topology and GuestStatus do (pveGuestMac,
+// the first netN with a MAC), so a guest with no net0 still meets its map vertex.
+def net1Only = [net1: 'virtio=BC:24:11:00:09:01,bridge=vmbr1', ipconfig1: 'ip=192.168.9.1/24']
+def m9 = plan(nsGuestBase + [configs: nsGuestBase.configs + [101: net1Only]])
+def m9Mac = runSource(preamble + '\nreturn pveGuestMac(cfg)', [hostProps: [:], cfg: net1Only]).exit
+note('ns-mac-first-nic', m9Mac == 'bc:24:11:00:09:01' &&
+                         m9.resources.find { it.hostProps['pve.vmid'] == '101' }?.hostProps?.get('pve.guest.mac') == m9Mac,
+     "the NetScan's guest MAC was ${m9.resources.find { it.hostProps['pve.vmid'] == '101' }?.hostProps?.get('pve.guest.mac')}, the topology's ${m9Mac}")
+
 // I2: an orphan is a resource whose guest or node is gone from Proxmox, nothing else.
 def notOrphan = plan(nsGuestBase + [existing: [[id: 81, hostname: 'dhcp-ct', displayName: 'dhcp-ct',
                                                 props: ['pve.cluster': 'pve-cluster', 'pve.serial': 'pve-cluster::103']]]])

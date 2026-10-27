@@ -253,7 +253,8 @@ resource either way.
 address: active pve1, standby pve2".
 
 A guest resource's hostname is the guest's live IP address, read from the container's interfaces
-or the VM's guest agent on the interface that carries `net0`'s MAC address; else the static
+or the VM's guest agent on the interface that carries the guest's first network card's MAC
+address (normally `net0`); else the static
 address in its configuration. A guest with neither is not added, and the run reports it: its name
 would not answer ping, so it would show as down. It is never replaced by a DNS name, so that
 LogicMonitor's duplicate-IP check recognises a guest you already monitor. Where guest names
@@ -382,9 +383,9 @@ rather than clear its value; the NetScan treats a missing property as unset.
 The NetScan never deletes a resource. A guest or node removed from Proxmox keeps its resource,
 and the run reports it.
 
-When a guest's address changes, the NetScan keeps the one resource: it updates the hostname, or,
-where it cannot, leaves the old one and sets `pve.netscan.status` to `address changed: was <old>,
-now <new>`. Change the hostname under **Manage** to follow it. A NetScan never changes a hostname
+When a guest's address changes, the NetScan keeps the one resource under its old hostname, sets
+`pve.netscan.status` to `address changed: was <old>, now <new>`, and says so in the run's report.
+It cannot change a hostname itself, so change it under **Manage** to follow. A NetScan never changes a hostname
 by sending a new one: LogicMonitor would create a second resource instead, named
 `<hostname>#<collector id>` if the display name is taken.
 

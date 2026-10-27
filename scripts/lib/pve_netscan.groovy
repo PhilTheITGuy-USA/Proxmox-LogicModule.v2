@@ -28,25 +28,23 @@ def pveNsPairs = { String value ->
     (value ?: '').tokenize(',').collect { it.split('=', 2) }.findAll { it.size() == 2 }
         .collectEntries { [(it[0].trim()): it[1].trim()] }
 }
-def PVE_NS_MAC = /(?i)^([0-9a-f]{2}:){5}[0-9a-f]{2}$/
-
-// The MAC of a guest's first NIC, lower case, from its config: lxc's hwaddr=, qemu's
-// <model>=<mac>.
-def pveNsNet0Mac = { Map config ->
-    pveNsPairs(config?.net0?.toString()).values().find { it ==~ PVE_NS_MAC }?.toLowerCase()
-}
+/*
+ * A guest's MAC is pveGuestMac's (the preamble): the first netN with a MAC, the NIC the topology
+ * vertex and GuestStatus's instance are keyed by. A net0-only rule of its own left a guest with no
+ * net0 keyed by nothing here and by net1 there, so its resource never met its vertex (M9).
+ */
 
 /*
  * A guest's address for its hostname (N§5.3), or null:
  * 1. live -- the container's interfaces list, or the guest agent's network-get-interfaces
- *    answer -- on the interface whose MAC is net0's: its first IPv4, else its first IPv6
+ *    answer -- on the interface whose MAC is pveGuestMac's: its first IPv4, else its first IPv6
  *    that is not link-local. Never the first address the guest reports: guests list Docker
  *    bridges, VPN tunnels, loopback and link-local beside the real one, often first;
  * 2. the static address in the config: a container's ip= on net0, a VM's cloud-init
  *    ipconfig0, unless dhcp or manual.
  */
 def pveGuestAddress = { Map guest, Map config, Object live ->
-    def mac = pveNsNet0Mac(config)
+    def mac = pveGuestMac(config)
     def bare = { String ip -> ip?.replaceAll(/\/\d+$/, '')?.trim() }
     if (mac && live != null) {
         def interfaces = live instanceof Map ? (live.result ?: []) : (live ?: [])
@@ -229,7 +227,7 @@ def pveNetscanPlan = { Map input ->
                                   'pve.guest.type'    : guest.type.toString(),
                                   'pve.pool'          : guest.pool?.toString() ?: 'none',
                                   'pve.tags'          : guest.tags?.toString() ?: 'none',
-                                  'pve.guest.mac'     : pveNsNet0Mac((input.configs ?: [:])[guest.vmid as int]) ?: 'none',
+                                  'pve.guest.mac'     : pveGuestMac((input.configs ?: [:])[guest.vmid as int]) ?: 'none',
                                   'netscan.powerstate': guest.status?.toString() ?: 'unknown',
                                   'pve.serial'        : cluster + '::' + guest.vmid,
                                   'pve.netscan.status': 'ok'],

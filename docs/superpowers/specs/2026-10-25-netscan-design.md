@@ -252,7 +252,9 @@ needs its place on the map and its down state):
   1. its live address: for a container, `GET /nodes/<n>/lxc/<vmid>/interfaces`; for a VM with
      `agent: 1` in its config and running, the guest agent's `network-get-interfaces`. Both
      answer `PVEAuditor` on 9.2.3, which grants `VM.GuestAgent.Audit` [S6]. **Take the address of
-     the interface whose MAC is `net0`'s** (case-insensitive), not the first address: guests
+     the interface whose MAC is the guest's MAC** (case-insensitive) -- the first `netN` with one,
+     as `pveGuestMac` reads it for the topology and `pve.guest.mac` alike (M9, 2026-10-26: a
+     `net0`-only rule here left a guest without `net0` unkeyed) -- not the first address: guests
      report Docker bridges (`172.17.0.1/16`…), VPN tunnels (Tailscale `100.x`, MAC
      `00:00:00:00:00:00`), loopback and link-local alongside the real one, often first [S6]. On
      that interface, the first IPv4 (container addresses come as CIDR, `192.0.2.60/24`: strip
@@ -260,12 +262,12 @@ needs its place on the map and its down state):
      its reverse-DNS name [vmware], but that defeated LogicMonitor's duplicate-IP exclusion in the
      lab (§6) and cost ~1.3 s per guest where lookups fail slowly — ~22 minutes at 1,000 guests,
      one at a time [S2, 2026-10-25]. A name is an opt-in for later, with both costs stated, not a
-     phase-1 property. No interface matches `net0`'s MAC: skip this
+     phase-1 property. No interface matches the guest's MAC: skip this
      step rather than guess. PVE 8 has no `VM.GuestAgent.*`; there the agent call needed
      `VM.Monitor`, which `PVEAuditor` lacked [unverified, no PVE 8 lab] — so a 403 from it means
      "skip this step and report it", never a failed run;
   2. a static address in the config (a container's `ip=` on `net0`, a VM's cloud-init
-     `ipconfig0`). Only containers have one in the lab; the VM has none, and a DHCP container has
+     `ipconfig0`; a guest whose first NIC is not `net0` has none read here [as built]). Only containers have one in the lab; the VM has none, and a DHCP container has
      neither [S6];
   3. none: **the guest is not created** and the run reports it (user, 2026-10-25, spec review). Its name, VMware's fallback
      [vmware], does not answer ping, so the resource would be dead from the start, as
