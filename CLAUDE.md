@@ -110,7 +110,7 @@ when a layer changes.
 - **Local checks** (2026-10-26, after the M4, M6, M9 fixes): build clean; compile job passed;
   harness 1,495 of 1,495; lint 0 errors, 4 warnings; both dashboards check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
-  portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included (user, 2026-10-26).
+  portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included; the rebuilt Tier 1 and Tier 2 dashboards import and their layout is approved (user, 2026-10-26).
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
   replication), 2026-10-26: S2, S3, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
   Node-B (standby) and the guest Webapp01, and a re-run adds nothing and leaves the expected
