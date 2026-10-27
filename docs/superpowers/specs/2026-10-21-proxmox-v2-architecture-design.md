@@ -151,6 +151,11 @@ the standby exists for.
   `cacheGet`, `cacheRemove`), which keeps a value between runs (S7, Collector debug console,
   2026-10-26); each cluster module keeps its own record, under its own name, for two hours,
   renewed on each poll it stands in. Where `lm.cache` cannot be loaded the hand-back is skipped.
+  **The last poll waits for quorum** (review M4, 2026-10-26): a standby whose own view has no
+  quorum, and is not one of two nodes, keeps its record and hands back once it is quorate again,
+  rather than clear alerts with a view split from the majority's. Behind a cluster address, which
+  is otherwise checked by ping and port 8006 alone, that costs one `/cluster/status` read, at the
+  hand-back only. A record unspent after two hours expires, leaving those alerts to clear by hand.
 - **S8, on the lab (2026-10-26):** with corosync stopped on Node-A at 14:32, Node-A's
   cluster modules read No Data on every poll and Node-B's collected on every poll with its own
   view (`NodesOnline 1`, `NodesOffline 1`, `Quorate 0`); after corosync returned at 14:56 the role

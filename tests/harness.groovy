@@ -705,6 +705,29 @@ withFixtures(['/cluster/status': threeNodes([online: 0], 1)]) {
     note('role-three-node-takeover', roleOf(nodeProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1'])?.collect == true,
          'a quorate standby in a 3-node cluster did not take over')
 }
+// M4: the hand-back waits for quorum. A standby that stood in and then lost quorum (a split
+// cluster) would send one poll of a minority's view to clear alerts that may still be true: it
+// keeps its marker and hands back once quorate again (or on two nodes, where quorum is not expected).
+state.clear()
+def m4Take = withFixtures(['/cluster/status': threeNodes([online: 0], 1)]) { roleWithState(standbyProps, 'Cluster_Status') }
+def m4Split = withFixtures(['/cluster/status': threeNodes([:], 0)]) { roleWithState(standbyProps, 'Cluster_Status') }
+def m4Back = withFixtures(['/cluster/status': threeNodes([:], 1)]) { roleWithState(standbyProps, 'Cluster_Status') }
+def m4After = withFixtures(['/cluster/status': threeNodes([:], 1)]) { roleWithState(standbyProps, 'Cluster_Status') }
+note('role-handback-quorum', m4Take?.collect == true && m4Split?.collect == false && m4Back?.collect == true &&
+                             m4Back?.why?.contains('hand-back') && m4After?.collect == false,
+     "hand-back across a split: took over ${m4Take}, split ${m4Split}, quorate again ${m4Back}, after ${m4After}")
+// Behind a cluster address the same: the address answers again, but this node has no quorum.
+state.clear()
+def addrProps = nodeProps + ['pve.cluster.role': 'standby']
+def m4aTake = withFixtures(['/cluster/status': threeNodes([:], 1)]) {
+    roleWithState(addrProps + ['pve.cluster.active': 'address:127.0.0.1:1'], 'Cluster_Status') }
+def m4aSplit = withFixtures(['/cluster/status': threeNodes([:], 0)]) {
+    roleWithState(addrProps + ['pve.cluster.active': 'address:127.0.0.1:' + server.address.port], 'Cluster_Status') }
+def m4aBack = withFixtures(['/cluster/status': threeNodes([:], 1)]) {
+    roleWithState(addrProps + ['pve.cluster.active': 'address:127.0.0.1:' + server.address.port], 'Cluster_Status') }
+note('role-handback-quorum-address', m4aTake?.collect == true && m4aSplit?.collect == false && m4aBack?.collect == true &&
+                                     m4aBack?.why?.contains('hand-back'),
+     "hand-back behind an address: took over ${m4aTake}, split ${m4aSplit}, quorate again ${m4aBack}")
 note('role-address-down', roleOf(['pve.cluster.role': 'standby', 'pve.cluster.active': 'address:127.0.0.1:1'])?.collect == true,
      'a standby behind an unreachable address did not take over')
 note('role-address-up', roleOf(['pve.cluster.role': 'standby', 'pve.cluster.active': 'address:127.0.0.1:' + server.address.port])?.collect == false,

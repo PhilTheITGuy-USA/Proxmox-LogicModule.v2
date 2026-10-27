@@ -720,8 +720,10 @@ def pveState = { ->
  * No Data never clears an alert -- so a standby that was collecting collects once more after
  * the resource ahead of it returns: its healthy values clear those alerts. Each module keeps
  * its own record, under its own label, for two hours, renewed on every poll it stands in.
+ * The last poll waits for viewOk -- this node quorate, or one of two nodes -- keeping the
+ * record: a node split from the majority would clear alerts with a stale view (M4).
  */
-def pveHandBack = { String label, Map result ->
+def pveHandBack = { String label, Map result, Closure viewOk ->
     if (!label) { return result }
     def key = 'handback:' + (pveHostProp('pve.cluster') ?: '') + ':' +
               (pveHostProp('pve.node') ?: pveHostProp('system.hostname') ?: '') + ':' + label
@@ -730,7 +732,7 @@ def pveHandBack = { String label, Map result ->
         state.write(key, 'collecting', 7200)
         return result
     }
-    if (state.read(key)) {
+    if (state.read(key) && viewOk()) {
         state.drop(key)
         return result + [collect: true, why: result.why + '; hand-back: one more poll to clear its alerts']
     }
@@ -763,7 +765,10 @@ def pveRole = { String label = null ->
             }
         } else if (role == 'standby' && active?.startsWith('address:')) {
             def down = pveAddressDown(active.substring('address:'.length()))
-            result = pveHandBack(label, [collect: down, why: down ? 'standby, cluster address down' : 'standby, cluster address answers'])
+            result = pveHandBack(label, [collect: down, why: down ? 'standby, cluster address down' : 'standby, cluster address answers'], {
+                def status = ownStatus()
+                pveQuorate(status) || status.count { it.type?.toString() == 'node' } == 2
+            })
         } else if (role == 'standby' && active) {
             def status = ownStatus()
             if (pveCorosyncRunning() == false) {
@@ -775,7 +780,8 @@ def pveRole = { String label = null ->
             // takes over without it; the active node, without quorum, has already stopped.
             def twoNode = status.count { it.type?.toString() == 'node' } == 2
             def takeOver = (pveQuorate(status) || twoNode) && (row == null || row.online?.toString() != '1')
-            result = pveHandBack(label, [collect: takeOver, why: takeOver ? 'standby, ' + active + ' is offline' : 'standby, ' + active + ' is collecting'])
+            result = pveHandBack(label, [collect: takeOver, why: takeOver ? 'standby, ' + active + ' is offline' : 'standby, ' + active + ' is collecting'],
+                                 { pveQuorate(status) || twoNode })
         } else {
             result = [collect: false, why: 'no cluster role']
         }

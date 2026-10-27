@@ -56,7 +56,7 @@ lines (`note('<name>', ...)` names each check). Rebuild before running it -- it 
   checked by `check_script_lengths`. A preamble closure must be defined before the closures that
   use it (a Groovy closure can't see a later script variable), and the shaker finds references
   by name, so don't call a closure through a dynamic name.
-- **The NetScan is 30,087 bytes against LogicMonitor's recommended 32 KB.** Its output also has
+- **The NetScan is 30,249 bytes against LogicMonitor's recommended 32 KB.** Its output also has
   its indentation halved (`compact_indent`, which refuses text holding `'''`, `"""` or `/$`,
   the marks of a multi-line string). The harness's `netscan-size` fails above 31 KB, keeping a
   kilobyte free; past that, trim the NetScan rather than raise the limit.
@@ -107,8 +107,8 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Local checks** (2026-10-26, after the `lm` display-name fix): build clean; compile job passed;
-  harness 1,492 of 1,492; lint 0 errors, 4 warnings; both dashboards check clean.
+- **Local checks** (2026-10-26, after the M4, M6, M9 fixes): build clean; compile job passed;
+  harness 1,495 of 1,495; lint 0 errors, 4 warnings; both dashboards check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
   portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included (user, 2026-10-26).
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
