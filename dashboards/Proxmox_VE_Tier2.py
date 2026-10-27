@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Proxmox VE dashboard covering the eight Tier 2 modules.
+Proxmox VE dashboard covering the Tier 2 modules, laid out like with like.
 
 Layout on LogicMonitor's 12-column grid:
 
-    rows  1-6   Ceph Health | Ceph OSDs and Monitors      | Alert Status (noc)
-                Backups         | Ceph Raw Utilisation   |
-    rows  7-9   OSD Fill | OSD Commit Latency | OSD Apply Latency
-    rows 10-12  Ceph OSDs (full width)
-    rows 13-15  Certificates | Subscriptions
-    rows 16-18  Replication Jobs | Physical Disks
-    rows 19-21  Node Services (full width)
-    row  22     Proxmox VE Alerts (full width)
+    rows  1-6   Cluster Health | Ceph Health             | Alert Status (noc)
+                Cluster Health Over Time | Ceph OSDs and Monitors |
+    rows  7-12  Storage: Ceph Raw Utilisation | OSD Fill | Top 10 OSDs by Fill
+                         OSD Commit Latency | OSD Apply Latency
+    rows 13-18  Ceph OSDs (full width), Physical Disks (full width)
+    rows 19-21  Data protection: Backups | Replication Jobs
+    rows 22-24  Expiry: Certificates | Subscriptions
+    rows 25-27  Node Services (full width)
+    rows 28-31  Proxmox VE Alerts (full width)
 
 Companion to Proxmox_VE_Tier1, and built on the two conventions that dashboard proved in
 a portal: modules addressed as "<displayedAs> (<name>)", series legended on ##INSTANCE##.
@@ -28,6 +29,7 @@ from dashboards import Dashboard, module_ref
 
 # Addressed as "<displayedAs> (<name>)". build.py checks each of these resolves to a
 # real module with the datapoints used below, because nothing in the portal would.
+CLUSTER = module_ref("Proxmox VE Cluster Status", "Proxmox_VE_Cluster_Status")
 CEPH = module_ref("Proxmox VE Cluster Ceph", "Proxmox_VE_Cluster_Ceph")
 CEPH_OSD = module_ref("Proxmox VE Cluster Ceph OSD", "Proxmox_VE_Cluster_CephOSD")
 BACKUP = module_ref("Proxmox VE Cluster Backups", "Proxmox_VE_Cluster_Backups")
@@ -42,22 +44,31 @@ def build() -> Dashboard:
     d = Dashboard(
         name="Proxmox VE Infrastructure",
         description=(
-            "Infrastructure metrics for Proxmox VE: Ceph cluster and per-OSD health, "
-            "backups, certificate and subscription expiry, replication jobs, "
-            "physical disk SMART and wear, and node service state."
+            "Infrastructure metrics for Proxmox VE, grouped like with like: cluster "
+            "health, Ceph and disk storage, backups and replication, certificate and "
+            "subscription expiry, and node service state."
         ),
         group="Proxmox VE",
-        # "*" matches whatever resource carries the API token. Scope it to a resource
+        # "*" matches whichever resources hold the cluster role. Scope it to a resource
         # group in the dashboard's token settings if you monitor more than one cluster.
         resource_group="*",
     )
 
     # ------------------------------------------------------ rows 1-6: overview
 
+    d.numbers(1, 1, 4, 3, "Cluster Health", [
+        (CLUSTER, "HealthScore", "Health Score", 0),
+        (CLUSTER, "NodesOnlinePercent", "Nodes Online %", 0),
+        (CLUSTER, "NodesOnline", "Nodes Online", 0),
+        (CLUSTER, "NodesOffline", "Nodes Offline", 0),
+    ], description="Health Score is nodes online weighted by how stalled each one is "
+                   "(pressure stall figures), 0 without quorum; 100 is every node online "
+                   "and unstalled. It warns below 70 and errors below 50.")
+
     # CephAvailable is the one Ceph datapoint emitted on every run. With it on the
     # tile, a cluster without Ceph shows a 0 beside the blanks instead of an
     # unexplained empty widget.
-    d.numbers(1, 1, 4, 3, "Ceph Health", [
+    d.numbers(1, 5, 4, 3, "Ceph Health", [
         (CEPH, "CephAvailable", "Ceph Present (1=yes)", 0),
         (CEPH, "HealthOK", "HEALTH_OK (1=yes)", 0),
         (CEPH, "HealthChecks", "Active Health Checks", 0),
@@ -66,7 +77,16 @@ def build() -> Dashboard:
                    "CephAvailable is withheld there. PGs Not Clean is non-zero during "
                    "normal recovery and rebalancing.")
 
-    d.numbers(1, 5, 4, 3, "Ceph OSDs and Monitors", [
+    d.alert_status(1, 9, 4, 6, "Proxmox VE Alert Status", "Proxmox VE*")
+
+    d.graph(4, 1, 4, 3, "Cluster Health Over Time", [
+        d.series(CLUSTER, "HealthScore", legend="Health score (##HOSTNAME##)"),
+        d.series(CLUSTER, "NodesOnlinePercent", legend="Nodes online % (##HOSTNAME##)"),
+    ], "%", timescale="7days",
+       description="Only the resource collecting for the cluster draws a line; the "
+                   "standby's stays empty unless it stood in.")
+
+    d.numbers(4, 5, 4, 3, "Ceph OSDs and Monitors", [
         (CEPH, "OSDsUp", "OSDs Up", 0),
         (CEPH, "OSDsDown", "OSDs Down", 0),
         (CEPH, "OSDsOut", "OSDs Out", 0),
@@ -74,35 +94,27 @@ def build() -> Dashboard:
     ], description="Cluster-wide counts from ceph status. OSDs Out is expected during "
                    "a planned rebalance.")
 
-    d.alert_status(1, 9, 4, 6, "Proxmox VE Alert Status", "Proxmox VE*")
+    # ------------------------------------------------------ rows 7-18: storage
 
-    d.numbers(4, 1, 4, 3, "Backups", [
-        (BACKUP, "NotCovered", "Guests Not Backed Up", 0),
-        (BACKUP, "FailedSinceLastBackup", "Failed Since Last Backup", 0),
-        (BACKUP, "LastBackupSizeGB", "Latest Backups, GB", 1),
-    ], description="Totals across every guest: guests no backup job covers, guests "
-                   "whose backup has failed since their last good one, and the size of "
-                   "each guest's latest backup added up (Proxmox Backup Server runs log "
-                   "no size). Per guest and per job, see Proxmox VE Cluster Backups on the "
-                   "resource holding the API token.")
-
-    d.graph(4, 5, 4, 3, "Ceph Raw Utilisation",
+    d.graph(7, 1, 4, 3, "Ceph Raw Utilisation",
             [d.series(CEPH, "UsedPercent", display="area")], "%",
             timescale="7days",
             description="Raw capacity across all OSDs, before replication. Ceph "
                         "degrades well before it is full.")
-
-    # ------------------------------------------------------- rows 7-12: OSDs
-
-    d.graph(7, 1, 4, 3, "OSD Fill",
+    d.graph(7, 5, 4, 3, "OSD Fill",
             [d.series(CEPH_OSD, "UsedPercent")], "%", top_x=25,
             description="An uneven spread across OSDs points at CRUSH weighting.")
-    d.graph(7, 5, 4, 3, "OSD Commit Latency",
+    d.table(7, 9, 4, 3, "Top 10 OSDs by Fill", CEPH_OSD, [
+        d.column("UsedPercent", "Used %", warn=75, error=85),
+        d.column("PlacementGroups", "PGs", display_type="raw", rounding=0),
+    ])
+
+    d.graph(10, 1, 6, 3, "OSD Commit Latency",
             [d.series(CEPH_OSD, "CommitLatencyMs")], "ms", maximum="NaN", top_x=25)
-    d.graph(7, 9, 4, 3, "OSD Apply Latency",
+    d.graph(10, 7, 6, 3, "OSD Apply Latency",
             [d.series(CEPH_OSD, "ApplyLatencyMs")], "ms", maximum="NaN", top_x=25)
 
-    d.table(10, 1, 12, 3, "Ceph OSDs", CEPH_OSD, [
+    d.table(13, 1, 12, 3, "Ceph OSDs", CEPH_OSD, [
         d.column("Up", "Up", display_type="raw", rounding=0),
         d.column("OSDIn", "In", display_type="raw", rounding=0),
         d.column("UsedPercent", "Used %", warn=75, error=85),
@@ -114,37 +126,7 @@ def build() -> Dashboard:
        description="Reweight below 1.0 means the OSD has been down-weighted. A large "
                    "PG imbalance across OSDs indicates a CRUSH or weighting problem.")
 
-    # ------------------------------------------- rows 13-15: expiry and licence
-
-    # Days-remaining columns carry no colour threshold: the table helper only
-    # expresses ">=", and for these a low value is the bad one. The module
-    # thresholds still alert.
-    d.table(13, 1, 6, 3, "Certificates", CERTS, [
-        d.column("Expired", "Expired", display_type="raw", warn=1, rounding=0),
-        d.column("DaysUntilExpiry", "Days Left", display_type="raw", rounding=0),
-        d.column("PublicKeyBits", "Key Bits", display_type="raw", rounding=0),
-    ], description="One row per certificate per node: the cluster CA, pve-ssl and "
-                   "pveproxy-ssl expire independently.")
-
-    d.table(13, 7, 6, 3, "Subscriptions", SUBSCRIPTION, [
-        d.column("Active", "Active", display_type="raw", rounding=0),
-        d.column("DaysUntilDue", "Days to Renewal", display_type="raw", rounding=0),
-        d.column("Sockets", "Sockets", display_type="raw", rounding=0),
-    ], description="Days to Renewal is empty on a node with no subscription.")
-
-    # ------------------------------------------ rows 16-18: replication and disks
-
-    d.table(16, 1, 6, 3, "Replication Jobs", REPLICATION, [
-        d.column("Failed", "Failed", display_type="raw", warn=1, rounding=0),
-        d.column("FailCount", "Fail Count", display_type="raw", warn=1, error=3,
-                 rounding=0),
-        d.column("SecondsSinceLastSync", "Replica Age (s)", display_type="raw",
-                 rounding=0),
-        d.column("Running", "Running", display_type="raw", rounding=0),
-        d.column("Disabled", "Disabled", display_type="raw", rounding=0),
-    ], description="Replica Age is empty for a job that has never run.")
-
-    d.table(16, 7, 6, 3, "Physical Disks", DISKS, [
+    d.table(16, 1, 12, 3, "Physical Disks", DISKS, [
         d.column("SmartHealthOK", "SMART OK", display_type="raw", rounding=0),
         d.column("SmartHealthKnown", "SMART Known", display_type="raw", rounding=0),
         d.column("LifeRemainingKnown", "Wear Reported", display_type="raw",
@@ -159,9 +141,51 @@ def build() -> Dashboard:
                    "collected. A datapoint cannot print \"N/A\": LogicMonitor takes "
                    "numbers only.")
 
-    # ----------------------------------------------- rows 19-21: node services
+    # ---------------------------------------------- rows 19-21: data protection
 
-    d.table(19, 1, 12, 3, "Node Services", SERVICES, [
+    d.numbers(19, 1, 4, 3, "Backups", [
+        (BACKUP, "NotCovered", "Guests Not Backed Up", 0),
+        (BACKUP, "FailedSinceLastBackup", "Failed Since Last Backup", 0),
+        (BACKUP, "LastBackupSizeGB", "Latest Backups, GB", 1),
+    ], description="Totals across every guest: guests no backup job covers, guests "
+                   "whose backup has failed since their last good one, and the size of "
+                   "each guest's latest backup added up (Proxmox Backup Server runs log "
+                   "no size). Per guest and per job, see Proxmox VE Cluster Backups on the "
+                   "resource holding the cluster role.")
+
+    d.table(19, 5, 8, 3, "Replication Jobs", REPLICATION, [
+        d.column("Failed", "Failed", display_type="raw", warn=1, rounding=0),
+        d.column("FailCount", "Fail Count", display_type="raw", warn=1, error=3,
+                 rounding=0),
+        d.column("SecondsSinceLastSync", "Replica Age (s)", display_type="raw",
+                 rounding=0),
+        d.column("Running", "Running", display_type="raw", rounding=0),
+        d.column("Disabled", "Disabled", display_type="raw", rounding=0),
+    ], description="Replica Age is empty for a job that has never run.")
+
+    # ------------------------------------------------------- rows 22-24: expiry
+
+    # Days-remaining columns carry no colour threshold: the table helper only
+    # expresses ">=", and for these a low value is the bad one. The module
+    # thresholds still alert.
+    d.table(22, 1, 6, 3, "Certificates", CERTS, [
+        d.column("Expired", "Expired", display_type="raw", warn=1, rounding=0),
+        d.column("DaysUntilExpiry", "Days Left", display_type="raw", rounding=0),
+        d.column("PublicKeyBits", "Key Bits", display_type="raw", rounding=0),
+    ], description="One row per certificate per node: the cluster CA, pve-ssl and "
+                   "pveproxy-ssl expire independently.")
+
+    d.table(22, 7, 6, 3, "Subscriptions", SUBSCRIPTION, [
+        d.column("Active", "Active", display_type="raw", rounding=0),
+        d.column("DaysUntilDue", "Days to Renewal", display_type="raw", rounding=0),
+        d.column("Sockets", "Sockets", display_type="raw", rounding=0),
+    ], label="##HOSTNAME##",
+       description="Days to Renewal is empty on a node with no subscription. One row per "
+                   "node: the module is single-instance, so rows carry the node's name.")
+
+    # ----------------------------------------------- rows 25-27: node services
+
+    d.table(25, 1, 12, 3, "Node Services", SERVICES, [
         d.column("Failed", "Failed", display_type="raw", warn=1, rounding=0),
         d.column("Running", "Running", display_type="raw", rounding=0),
         d.column("Enabled", "Enabled", display_type="raw", rounding=0),
@@ -171,8 +195,8 @@ def build() -> Dashboard:
                    "legitimately stopped on a node that does not use them. Failed is "
                    "the one that means something broke.")
 
-    # --------------------------------------------------------- row 22: alerts
+    # --------------------------------------------------------- rows 28-31: alerts
 
-    d.alert_table(22, 1, 12, 4, "Proxmox VE Alerts", "Proxmox_VE*")
+    d.alert_table(28, 1, 12, 4, "Proxmox VE Alerts", "Proxmox_VE*")
 
     return d

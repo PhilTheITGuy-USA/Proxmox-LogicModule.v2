@@ -215,7 +215,13 @@ class Dashboard:
 
     def table(self, row: int, col: int, sizex: int, sizey: int, name: str, module: str,
               columns: list[dict], top_x: int = 25, timescale: str = "day",
-              description: str = "") -> None:
+              description: str = "", label: str = INSTANCE_LEGEND) -> None:
+        """
+        A dynamicTable, sorted descending on its first column, ten rows a page: with the
+        default topX of 25 its first page is the top 10. label names each row: ##INSTANCE##
+        for a multi-instance module; ##HOSTNAME## for a single-instance one, whose rows
+        would otherwise all carry the module's own name.
+        """
         display_columns = [{
             "visible": True,
             "columnLabel": "Instance",
@@ -238,7 +244,7 @@ class Dashboard:
             "type": "dynamicTable",
             "rows": [{
                 "instanceName": "*",
-                "label": INSTANCE_LEGEND,
+                "label": label,
                 "deviceDisplayName": "*",
                 "groupFullPath": GROUP_TOKEN,
             }],
