@@ -77,7 +77,7 @@ Without the NetScan, the modules apply only to resources you categorise by hand 
 On any node of the cluster, as root:
 
 ```sh
-pveum user add monitor@pve --comment "LogicMonitor"
+pveum user add monitor@pve --comment 'LogicMonitor'
 pveum acl modify / --users monitor@pve --roles PVEAuditor
 pveum user token add monitor@pve logicmonitor --privsep 1
 pveum acl modify / --tokens 'monitor@pve!logicmonitor' --roles PVEAuditor
@@ -366,8 +366,20 @@ resources the NetScan creates.
 
 ## Troubleshooting
 
-- **No data on any module:** check the token from the Collector's host:
-  `curl -k -H 'Authorization: PVEAPIToken=<token string>' https://<node>:8006/api2/json/cluster/resources`.
+- **No data on any module:** check the token from the Collector's host. On Linux:
+
+  ```sh
+  curl -k -H 'Authorization: PVEAPIToken=<token string>' https://<node>:8006/api2/json/cluster/resources
+  ```
+
+  On Windows, in PowerShell (type `curl.exe`: plain `curl` is PowerShell 5.1's alias for
+  `Invoke-WebRequest`, and `cmd.exe` does not treat `'` as a quote):
+
+  ```powershell
+  curl.exe -k -H 'Authorization: PVEAPIToken=<token string>' https://<node>:8006/api2/json/cluster/resources
+  ```
+
+  Keep the single quotes: the token string holds a `!`, which Bash expands inside double quotes.
   - A `401` means the token ID or secret is wrong.
   - An empty `data` array means the token authenticates but has no permissions: with
     `--privsep 1` it needs its own ACL.
