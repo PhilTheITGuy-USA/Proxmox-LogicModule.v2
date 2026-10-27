@@ -204,7 +204,7 @@ resource either way.
    | `pve.netscan.guest.hostname` | `ip`: the guest's address; `name`: its name, where guest names resolve in DNS | `name` | `ip` |
    | `pve.netscan.guests.unaddressed` | `true` also adds selected guests with no address the NetScan can read; they show as down | `true` | `false` |
    | `skip.device.dedupe` | `true` turns duplicate checking off | `true` | `false` |
-   | `hostname.source` | On a duplicate: unset skips it and reports it; `lm` adopts the existing resource; `netscan` adds a second one | `lm` | unset |
+   | `hostname.source` | On a duplicate: unset skips it and reports it; `lm` adopts the existing resource, keeping its hostname and display name on every run (see step 10); `netscan` adds a second one | `lm` | unset |
    | `lmapi.timelimit.sec` | Above this estimate, existing resources are looked up one at a time | `90` | `60` |
 
 8. In **Filters**, choose which guests become resources. A guest must pass every filter that is
@@ -229,10 +229,20 @@ resource either way.
 
 10. Leave **Ignore system.ips when checking existing Resources for duplicates** off, and
     **Exclude duplicate IP addresses** at **Matching any Monitored Resources**. Set **Criteria for
-    updating Existing Resources** to **Resources discovered by this NetScan** (the default), or to
-    **Resources that are member of selected groups** if the NetScan should adopt nodes or guests
-    you already monitor. Never **Do not update any existing resources**: the suite depends on
-    each run updating its resources.
+    updating Existing Resources** to **Resources discovered by this NetScan** (the default). Never
+    **Do not update any existing resources**: the suite depends on each run updating its
+    resources.
+
+    To have the NetScan **adopt** nodes or guests you already monitor (over SNMP or WMI, for
+    example), so they gain the Proxmox properties and groups instead of being skipped, also:
+    - add the property `hostname.source` = `lm`;
+    - set **Criteria for updating Existing Resources** to **All matching resources**;
+    - set **Exclude duplicate IP addresses** to **Matching resources in these resource groups**
+      and select no group, or an empty one. Adoption under the default exclusion is *(not yet
+      verified)*.
+
+    An adopted resource keeps its hostname, display name, categories and history, and stays in
+    its own groups as well; the run's report lists it as `adopted:`.
 11. In **Schedule**, select **Run this NetScan on a schedule**. Hourly is recommended; a run with
     guests off costs two API calls plus one per node.
 12. Select **Save** or **Save and Run**.
@@ -357,9 +367,13 @@ and address, and on a match follows `hostname.source`:
 - `lm`: the existing resource is adopted; the NetScan's properties and groups are written to it
 - `netscan`: a second resource is added, named `<name> - <hostname>`, using one more host unit
 
-**Note:** LogicMonitor's own duplicate-IP exclusion (step 10) also skips any resource whose IP
-already exists, independently of the script. It skips; it does not update. Adopting existing
-resources needs `hostname.source=lm` *(not yet verified)*.
+**Note:** adopting existing resources needs `hostname.source=lm` **and** the settings in step 10;
+with `lm` alone, a run under the default criteria leaves them unchanged and reports nothing.
+
+**Note:** editing and saving a resource in the portal detaches it from the NetScan that created
+it (the audit log shows its scan configuration reset). The NetScan still updates it. The audit
+log records only some of a NetScan's updates, so check the resource itself to see whether a run
+changed it.
 
 **Note:** a NetScan property can't be saved empty ("Properties cannot be empty"). To leave one
 at its default, such as `pve.netscan.guests.filter.vmid` for every guest, delete the property

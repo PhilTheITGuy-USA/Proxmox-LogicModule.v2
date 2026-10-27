@@ -71,9 +71,29 @@ arrive, so some properties from outside the NetScan do.
 run may update, not how [S5, user 2026-10-25]. Its options: *All matching resources*, *Resources
 discovered by this NetScan* (the default), *Resources that are member of selected groups*,
 *Resources monitored by selected Collectors*, *Do not update any existing resources*. The default
-suits an install with nothing already monitored. Adopting resources that existed before (§6)
-needs *member of selected groups*, scoped to their groups, or *All matching resources*. *Do not
-update* breaks the design, which depends on re-runs rewriting properties (§7).
+suits an install with nothing already monitored: under it, with the other settings at their
+defaults, a re-run rewrote a value on a resource the NetScan created (Webapp01's `pve.tags`,
+four times) and on ones a manual save had since detached (below) [S3, lab 2026-10-26].
+Adopting resources that existed before (§6) needs *All matching resources*, which adopted
+Nvr01 [S3]; *member of selected groups* is [unverified]. *Do not update* breaks the design,
+which depends on re-runs rewriting properties (§7).
+
+**Observed while testing it** [S3, lab audit log 2026-10-26]:
+- **A manual save of a resource detaches it from its NetScan:** the audit entry resets its
+  `scanConfigId` to `0`. A detached resource was still updated under the default criteria.
+- **The audit log is not a record of a NetScan's updates.** Some appear, as user
+  `System:Netscan` with the device and the execution (`NSE=…`); most do not. Read the resource.
+- The audit stores each of these dropdowns as `type=<n>`, the option's position in its list,
+  starting at 1: `ResourceUpdateCriteria{type=1}` is *All matching resources*,
+  `DuplicatedIPExclusiveRule{type=3, groups=[…]}` *Matching resources in these resource groups*.
+  The NetScan's properties and the *Ignore system.ips* checkbox are saved without detail.
+- *Exclude duplicate IP addresses* offers *Matching any monitored resources* (the default),
+  *Matching resources already discovered by this NetScan*, *Matching resources in these resource
+  groups* and *Matching resources currently assigned to these Collectors*, and no "off". Under
+  the default, the NetScan's own resources were still updated.
+- **Unexplained:** three runs (20:30, 20:35, 20:40) did not change Node-A's
+  `pve.api.concurrency` while it was attached; no setting changed since accounts for it, and every
+  run after has updated it.
 
 **The LogicMonitor-side properties keep VMware's names** so that anyone who has run the vSphere
 NetScan already knows them. **Filters are properties the script reads,** so the harness can test
@@ -314,7 +334,10 @@ device by a property, which `pve.serial` matching needs, and **cannot change a h
   - empty (the default): the resource is **not emitted**, and the collision is reported, with
     both sides' hostname and display name;
   - `lm`: **adopt**: emit with the existing device's hostname and display name, so the NetScan's
-    properties and group land on it;
+    properties and group land on it, and report `adopted: <name> as existing <id> <name>`. The
+    portal's display name also wins on later runs, when the device is matched by the `pve.serial`
+    the adoption gave it: the first build let the Proxmox name win there, and renamed Nvr01 to
+    `nvr01` on the run after its adoption [S3, lab 2026-10-26];
   - `netscan`: emit as new with the display name `<name> - <hostname>`, which creates a second
     device and a second host unit.
 - **Compare addresses, not hostname strings.** LogicMonitor's own NetScan setting "Exclude
@@ -328,13 +351,15 @@ device by a property, which `pve.serial` matching needs, and **cannot change a h
 - **Adopting resources that already exist** (a node or guest monitored over SNMP) is
   `hostname.source=lm`, **and** a "Criteria for updating Existing Resources" that lets the run
   update them (§2): under the default, *Resources discovered by this NetScan*, a resource the
-  NetScan did not create is never updated [S5]. LogicMonitor's duplicate-IP exclusion skips a
-  match; it does not update it. Which fields the portal matches on under the other options is
-  [unverified, S3].
+  NetScan did not create is never updated [S5]. Under *All matching resources*, with *Exclude
+  duplicate IP addresses* scoped to an empty group, a run adopted the SNMP-monitored Nvr01: it
+  kept its hostname, display name and device ID, gained the Proxmox properties, the
+  `ProxmoxVE_Guest` category and the Guests group, and stayed in its own group [S3, lab
+  2026-10-26]. Adoption under the default exclusion is [unverified].
 - **Adoption and `system.categories`:** a NetScan merges the categories it sends with those a
-  resource already has, and keeps categories added by hand [S5], so an adopted device keeps
-  whatever its own modules set. Whether the same holds for a resource the NetScan did not create
-  is [unverified, S3].
+  resource already has, and keeps categories added by hand [S5]; the adoption's audit entry reads
+  "Added system.categories (ProxmoxVE_Guest)" [S3], and Node-A kept its SNMP categories
+  through the S3 runs. Nvr01 kept all six of its own beside `ProxmoxVE_Guest` [S3].
 
 Without LogicMonitor API credentials, or with `skip.device.dedupe`, there is no lookup and the
 run's output says so. **Guests then are not created at all** (user, 2026-10-25): without a lookup every guest
@@ -427,7 +452,7 @@ cluster modules, so it runs during implementation.
 |---|---|---|
 | S2 | whether the UI filter rows apply; a cluster resource whose hostname does not resolve; the LM credential property names; per-call latency and run time with every guest selected; the NetScan's and each module type's script timeout (main spec §3.9 rule 5) | a throwaway NetScan writing the cluster, both nodes and one guest into a test group. **Done 2026-10-25, except the items still open at the end.** The script ran first in a Groovy 4 / JDK 17 container against the lab (18 calls, 0.9 s without reverse DNS), then in the portal as dry runs: properties entered as custom credentials, the token masked; every emitted entry listed, unresolvable hostnames (`Labcluster`, `Migration-Test`) included; LogicMonitor's duplicate-IP exclusion held back every entry whose IP matched an existing resource, both v1 nodes included (§6). The dry-run screen gives counts (Scanned / Found / Added), not per-device labels. The spike's resources carry no token, so v1 cannot apply to them. **The real run** (filter `104,106,107`, nodes on, reverse DNS off): "Scanned 6, Found 6, Added 3", as predicted: `Labcluster`, `Webapp01` (`192.0.2.200`) and `Migration-Test` created; `.44`, `.51`, `.211` excluded as duplicates. The run record fills in over a minute or two, duplicates first. The NetScan **creates the group path** (`Proxmox VE v2 spike/Cluster - Labcluster/Guests`). On the Collector: 20 calls in 700 ms; medians config 15 ms, container interfaces 36 ms, VM agent 189 ms, node status 11–42 ms, so ~50 ms per container and ~205 ms per VM in a row. `netscanProps` carried every custom property and also `netapp.ssl`, which the user did not enter, so properties from outside the NetScan reach it; no `lmaccess.*` arrived on its own. **`Labcluster` was dead,** and nothing revived it: a script DataSource (`S2_KeepAlive`), `PingMulti-` at 0% loss to both nodes, or a loopback hostname, which instead drew the Collector's and Hyper-V's modules (main spec §3.1). A resource deleted and re-added by the NetScan came back with its old properties until it was also purged from **Recently Deleted**. Still open: the UI filter rows, credential inheritance, timeouts |
 | S8 | the standby of §5.1: takeover when the active resource is shut down; whether the standby's open alerts clear when it goes quiet; the map during the hour after a takeover (main spec §3.4) | the built cluster modules on the lab's two nodes; shut the active node down, raise an alert on the standby, start the active node again |
-| S3 | adopting a device the NetScan did not create; `system.categories` merge or replace; a portal lookup by MAC | the same NetScan with `hostname.source=lm` against the existing v1 node resources and the SNMP guest `Debian-Test` |
+| S3 | adopting a device the NetScan did not create; `system.categories` merge or replace; a portal lookup by MAC | **Done 2026-10-26** on the lab, against six SNMP/WMI guests instead of v1's: all caught by address with `hostname.source` unset; Nvr01 adopted with `lm` and *All matching resources* (§6); re-runs rewrite values on the NetScan's own and on detached resources under the defaults (§2). Nvr01 kept its six categories beside `ProxmoxVE_Guest`. No MAC lookup was needed: the address match caught all six |
 | S5 | a re-run rewriting properties and moving groups; what happens to a property no longer emitted | **Done 2026-10-25.** A throwaway NetScan emitting one resource (`s5-test.invalid`) differently per run: resource ID 171 throughout, so matched by hostname; a changed value rewritten, a new property added, a property no longer sent **kept**; categories **merged** (`S5_Drop` kept after it was dropped, `S5_Manual` added by hand kept); the resource added to its new group and **kept in the old**; a display name change applied, and reverted when the old name was sent again. The "Criteria for updating Existing Resources" options choose which resources a run may update, not how (§2). **A fifth run sent a new hostname:** LogicMonitor created a second resource beside 171, without 171's properties or history, and named it `s5-test-2.invalid#13` because the display name `S5 Test` was taken. So a hostname is the identity a run matches on, and display names are unique (§6) |
 | NetScan, first lab run | the built NetScan end to end, on the lab with v1 removed | **Done 2026-10-26.** Debug console then dry run then real run: "Scanned 3, Found 3, Added 3" -- `Node-A` (192.0.2.51) active, `Node-B` (192.0.2.211) standby behind it, `Webapp01` (192.0.2.200, CT 104) with its MAC and `pool`/`tags` = `none`, no token on the guest; groups `Proxmox VE/Cluster - Labcluster/Nodes` and `/Guests`; `pve.netscan.report` on the active node reads "no cluster address: active Node-A, standby Node-B"; both nodes alive by HostStatus (idleInterval 36 s). `lm.api` listed the portal (2 reads, HTTP 200). Found on the way: a run that stops early shows only "Scanned 0" -- the portal shows a NetScan's stderr nowhere, so the debug-console build (`dist/netscan/Proxmox_VE_NetScan.console.groovy`) is how to see why; and `ParamMap` is not a `java.util.Map` (get/set only), which a typed parameter had tripped over |
 | S6 | the guest-agent privilege on 9.2.3; `/lxc/<vmid>/interfaces` on 9.2.3 | **Done 2026-10-25.** v1's token (`monitor@pve!logicmonitor`, privsep 0, `PVEAuditor` on `/`), from a workstation against Node-B: `/cluster/status`, `/cluster/resources`, and for each of the 7 running guests its interfaces call and `/config` — all 200. Results in §5.3. 9.2.3's `PVEAuditor` = `Datastore.Audit, Mapping.Audit, Pool.Audit, SDN.Audit, Sys.Audit, VM.Audit, VM.GuestAgent.Audit` (`pveum role list`) |

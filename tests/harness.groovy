@@ -1744,6 +1744,20 @@ def keptMac = plan(nsGuestBase + [configs: nsGuestBase.configs.findAll { it.key 
 note('ns-mac-kept', keptMac.resources.find { it.hostProps['pve.serial'] == 'pve-cluster::101' }?.hostProps?.get('pve.guest.mac') == 'bc:24:11:00:01:01',
      "a guest whose config was not read lost its MAC: ${keptMac.resources.find { it.hostProps['pve.serial'] == 'pve-cluster::101' }?.hostProps}")
 
+// hostname.source=lm keeps the portal's display name on every run, not only the adopting one:
+// after Nvr01 was adopted, the next run matched it by pve.serial and renamed it to Proxmox's
+// "nvr01" (lab 2026-10-26). The adopting run says what it adopted.
+def lmProps = nsGuestBase.props + ['hostname.source': 'lm', 'pve.netscan.guests.filter.vmid': '101']
+def adopting = plan(nsGuestBase + [props: lmProps,
+                                   existing: [[id: 6, hostname: '192.0.2.101', displayName: 'Web Server', props: [:]]]])
+def adopted = plan(nsGuestBase + [props: lmProps,
+                                  existing: [[id: 6, hostname: '192.0.2.101', displayName: 'Web Server',
+                                              props: ['pve.serial': 'pve-cluster::101', 'pve.cluster': 'pve-cluster']]]])
+note('ns-lm-keeps-name', adopting.resources.find { it.hostProps['pve.vmid'] == '101' }?.displayname == 'Web Server' &&
+                         adopted.resources.find { it.hostProps['pve.vmid'] == '101' }?.displayname == 'Web Server' &&
+                         adopting.report.any { it.startsWith('adopted: ') && it.contains('Web Server') && it.contains('6') },
+     "with hostname.source=lm the name was ${adopted.resources.find { it.hostProps['pve.vmid'] == '101' }?.displayname} / ${adopting.report}")
+
 // I2: an orphan is a resource whose guest or node is gone from Proxmox, nothing else.
 def notOrphan = plan(nsGuestBase + [existing: [[id: 81, hostname: 'dhcp-ct', displayName: 'dhcp-ct',
                                                 props: ['pve.cluster': 'pve-cluster', 'pve.serial': 'pve-cluster::103']]]])

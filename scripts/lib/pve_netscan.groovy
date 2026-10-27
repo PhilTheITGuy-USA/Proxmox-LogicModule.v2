@@ -272,6 +272,8 @@ def pveNetscanPlan = { Map input ->
                     report << (res.displayname + ': address changed from ' + own.hostname + ' to ' + res.hostname)
                     res.hostname = own.hostname
                 }
+                // lm: the portal's name wins on every run, so an adopted device keeps its own.
+                if (mode == 'lm' && own.displayName) { res.displayname = own.displayName }
                 kept << res
                 return
             }
@@ -282,6 +284,7 @@ def pveNetscanPlan = { Map input ->
             }
             if (!other) { kept << res; return }
             if (mode == 'lm') {
+                report << ('adopted: ' + res.displayname + ' as existing ' + other.id + ' ' + other.displayName)
                 kept << (res + [hostname: other.hostname, displayname: other.displayName])
             } else if (mode == 'netscan') {
                 kept << (res + [displayname: res.displayname + ' - ' + res.hostname])

@@ -56,7 +56,7 @@ lines (`note('<name>', ...)` names each check). Rebuild before running it -- it 
   checked by `check_script_lengths`. A preamble closure must be defined before the closures that
   use it (a Groovy closure can't see a later script variable), and the shaker finds references
   by name, so don't call a closure through a dynamic name.
-- **The NetScan is 29,899 bytes against LogicMonitor's recommended 32 KB.** Its output also has
+- **The NetScan is 30,087 bytes against LogicMonitor's recommended 32 KB.** Its output also has
   its indentation halved (`compact_indent`, which refuses text holding `'''`, `"""` or `/$`,
   the marks of a multi-line string). The harness's `netscan-size` fails above 31 KB, keeping a
   kilobyte free; past that, trim the NetScan rather than raise the limit.
@@ -91,7 +91,13 @@ the authority; this is the map.
   property with an explicit value on every run (a re-run overwrites and adds, never removes),
   deduplicates through `lm.api` (`pve.serial` first, then display name, hostname, address), and
   never deletes: it reports orphans and address changes in `pve.netscan.report` on the active
-  resource, since the portal shows a NetScan's stderr nowhere.
+  resource, since the portal shows a NetScan's stderr nowhere. With `hostname.source=lm` it
+  adopts a device it matches, and the portal's hostname and display name win on every run;
+  adoption also needs the NetScan's *All matching resources* (product page, step 10).
+- **Lab facts about NetScans** (S3, 2026-10-26): a manual save of a resource detaches it from its
+  NetScan (`scanConfigId` 0 in the audit log) and the NetScan still updates it; the audit log
+  records only some of a NetScan's updates, so read the resource; `system.resourceUpdatedOn`
+  does not change on a NetScan update.
 - **Topology:** guest vertices are keyed by the bare MAC of the first NIC, which GuestStatus
   instances and `addERI_Proxmox_VE_GuestResource` also carry; node keys are synthesised from name
   and corosync address and stamped by `addERI_Proxmox_VE_Node`.
@@ -101,21 +107,25 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Local checks** (2026-10-26, after the console-block fix): build clean; compile job passed;
-  harness 1,491 of 1,491; lint 0 errors, 4 warnings; both dashboards check clean.
+- **Local checks** (2026-10-26, after the `lm` display-name fix): build clean; compile job passed;
+  harness 1,492 of 1,492; lint 0 errors, 4 warnings; both dashboards check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
   portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included (user, 2026-10-26).
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
-  replication), 2026-10-26: S2, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
+  replication), 2026-10-26: S2, S3, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
   Node-B (standby) and the guest Webapp01, and a re-run adds nothing and leaves the expected
   properties; the standby takes over when corosync or pveproxy stops on the active and hands back
   with its alerts cleared. The guest ERI's bare-MAC key joins a NetScan-created guest to its
   map vertex: Webapp01, drawn alone beside its vertex before the fix, is drawn once, under
   Node-A (user, 2026-10-26). **Not yet seen on the lab:** Replication and Ceph (nothing to read),
-  a cluster address (VIP/DNS), a large portal's one-at-a-time lookups. S3's first half is done:
-  with every guest selected, the six guests monitored over SNMP/WMI are caught as collisions by
-  address and not sent (console run, 2026-10-26); adoption (`hostname.source=lm`) is not yet run.
-  S7's sharing half is deferred (user, 2026-10-26).
+  a cluster address (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the
+  default duplicate-IP exclusion, and the `lm` display-name fix (built after the lab saw the
+  rename). S3: with every guest selected, the six guests monitored over SNMP/WMI are caught by
+  address and not sent; with `hostname.source=lm` and *All matching resources*, Nvr01 is adopted
+  -- Proxmox properties, `ProxmoxVE_Guest` beside its six SNMP categories, the Guests group beside
+  its own, same device -- and re-runs rewrite values on the NetScan's own and on detached
+  resources under the defaults. Unexplained: three runs that missed Node-A's value while it was
+  attached. S7's sharing half is deferred (user, 2026-10-26).
 
 ## Documents
 
