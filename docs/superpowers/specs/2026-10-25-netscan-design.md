@@ -337,7 +337,9 @@ device by a property, which `pve.serial` matching needs, and **cannot change a h
     properties and group land on it, and report `adopted: <name> as existing <id> <name>`. The
     portal's display name also wins on later runs, when the device is matched by the `pve.serial`
     the adoption gave it: the first build let the Proxmox name win there, and renamed Nvr01 to
-    `nvr01` on the run after its adoption [S3, lab 2026-10-26];
+    `nvr01` on the run after its adoption [S3, lab 2026-10-26]. With that fixed, a run with
+    every guest selected adopted the other five and kept every portal name, Nvr01's included
+    [S3, lab 2026-10-26];
   - `netscan`: emit as new with the display name `<name> - <hostname>`, which creates a second
     device and a second host unit.
 - **Compare addresses, not hostname strings.** LogicMonitor's own NetScan setting "Exclude

@@ -119,12 +119,13 @@ when a layer changes.
   map vertex: Webapp01, drawn alone beside its vertex before the fix, is drawn once, under
   Node-A (user, 2026-10-26). **Not yet seen on the lab:** Replication and Ceph (nothing to read),
   a cluster address (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the
-  default duplicate-IP exclusion, and the `lm` display-name fix (built after the lab saw the
-  rename). S3: with every guest selected, the six guests monitored over SNMP/WMI are caught by
+  default duplicate-IP exclusion. S3: with every guest selected, the six guests monitored over SNMP/WMI are caught by
   address and not sent; with `hostname.source=lm` and *All matching resources*, Nvr01 is adopted
   -- Proxmox properties, `ProxmoxVE_Guest` beside its six SNMP categories, the Guests group beside
   its own, same device -- and re-runs rewrite values on the NetScan's own and on detached
-  resources under the defaults. Unexplained: three runs that missed Node-A's value while it was
+  resources under the defaults. A run with every guest selected then adopted the other five
+  (Media01, audio01, Relay01, Kiosk01, automation01: one `adopted:` line each in the report,
+  portal names kept, Nvr01's too, so the `lm` display-name fix holds). Unexplained: three runs that missed Node-A's value while it was
   attached. S7's sharing half is deferred (user, 2026-10-26).
 
 ## Documents
