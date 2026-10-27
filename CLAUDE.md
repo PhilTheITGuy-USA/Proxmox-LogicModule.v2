@@ -137,6 +137,8 @@ when a layer changes.
 
 ## Documents
 
+- `docs/exchange-listing.md` -- the suite-level text for the LM Exchange submission (short
+  description, overview, module table, keywords) and the checks to make before submitting.
 - `docs/proxmox-ve-monitoring.md` -- the user-facing product page, in the outline and table
   formats of LogicMonitor's [VMware vSphere Monitoring](https://www.logicmonitor.com/support/vmware-vsphere-monitoring)
   article (user, 2026-10-25), without its "Migration from Legacy Modules" section. Keep that

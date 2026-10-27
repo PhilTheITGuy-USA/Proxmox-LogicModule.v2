@@ -1,12 +1,9 @@
 # Proxmox VE Monitoring
 
-> **Draft, 2026-10-27.** v2 is built, imported into a portal and run against a two-node lab
-> cluster. This page follows the layout of LogicMonitor's own
-> [VMware vSphere Monitoring](https://www.logicmonitor.com/support/vmware-vsphere-monitoring)
-> article and describes the suite as the specs define it
-> (`docs/superpowers/specs/2026-10-21-proxmox-v2-architecture-design.md` and
-> `2026-10-25-netscan-design.md`). Anything marked *(not yet verified)* is design intent that no
-> lab run has confirmed.
+> **Status, October 2026.** The suite is imported into a LogicMonitor portal and runs against a
+> two-node Proxmox VE 9.2.3 cluster. Anything marked *(not yet verified)* is how the suite is
+> designed to behave in a setup that cluster does not have, such as Ceph, replication or a
+> cluster address.
 
 LogicMonitor monitors Proxmox VE clusters and standalone hosts out of the box through the Proxmox
 VE REST API. One NetScan per cluster creates a resource for the cluster, one for each node and,
@@ -454,14 +451,14 @@ so no module replaces another.
 |---|---|---|---|
 | Proxmox VE Cluster Status | DataSource | Quorum, HA manager health, migrations, nodes online and a cluster health score | — |
 | Proxmox VE Cluster Nodes | DataSource | Each node's online state, seen from the cluster | — |
-| Proxmox VE Guest Status | DataSource | Power state, lock and HA state of every VM and container | — |
-| Proxmox VE Guest Performance | DataSource | CPU, memory, network and disk of every VM and container | — |
-| Proxmox VE Storage Capacity | DataSource | Capacity and availability of every storage, per node | — |
-| Proxmox VE Ceph | DataSource | Ceph health, placement groups and capacity | — |
-| Proxmox VE Ceph OSD | DataSource | Each OSD's state, fill level and latency | — |
-| Proxmox VE Backups | DataSource | Backup jobs, each guest's last backup, unprotected guests | — |
-| Proxmox VE Snapshots | DataSource | Snapshot count and age per guest, hourly | — |
-| Proxmox VE Topology | TopologySource | Cluster to node, node to guest | — |
+| Proxmox VE Cluster Guest Status | DataSource | Power state, lock and HA state of every VM and container | — |
+| Proxmox VE Cluster Guest Performance | DataSource | CPU, memory, network and disk of every VM and container | — |
+| Proxmox VE Cluster Storage Capacity | DataSource | Capacity and availability of every storage, per node | — |
+| Proxmox VE Cluster Ceph | DataSource | Ceph health, placement groups and capacity | — |
+| Proxmox VE Cluster Ceph OSD | DataSource | Each OSD's state, fill level and latency | — |
+| Proxmox VE Cluster Backups | DataSource | Backup jobs, each guest's last backup, unprotected guests | — |
+| Proxmox VE Cluster Snapshots | DataSource | Snapshot count and age per guest, hourly | — |
+| `Proxmox_VE_Cluster_Topology` | TopologySource | Cluster to node, node to guest | — |
 
 **Proxmox VE Node modules** (apply on `ProxmoxVE_Node`)
 
@@ -485,5 +482,16 @@ so no module replaces another.
 
 **Note:** Guest resources get no Proxmox API module. Monitor what runs inside a guest (SNMP, WMI,
 SSH) as for any resource; its hypervisor metrics stay with the cluster modules.
+
+**Proxmox VE Dashboards** (from the repository; see
+[Getting the NetScan Script and Dashboards](#getting-the-netscan-script-and-dashboards))
+
+| Dashboard | File | Shows |
+|---|---|---|
+| Proxmox VE | `Proxmox_VE.json` | Cluster health and capacity; node and guest CPU, memory, storage and network; top-10 guests, nodes and storage; guest state; alerts |
+| Proxmox VE Infrastructure | `Proxmox_VE_Infrastructure.json` | Cluster health; Ceph and physical disks; backups and replication; certificate and subscription expiry; node services; alerts |
+
+Both dashboards scope to the token `defaultResourceGroup`, `*` by default: set it to a cluster's
+group to show one cluster. Import them in **Dashboards > Add > From File**.
 
 **Recommendation:** Import the dashboards after the modules, so every widget finds its module.

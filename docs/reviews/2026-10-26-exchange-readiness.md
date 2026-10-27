@@ -35,7 +35,7 @@ by reading where it is not. **Nothing was changed.** Status: saved for the next 
    *Decided 2026-10-27 (user): a public GitHub repo,* so the scrub below comes first. *Done
    2026-10-27, except going public (user: not yet): the product page's "Getting the NetScan
    Script and Dashboards" names the repo and the files; the lab details are scrubbed (below).*
-2. **No `addCategory_*` self-application.** *Stated 2026-10-27 in every category-applied module's notes and on the product page; the listing still needs it.* The modules apply by the categories and roles the
+2. **No `addCategory_*` self-application.** *Stated 2026-10-27 in every category-applied module's notes, on the product page, and in the listing text (`docs/exchange-listing.md`).* The modules apply by the categories and roles the
    NetScan sets (the approved design); the product page covers manual adds. State it plainly in
    the listing and in one line of each module's notes, since a reviewer will ask.
 3. ~~**No privilege note in 8 modules' technical notes:**~~ *Added 2026-10-27.* Cluster GuestPerformance, GuestStatus,
