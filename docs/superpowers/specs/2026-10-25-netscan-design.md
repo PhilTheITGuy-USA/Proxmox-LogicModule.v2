@@ -322,7 +322,9 @@ device by a property, which `pve.serial` matching needs, and **cannot change a h
   hostname as written: a dry run excluded the 7 entries whose IP hostname matched an existing
   resource, but proposed adding `automation01`, the reverse-DNS name of `192.0.2.44`, beside the
   existing `192.0.2.44` resource [S2, dry run 2026-10-25]. So this script's own match resolves
-  both sides to addresses, and §5.3 no longer swaps an IP for its DNS name by default.
+  both sides to addresses, and §5.3 no longer swaps an IP for its DNS name by default. With every
+  guest selected, the address match caught all six guests already monitored in-guest, five of
+  them under other display names, and the run sent none of them [S3, console run 2026-10-26].
 - **Adopting resources that already exist** (a node or guest monitored over SNMP) is
   `hostname.source=lm`, **and** a "Criteria for updating Existing Resources" that lets the run
   update them (§2): under the default, *Resources discovered by this NetScan*, a resource the

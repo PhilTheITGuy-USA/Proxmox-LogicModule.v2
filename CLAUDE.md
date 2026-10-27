@@ -112,8 +112,10 @@ when a layer changes.
   with its alerts cleared. The guest ERI's bare-MAC key joins a NetScan-created guest to its
   map vertex: Webapp01, drawn alone beside its vertex before the fix, is drawn once, under
   Node-A (user, 2026-10-26). **Not yet seen on the lab:** Replication and Ceph (nothing to read),
-  a cluster address (VIP/DNS), a large portal's one-at-a-time lookups. S3 and S7's sharing half
-  are deferred (user, 2026-10-26).
+  a cluster address (VIP/DNS), a large portal's one-at-a-time lookups. S3's first half is done:
+  with every guest selected, the six guests monitored over SNMP/WMI are caught as collisions by
+  address and not sent (console run, 2026-10-26); adoption (`hostname.source=lm`) is not yet run.
+  S7's sharing half is deferred (user, 2026-10-26).
 
 ## Documents
 
