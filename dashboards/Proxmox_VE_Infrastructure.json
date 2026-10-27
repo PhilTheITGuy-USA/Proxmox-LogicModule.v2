@@ -1,0 +1,1826 @@
+{
+  "santabaRelease": 246,
+  "defaultDashboardFilters": {
+    "defaultDashboardFilterDetails": []
+  },
+  "widgetTokens": [
+    {
+      "name": "defaultResourceGroup",
+      "value": "*"
+    }
+  ],
+  "name": "Proxmox VE Infrastructure",
+  "description": "Infrastructure metrics for Proxmox VE, grouped like with like: cluster health, Ceph and disk storage, backups and replication, certificate and subscription expiry, and node service state.",
+  "overwriteGroupFields": false,
+  "widgetsConfigVersion": 2,
+  "type": "dashboard",
+  "widgets": [
+    {
+      "position": {
+        "col": 1,
+        "sizex": 4,
+        "row": 1,
+        "sizey": 3
+      },
+      "config": {
+        "bigNumberInfo": {
+          "virtualDataPoints": [],
+          "counters": [],
+          "dataPoints": [
+            {
+              "dataPointName": "HealthScore",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Status (Proxmox_VE_Cluster_Status)",
+              "name": "HealthScore",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "NodesOnlinePercent",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Status (Proxmox_VE_Cluster_Status)",
+              "name": "NodesOnlinePercent",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "NodesOnline",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Status (Proxmox_VE_Cluster_Status)",
+              "name": "NodesOnline",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "NodesOffline",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Status (Proxmox_VE_Cluster_Status)",
+              "name": "NodesOffline",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            }
+          ],
+          "bigNumberItems": [
+            {
+              "dataPointName": "HealthScore",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 1,
+              "rightLabel": "Health Score",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "NodesOnlinePercent",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 2,
+              "rightLabel": "Nodes Online %",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "NodesOnline",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 3,
+              "rightLabel": "Nodes Online",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "NodesOffline",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 4,
+              "rightLabel": "Nodes Offline",
+              "colorThresholds": null,
+              "actions": []
+            }
+          ]
+        },
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "Cluster Health",
+        "description": "Health Score is nodes online weighted by how stalled each one is (pressure stall figures), 0 without quorum; 100 is every node online and unstalled. It warns below 70 and errors below 50.",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "type": "bigNumber",
+        "timescale": "day",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 4,
+        "row": 4,
+        "sizey": 3
+      },
+      "config": {
+        "bigNumberInfo": {
+          "virtualDataPoints": [],
+          "counters": [],
+          "dataPoints": [
+            {
+              "dataPointName": "CephAvailable",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "name": "CephAvailable",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "HealthOK",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "name": "HealthOK",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "HealthChecks",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "name": "HealthChecks",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "PGsNotClean",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "name": "PGsNotClean",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            }
+          ],
+          "bigNumberItems": [
+            {
+              "dataPointName": "CephAvailable",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 1,
+              "rightLabel": "Ceph Present (1=yes)",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "HealthOK",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 2,
+              "rightLabel": "HEALTH_OK (1=yes)",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "HealthChecks",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 3,
+              "rightLabel": "Active Health Checks",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "PGsNotClean",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 4,
+              "rightLabel": "PGs Not Clean",
+              "colorThresholds": null,
+              "actions": []
+            }
+          ]
+        },
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "Ceph Health",
+        "description": "Blank on a cluster without Ceph: every Ceph datapoint except CephAvailable is withheld there. PGs Not Clean is non-zero during normal recovery and rebalancing.",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "type": "bigNumber",
+        "timescale": "day",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 9,
+        "sizex": 4,
+        "row": 1,
+        "sizey": 6
+      },
+      "config": {
+        "displayClearedAlert": true,
+        "ackChecked": true,
+        "displaySettings": {
+          "showTypeIcon": true,
+          "displayAs": "table"
+        },
+        "displayWarnAlert": true,
+        "supportCustomProperty": false,
+        "description": "",
+        "type": "noc",
+        "version": 2,
+        "displayErrorAlert": true,
+        "isSupportCustomProperty": false,
+        "displayColumn": 2,
+        "name": "Proxmox VE Alert Status",
+        "displayCriticalAlert": true,
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "sortBy": "alertSeverity",
+        "timescale": "day",
+        "sdtChecked": true,
+        "items": [
+          {
+            "dataPointName": "*",
+            "instanceName": "*",
+            "name": "##INSTANCE##",
+            "dataSourceDisplayName": "Proxmox VE*",
+            "groupBy": "instance",
+            "type": "device",
+            "deviceGroupFullPath": "##defaultResourceGroup##",
+            "deviceDisplayName": "*"
+          }
+        ]
+      }
+    },
+    {
+      "position": {
+        "col": 5,
+        "sizex": 4,
+        "row": 1,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "Cluster Health Over Time",
+        "description": "Only the resource collecting for the cluster draws a line; the standby's stays empty unless it stood in.",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "graphInfo": {
+          "virtualDataPoints": [],
+          "minValue": 0,
+          "topX": 10,
+          "maxValue": 100,
+          "dataPoints": [
+            {
+              "dataPointName": "HealthScore",
+              "instanceName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "dataSourceFullName": "Proxmox VE Cluster Status (Proxmox_VE_Cluster_Status)",
+              "consolidateFunction": "average",
+              "display": {
+                "color": "Auto",
+                "legend": "Health score (##HOSTNAME##)",
+                "type": "line",
+                "option": "custom"
+              },
+              "name": "HealthScore",
+              "aggregateFunction": "SUM",
+              "deviceDisplayName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "deviceGroupFullPath": {
+                "isGlob": true,
+                "value": "##defaultResourceGroup##"
+              }
+            },
+            {
+              "dataPointName": "NodesOnlinePercent",
+              "instanceName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "dataSourceFullName": "Proxmox VE Cluster Status (Proxmox_VE_Cluster_Status)",
+              "consolidateFunction": "average",
+              "display": {
+                "color": "Auto",
+                "legend": "Nodes online % (##HOSTNAME##)",
+                "type": "line",
+                "option": "custom"
+              },
+              "name": "NodesOnlinePercent",
+              "aggregateFunction": "SUM",
+              "deviceDisplayName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "deviceGroupFullPath": {
+                "isGlob": true,
+                "value": "##defaultResourceGroup##"
+              }
+            }
+          ],
+          "verticalLabel": "%",
+          "aggregate": false,
+          "desc": true,
+          "scaleUnit": 1000,
+          "globalConsolidateFunction": "VaST"
+        },
+        "type": "cgraph",
+        "timescale": "7days",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 7,
+        "sizex": 6,
+        "row": 10,
+        "sizey": 3
+      },
+      "config": {
+        "bigNumberInfo": {
+          "virtualDataPoints": [],
+          "counters": [],
+          "dataPoints": [
+            {
+              "dataPointName": "OSDsUp",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "name": "OSDsUp",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "OSDsDown",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "name": "OSDsDown",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "OSDsOut",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "name": "OSDsOut",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "MonitorsInQuorum",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "name": "MonitorsInQuorum",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            }
+          ],
+          "bigNumberItems": [
+            {
+              "dataPointName": "OSDsUp",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 1,
+              "rightLabel": "OSDs Up",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "OSDsDown",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 2,
+              "rightLabel": "OSDs Down",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "OSDsOut",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 3,
+              "rightLabel": "OSDs Out",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "MonitorsInQuorum",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 4,
+              "rightLabel": "Monitors in Quorum",
+              "colorThresholds": null,
+              "actions": []
+            }
+          ]
+        },
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "Ceph OSDs and Monitors",
+        "description": "Cluster-wide counts from ceph status. OSDs Out is expected during a planned rebalance.",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "type": "bigNumber",
+        "timescale": "day",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 7,
+        "sizex": 6,
+        "row": 7,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "Ceph Raw Utilisation",
+        "description": "Raw capacity across all OSDs, before replication. Ceph degrades well before it is full.",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "graphInfo": {
+          "virtualDataPoints": [],
+          "minValue": 0,
+          "topX": 10,
+          "maxValue": 100,
+          "dataPoints": [
+            {
+              "dataPointName": "UsedPercent",
+              "instanceName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "dataSourceFullName": "Proxmox VE Cluster Ceph (Proxmox_VE_Cluster_Ceph)",
+              "consolidateFunction": "average",
+              "display": {
+                "color": "Auto",
+                "legend": "##INSTANCE##",
+                "type": "area",
+                "option": "custom"
+              },
+              "name": "UsedPercent",
+              "aggregateFunction": "SUM",
+              "deviceDisplayName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "deviceGroupFullPath": {
+                "isGlob": true,
+                "value": "##defaultResourceGroup##"
+              }
+            }
+          ],
+          "verticalLabel": "%",
+          "aggregate": false,
+          "desc": true,
+          "scaleUnit": 1000,
+          "globalConsolidateFunction": "VaST"
+        },
+        "type": "cgraph",
+        "timescale": "7days",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 4,
+        "row": 13,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "OSD Fill",
+        "description": "An uneven spread across OSDs points at CRUSH weighting.",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "graphInfo": {
+          "virtualDataPoints": [],
+          "minValue": 0,
+          "topX": 25,
+          "maxValue": 100,
+          "dataPoints": [
+            {
+              "dataPointName": "UsedPercent",
+              "instanceName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "dataSourceFullName": "Proxmox VE Cluster Ceph OSD (Proxmox_VE_Cluster_CephOSD)",
+              "consolidateFunction": "average",
+              "display": {
+                "color": "Auto",
+                "legend": "##INSTANCE##",
+                "type": "line",
+                "option": "custom"
+              },
+              "name": "UsedPercent",
+              "aggregateFunction": "SUM",
+              "deviceDisplayName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "deviceGroupFullPath": {
+                "isGlob": true,
+                "value": "##defaultResourceGroup##"
+              }
+            }
+          ],
+          "verticalLabel": "%",
+          "aggregate": false,
+          "desc": true,
+          "scaleUnit": 1000,
+          "globalConsolidateFunction": "VaST"
+        },
+        "type": "cgraph",
+        "timescale": "8hour",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 6,
+        "row": 10,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {
+          "columns": [
+            {
+              "visible": true,
+              "columnLabel": "Instance",
+              "columnSize": 220,
+              "columnKey": "device-name-1452842526600"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Used %",
+              "columnSize": 140,
+              "columnKey": "0"
+            },
+            {
+              "visible": true,
+              "columnLabel": "PGs",
+              "columnSize": 140,
+              "columnKey": "1"
+            }
+          ],
+          "pageSize": "10"
+        },
+        "columns": [
+          {
+            "rpn": "",
+            "dataPointName": "UsedPercent",
+            "displayType": "percent",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [
+              {
+                "level": 2,
+                "threshold": 75,
+                "relation": ">="
+              },
+              {
+                "level": 3,
+                "threshold": 85,
+                "relation": ">="
+              }
+            ],
+            "columnName": "Used %",
+            "enableForecast": false,
+            "roundingDecimal": 2
+          },
+          {
+            "rpn": "",
+            "dataPointName": "PlacementGroups",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "PGs",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          }
+        ],
+        "supportCustomProperty": false,
+        "description": "",
+        "forecast": {
+          "severity": "warn",
+          "confidence": 70,
+          "timeRange": "Last 30 days",
+          "algorithm": "Linear"
+        },
+        "type": "dynamicTable",
+        "rows": [
+          {
+            "instanceName": "*",
+            "label": "##INSTANCE##",
+            "deviceDisplayName": "*",
+            "groupFullPath": "##defaultResourceGroup##"
+          }
+        ],
+        "version": 2,
+        "isSupportCustomProperty": false,
+        "topX": 25,
+        "dataSourceFullName": "Proxmox VE Cluster Ceph OSD (Proxmox_VE_Cluster_CephOSD)",
+        "sortOrder": "descending",
+        "name": "Top 10 OSDs by Fill",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "timescale": "day"
+      }
+    },
+    {
+      "position": {
+        "col": 5,
+        "sizex": 4,
+        "row": 13,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "OSD Commit Latency",
+        "description": "",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "graphInfo": {
+          "virtualDataPoints": [],
+          "minValue": 0,
+          "topX": 25,
+          "maxValue": "NaN",
+          "dataPoints": [
+            {
+              "dataPointName": "CommitLatencyMs",
+              "instanceName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "dataSourceFullName": "Proxmox VE Cluster Ceph OSD (Proxmox_VE_Cluster_CephOSD)",
+              "consolidateFunction": "average",
+              "display": {
+                "color": "Auto",
+                "legend": "##INSTANCE##",
+                "type": "line",
+                "option": "custom"
+              },
+              "name": "CommitLatencyMs",
+              "aggregateFunction": "SUM",
+              "deviceDisplayName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "deviceGroupFullPath": {
+                "isGlob": true,
+                "value": "##defaultResourceGroup##"
+              }
+            }
+          ],
+          "verticalLabel": "ms",
+          "aggregate": false,
+          "desc": true,
+          "scaleUnit": 1000,
+          "globalConsolidateFunction": "VaST"
+        },
+        "type": "cgraph",
+        "timescale": "8hour",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 9,
+        "sizex": 4,
+        "row": 13,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "OSD Apply Latency",
+        "description": "",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "graphInfo": {
+          "virtualDataPoints": [],
+          "minValue": 0,
+          "topX": 25,
+          "maxValue": "NaN",
+          "dataPoints": [
+            {
+              "dataPointName": "ApplyLatencyMs",
+              "instanceName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "dataSourceFullName": "Proxmox VE Cluster Ceph OSD (Proxmox_VE_Cluster_CephOSD)",
+              "consolidateFunction": "average",
+              "display": {
+                "color": "Auto",
+                "legend": "##INSTANCE##",
+                "type": "line",
+                "option": "custom"
+              },
+              "name": "ApplyLatencyMs",
+              "aggregateFunction": "SUM",
+              "deviceDisplayName": {
+                "isGlob": true,
+                "value": "*"
+              },
+              "deviceGroupFullPath": {
+                "isGlob": true,
+                "value": "##defaultResourceGroup##"
+              }
+            }
+          ],
+          "verticalLabel": "ms",
+          "aggregate": false,
+          "desc": true,
+          "scaleUnit": 1000,
+          "globalConsolidateFunction": "VaST"
+        },
+        "type": "cgraph",
+        "timescale": "8hour",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 6,
+        "row": 7,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {
+          "columns": [
+            {
+              "visible": true,
+              "columnLabel": "Instance",
+              "columnSize": 220,
+              "columnKey": "device-name-1452842526600"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Up",
+              "columnSize": 140,
+              "columnKey": "0"
+            },
+            {
+              "visible": true,
+              "columnLabel": "In",
+              "columnSize": 140,
+              "columnKey": "1"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Used %",
+              "columnSize": 140,
+              "columnKey": "2"
+            },
+            {
+              "visible": true,
+              "columnLabel": "PGs",
+              "columnSize": 140,
+              "columnKey": "3"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Commit ms",
+              "columnSize": 140,
+              "columnKey": "4"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Apply ms",
+              "columnSize": 140,
+              "columnKey": "5"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Reweight",
+              "columnSize": 140,
+              "columnKey": "6"
+            }
+          ],
+          "pageSize": "10"
+        },
+        "columns": [
+          {
+            "rpn": "",
+            "dataPointName": "Up",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Up",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "OSDIn",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "In",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "UsedPercent",
+            "displayType": "percent",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [
+              {
+                "level": 2,
+                "threshold": 75,
+                "relation": ">="
+              },
+              {
+                "level": 3,
+                "threshold": 85,
+                "relation": ">="
+              }
+            ],
+            "columnName": "Used %",
+            "enableForecast": false,
+            "roundingDecimal": 2
+          },
+          {
+            "rpn": "",
+            "dataPointName": "PlacementGroups",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "PGs",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "CommitLatencyMs",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Commit ms",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "ApplyLatencyMs",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Apply ms",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "Reweight",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Reweight",
+            "enableForecast": false,
+            "roundingDecimal": 2
+          }
+        ],
+        "supportCustomProperty": false,
+        "description": "Reweight below 1.0 means the OSD has been down-weighted. A large PG imbalance across OSDs indicates a CRUSH or weighting problem.",
+        "forecast": {
+          "severity": "warn",
+          "confidence": 70,
+          "timeRange": "Last 30 days",
+          "algorithm": "Linear"
+        },
+        "type": "dynamicTable",
+        "rows": [
+          {
+            "instanceName": "*",
+            "label": "##INSTANCE##",
+            "deviceDisplayName": "*",
+            "groupFullPath": "##defaultResourceGroup##"
+          }
+        ],
+        "version": 2,
+        "isSupportCustomProperty": false,
+        "topX": -1,
+        "dataSourceFullName": "Proxmox VE Cluster Ceph OSD (Proxmox_VE_Cluster_CephOSD)",
+        "sortOrder": "descending",
+        "name": "Ceph OSDs",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "timescale": "day"
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 12,
+        "row": 16,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {
+          "columns": [
+            {
+              "visible": true,
+              "columnLabel": "Instance",
+              "columnSize": 220,
+              "columnKey": "device-name-1452842526600"
+            },
+            {
+              "visible": true,
+              "columnLabel": "SMART OK",
+              "columnSize": 140,
+              "columnKey": "0"
+            },
+            {
+              "visible": true,
+              "columnLabel": "SMART Known",
+              "columnSize": 140,
+              "columnKey": "1"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Wear Reported",
+              "columnSize": 140,
+              "columnKey": "2"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Life Left %",
+              "columnSize": 140,
+              "columnKey": "3"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Mounted",
+              "columnSize": 140,
+              "columnKey": "4"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Size GB",
+              "columnSize": 140,
+              "columnKey": "5"
+            }
+          ],
+          "pageSize": "10"
+        },
+        "columns": [
+          {
+            "rpn": "",
+            "dataPointName": "SmartHealthOK",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "SMART OK",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "SmartHealthKnown",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "SMART Known",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "LifeRemainingKnown",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Wear Reported",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "LifeRemainingPercent",
+            "displayType": "percent",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Life Left %",
+            "enableForecast": false,
+            "roundingDecimal": 2
+          },
+          {
+            "rpn": "",
+            "dataPointName": "Mounted",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Mounted",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "SizeGB",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Size GB",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          }
+        ],
+        "supportCustomProperty": false,
+        "description": "SMART OK is empty where SMART Known is 0, and Life Left is empty where Wear Reported is 0 -- a spinning disk exposes no wear attribute, so the blank means not applicable rather than not collected. A datapoint cannot print \"N/A\": LogicMonitor takes numbers only.",
+        "forecast": {
+          "severity": "warn",
+          "confidence": 70,
+          "timeRange": "Last 30 days",
+          "algorithm": "Linear"
+        },
+        "type": "dynamicTable",
+        "rows": [
+          {
+            "instanceName": "*",
+            "label": "##INSTANCE##",
+            "deviceDisplayName": "*",
+            "groupFullPath": "##defaultResourceGroup##"
+          }
+        ],
+        "version": 2,
+        "isSupportCustomProperty": false,
+        "topX": -1,
+        "dataSourceFullName": "Proxmox VE Node Disks (Proxmox_VE_Node_Disks)",
+        "sortOrder": "descending",
+        "name": "Physical Disks",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "timescale": "day"
+      }
+    },
+    {
+      "position": {
+        "col": 5,
+        "sizex": 4,
+        "row": 4,
+        "sizey": 3
+      },
+      "config": {
+        "bigNumberInfo": {
+          "virtualDataPoints": [],
+          "counters": [],
+          "dataPoints": [
+            {
+              "dataPointName": "NotCovered",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Backups (Proxmox_VE_Cluster_Backups)",
+              "name": "NotCovered",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "FailedSinceLastBackup",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Backups (Proxmox_VE_Cluster_Backups)",
+              "name": "FailedSinceLastBackup",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            },
+            {
+              "dataPointName": "LastBackupSizeGB",
+              "instanceName": "*",
+              "dataSourceFullName": "Proxmox VE Cluster Backups (Proxmox_VE_Cluster_Backups)",
+              "name": "LastBackupSizeGB",
+              "aggregateFunction": "SUM",
+              "deviceGroupFullPath": "##defaultResourceGroup##",
+              "deviceDisplayName": "*"
+            }
+          ],
+          "bigNumberItems": [
+            {
+              "dataPointName": "NotCovered",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 1,
+              "rightLabel": "Guests Not Backed Up",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "FailedSinceLastBackup",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 0,
+              "position": 2,
+              "rightLabel": "Failed Since Last Backup",
+              "colorThresholds": null,
+              "actions": []
+            },
+            {
+              "dataPointName": "LastBackupSizeGB",
+              "useCommaSeparators": false,
+              "bottomLabel": "",
+              "rounding": 1,
+              "position": 3,
+              "rightLabel": "Latest Backups, GB",
+              "colorThresholds": null,
+              "actions": []
+            }
+          ]
+        },
+        "displaySettings": {},
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "Backups",
+        "description": "Totals across every guest: guests no backup job covers, guests whose backup has failed since their last good one, and the size of each guest's latest backup added up (Proxmox Backup Server runs log no size). Per guest and per job, see Proxmox VE Cluster Backups on the resource holding the cluster role.",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "type": "bigNumber",
+        "timescale": "day",
+        "version": 2
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 12,
+        "row": 22,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {
+          "columns": [
+            {
+              "visible": true,
+              "columnLabel": "Instance",
+              "columnSize": 220,
+              "columnKey": "device-name-1452842526600"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Failed",
+              "columnSize": 140,
+              "columnKey": "0"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Fail Count",
+              "columnSize": 140,
+              "columnKey": "1"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Replica Age (s)",
+              "columnSize": 140,
+              "columnKey": "2"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Running",
+              "columnSize": 140,
+              "columnKey": "3"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Disabled",
+              "columnSize": 140,
+              "columnKey": "4"
+            }
+          ],
+          "pageSize": "10"
+        },
+        "columns": [
+          {
+            "rpn": "",
+            "dataPointName": "Failed",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Failed",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "FailCount",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Fail Count",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "SecondsSinceLastSync",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Replica Age (s)",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "Running",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Running",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "Disabled",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Disabled",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          }
+        ],
+        "supportCustomProperty": false,
+        "description": "Replica Age is empty for a job that has never run.",
+        "forecast": {
+          "severity": "warn",
+          "confidence": 70,
+          "timeRange": "Last 30 days",
+          "algorithm": "Linear"
+        },
+        "type": "dynamicTable",
+        "rows": [
+          {
+            "instanceName": "*",
+            "label": "##INSTANCE##",
+            "deviceDisplayName": "*",
+            "groupFullPath": "##defaultResourceGroup##"
+          }
+        ],
+        "version": 2,
+        "isSupportCustomProperty": false,
+        "topX": 25,
+        "dataSourceFullName": "Proxmox VE Node Replication (Proxmox_VE_Node_Replication)",
+        "sortOrder": "descending",
+        "name": "Replication Jobs",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "timescale": "day"
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 6,
+        "row": 19,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {
+          "columns": [
+            {
+              "visible": true,
+              "columnLabel": "Instance",
+              "columnSize": 220,
+              "columnKey": "device-name-1452842526600"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Expired",
+              "columnSize": 140,
+              "columnKey": "0"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Days Left",
+              "columnSize": 140,
+              "columnKey": "1"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Key Bits",
+              "columnSize": 140,
+              "columnKey": "2"
+            }
+          ],
+          "pageSize": "10"
+        },
+        "columns": [
+          {
+            "rpn": "",
+            "dataPointName": "Expired",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Expired",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "DaysUntilExpiry",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Days Left",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "PublicKeyBits",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Key Bits",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          }
+        ],
+        "supportCustomProperty": false,
+        "description": "One row per certificate per node: the cluster CA, pve-ssl and pveproxy-ssl expire independently.",
+        "forecast": {
+          "severity": "warn",
+          "confidence": 70,
+          "timeRange": "Last 30 days",
+          "algorithm": "Linear"
+        },
+        "type": "dynamicTable",
+        "rows": [
+          {
+            "instanceName": "*",
+            "label": "##INSTANCE##",
+            "deviceDisplayName": "*",
+            "groupFullPath": "##defaultResourceGroup##"
+          }
+        ],
+        "version": 2,
+        "isSupportCustomProperty": false,
+        "topX": 25,
+        "dataSourceFullName": "Proxmox VE Node Certificates (Proxmox_VE_Node_Certificates)",
+        "sortOrder": "descending",
+        "name": "Certificates",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "timescale": "day"
+      }
+    },
+    {
+      "position": {
+        "col": 7,
+        "sizex": 6,
+        "row": 19,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {
+          "columns": [
+            {
+              "visible": true,
+              "columnLabel": "Instance",
+              "columnSize": 220,
+              "columnKey": "device-name-1452842526600"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Active",
+              "columnSize": 140,
+              "columnKey": "0"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Days to Renewal",
+              "columnSize": 140,
+              "columnKey": "1"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Sockets",
+              "columnSize": 140,
+              "columnKey": "2"
+            }
+          ],
+          "pageSize": "10"
+        },
+        "columns": [
+          {
+            "rpn": "",
+            "dataPointName": "Active",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Active",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "DaysUntilDue",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Days to Renewal",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "Sockets",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Sockets",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          }
+        ],
+        "supportCustomProperty": false,
+        "description": "Days to Renewal is empty on a node with no subscription. One row per node: the module is single-instance, so rows carry the node's name.",
+        "forecast": {
+          "severity": "warn",
+          "confidence": 70,
+          "timeRange": "Last 30 days",
+          "algorithm": "Linear"
+        },
+        "type": "dynamicTable",
+        "rows": [
+          {
+            "instanceName": "*",
+            "label": "##HOSTNAME##",
+            "deviceDisplayName": "*",
+            "groupFullPath": "##defaultResourceGroup##"
+          }
+        ],
+        "version": 2,
+        "isSupportCustomProperty": false,
+        "topX": 25,
+        "dataSourceFullName": "Proxmox VE Node Subscription (Proxmox_VE_Node_Subscription)",
+        "sortOrder": "descending",
+        "name": "Subscriptions",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "timescale": "day"
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 12,
+        "row": 25,
+        "sizey": 3
+      },
+      "config": {
+        "displaySettings": {
+          "columns": [
+            {
+              "visible": true,
+              "columnLabel": "Instance",
+              "columnSize": 220,
+              "columnKey": "device-name-1452842526600"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Failed",
+              "columnSize": 140,
+              "columnKey": "0"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Running",
+              "columnSize": 140,
+              "columnKey": "1"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Enabled",
+              "columnSize": 140,
+              "columnKey": "2"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Installed",
+              "columnSize": 140,
+              "columnKey": "3"
+            }
+          ],
+          "pageSize": "10"
+        },
+        "columns": [
+          {
+            "rpn": "",
+            "dataPointName": "Failed",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Failed",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "Running",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Running",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "Enabled",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Enabled",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          },
+          {
+            "rpn": "",
+            "dataPointName": "Installed",
+            "displayType": "raw",
+            "minValue": 0,
+            "unitLabel": "",
+            "maxValue": 100,
+            "colorThresholds": [],
+            "columnName": "Installed",
+            "enableForecast": false,
+            "roundingDecimal": 0
+          }
+        ],
+        "supportCustomProperty": false,
+        "description": "Running ships without a threshold: several Proxmox services are legitimately stopped on a node that does not use them. Failed is the one that means something broke.",
+        "forecast": {
+          "severity": "warn",
+          "confidence": 70,
+          "timeRange": "Last 30 days",
+          "algorithm": "Linear"
+        },
+        "type": "dynamicTable",
+        "rows": [
+          {
+            "instanceName": "*",
+            "label": "##INSTANCE##",
+            "deviceDisplayName": "*",
+            "groupFullPath": "##defaultResourceGroup##"
+          }
+        ],
+        "version": 2,
+        "isSupportCustomProperty": false,
+        "topX": -1,
+        "dataSourceFullName": "Proxmox VE Node Services (Proxmox_VE_Node_Services)",
+        "sortOrder": "descending",
+        "name": "Node Services",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "timescale": "day"
+      }
+    },
+    {
+      "position": {
+        "col": 1,
+        "sizex": 12,
+        "row": 28,
+        "sizey": 4
+      },
+      "config": {
+        "displaySettings": {
+          "isShowAll": false,
+          "showFilter": false,
+          "columns": [
+            {
+              "visible": false,
+              "columnLabel": "Severity",
+              "columnKey": "alert-severity"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Began",
+              "columnKey": "alert-began"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Device/Website",
+              "columnKey": "alert-device"
+            },
+            {
+              "visible": true,
+              "columnLabel": "LogicModule",
+              "columnKey": "alert-datasource"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Instance",
+              "columnKey": "alert-datasource-instance"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Datapoint",
+              "columnKey": "alert-datapoint"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Value",
+              "columnKey": "alert-value"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Effective Thresholds",
+              "columnKey": "alert-thresholds"
+            },
+            {
+              "visible": false,
+              "columnLabel": "Group",
+              "columnKey": "alert-group"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Notes",
+              "columnKey": "alert-notes"
+            },
+            {
+              "visible": false,
+              "columnLabel": "Acknowledged By",
+              "columnKey": "alert-acked-by"
+            },
+            {
+              "visible": true,
+              "columnLabel": "Acknowledged On",
+              "columnKey": "alert-acked-on"
+            },
+            {
+              "visible": false,
+              "columnLabel": "Cleared On",
+              "columnKey": "alert-cleared-on"
+            },
+            {
+              "visible": false,
+              "columnLabel": "In SDT",
+              "columnKey": "alert-in-sdt"
+            },
+            {
+              "visible": false,
+              "columnLabel": "Alert Rule",
+              "columnKey": "alert-rule-name"
+            },
+            {
+              "visible": false,
+              "columnLabel": "Escalation Chain",
+              "columnKey": "alert-escalation-chain"
+            },
+            {
+              "visible": false,
+              "columnLabel": "Instance Description",
+              "columnKey": "alert-datasource-instance-description"
+            },
+            {
+              "visible": false,
+              "columnLabel": "Full Path",
+              "columnKey": "alert-full-path"
+            }
+          ],
+          "playSound": {
+            "criticalAlertAudioFileName": "",
+            "errorAlertAudioFileName": "",
+            "warningAlertAudioFileName": "",
+            "shouldPlay": false
+          },
+          "fontsize": "normal-font",
+          "sort": "-startEpoch"
+        },
+        "isSupportCustomProperty": false,
+        "supportCustomProperty": false,
+        "name": "Proxmox VE Alerts",
+        "description": "",
+        "theme": "newSolidDarkBlue",
+        "interval": 3,
+        "filters": {
+          "severity": "",
+          "sdted": "all",
+          "chain": "",
+          "instance": "",
+          "anomaly": "all",
+          "dataPoint": "",
+          "isIncludeDeletedResourceOrWebsite": "yes",
+          "rule": "",
+          "acked": "all",
+          "suppressionType": "",
+          "dependencyRoutingState": "",
+          "isEscalation": "all",
+          "dependencyRole": "",
+          "host": "",
+          "isHistoricalSdt": "all",
+          "keyword": "",
+          "dataSource": "Proxmox_VE*",
+          "cleared": "no",
+          "group": "%23%23defaultResourceGroup%23%23*"
+        },
+        "type": "alert",
+        "timescale": "day",
+        "version": 2
+      }
+    }
+  ],
+  "version": 2,
+  "effectiveTenantIdentifier": null,
+  "tenantIdentifier": null
+}

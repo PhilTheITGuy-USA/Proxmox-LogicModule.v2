@@ -16,12 +16,8 @@
   "discoveryInterval": "1440m",
   "datapoints": [
     {
-      "name": "SizeBytes",
-      "description": "Disk capacity in bytes."
-    },
-    {
       "name": "SizeGB",
-      "description": "Disk capacity in GB (decimal, 10^9 bytes), the same figure as SizeBytes in a unit a dashboard table can print. LogicMonitor renders a raw byte count of this magnitude in scientific notation."
+      "description": "Disk capacity in GB (decimal, 10^9 bytes). GB rather than bytes because LogicMonitor renders a raw byte count of this magnitude in scientific notation."
     },
     {
       "name": "SmartHealthOK",

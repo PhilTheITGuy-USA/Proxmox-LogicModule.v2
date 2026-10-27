@@ -22,10 +22,12 @@ never collide in a portal.
 - `scripts/Proxmox_VE_NetScan.groovy` -- the NetScan body: the Collector-only reads (Proxmox, the
   `lm.api` portal lookup) and the emit. Its decisions live in `scripts/lib/pve_netscan.groovy`'s
   pure `pveNetscanPlan(input)`, so the harness tests them without a Collector.
-- `dashboards/*.py` -- dashboard sources. **Don't edit them:** the user is reworking the dashboards
-  in the portal, and their exports will replace these generators (then validate the exports with
-  `lm_dashboards.py check`).
-- `build/build.py` -- assembles `dist/` and runs its cross-checks; `dashboards.py`, `groovylint.py`.
+- `dashboards/*.json` -- the final dashboards, `Proxmox VE` and `Proxmox VE Infrastructure`: the
+  portal's own exports (user, 2026-10-27), kept verbatim. The build checks them against `modules/`
+  and copies them into `dist/dashboards/` byte for byte; nothing generates them. A layout change
+  is made in the portal and re-exported, then checked for lab names before it replaces the file.
+- `build/build.py` -- assembles `dist/` and runs its cross-checks; `dashboards.py` (the dashboard
+  validator), `groovylint.py`.
 - `tests/` -- the Docker compile job, `harness.groovy` (mock Proxmox API, stand-in snippets for
   the NetScan smoke test) and `fixtures/` (including `scale.groovy`: 16 nodes, 1,000 guests).
 - `tools/Import-Modules.ps1` -- imports `dist\*.json` through the Logic.Monitor PowerShell module
@@ -107,10 +109,11 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Local checks** (2026-10-26, after the M4, M6, M9 fixes): build clean; compile job passed;
-  harness 1,495 of 1,495; lint 0 errors, 4 warnings; both dashboards check clean.
+- **Local checks** (2026-10-27, after Node Disks `SizeBytes` was dropped and the dashboard exports
+  went in): build clean; compile job passed; harness 1,489 of 1,489 (the six fewer were
+  `SizeBytes` lines); lint 0 errors, 4 warnings; both dashboard exports check clean.
 - **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
-  portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included; the rebuilt Tier 1 and Tier 2 dashboards import and their layout is approved (user, 2026-10-26).
+  portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included; the dashboards in `dashboards/` are the portal's exports of the final layout (user, 2026-10-27). Node Disks without `SizeBytes` is not yet re-imported.
 - **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
   replication), 2026-10-26: S2, S3, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
   Node-B (standby) and the guest Webapp01, and a re-run adds nothing and leaves the expected

@@ -6,11 +6,11 @@ The .groovy files under scripts/ are the source of truth. Each module body is pr
 with scripts/lib/pve_common.groovy so the script embedded in the JSON is self-contained,
 which is what the Collector needs -- LogicMonitor has no include mechanism.
 
-Dashboards are built here too, from dashboards/<Name>.py. They are a different
-LogicMonitor resource -- imported through Dashboards > Add > From File, not My Module
-Toolbox -- but they reference modules by name and datapoint, so they are validated in
-the same pass: a module or datapoint rename that orphans a widget fails the build
-rather than producing a dashboard of empty tiles.
+Dashboards are the portal's own exports, kept in dashboards/<Name>.json and copied into
+dist/ byte for byte. They are a different LogicMonitor resource -- imported through
+Dashboards > Add > From File, not My Module Toolbox -- but they reference modules by name
+and datapoint, so they are validated in the same pass: a module or datapoint rename that
+orphans a widget fails the build rather than producing a dashboard of empty tiles.
 
 Outputs:
   dist/<Module>.json           import via My Module Toolbox > Add > Import from file
@@ -25,7 +25,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import re
 import shutil
@@ -671,16 +670,6 @@ def check_module(defn: dict, module: dict) -> list[str]:
     return problems
 
 
-def load_dashboard(path: Path):
-    """Import dashboards/<Name>.py and return its build() result."""
-    spec = importlib.util.spec_from_file_location(f"dashboard_{path.stem}", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not hasattr(module, "build"):
-        raise AttributeError(f"{path.name} defines no build()")
-    return module.build()
-
-
 def module_datapoint_index(definitions: list[Path]) -> dict[str, set[str]]:
     """
     Map "<displayedAs> (<name>)" -> that module's datapoint names.
@@ -746,10 +735,10 @@ def check_doc_counts(definitions: list[Path]) -> list[str]:
 
 def build_dashboards(
     definitions: list[Path],
-) -> tuple[list[tuple[str, dict]], list[str]]:
-    """Return ([(name, rendered dashboard)], problems)."""
+) -> tuple[list[tuple[Path, dict]], list[str]]:
+    """Return ([(export path, parsed dashboard)], problems)."""
     problems: list[str] = []
-    built: list[tuple[str, dict]] = []
+    built: list[tuple[Path, dict]] = []
     if not DASHBOARDS.is_dir():
         return built, problems
 
@@ -757,14 +746,14 @@ def build_dashboards(
         [p for p in definitions
          if module_type(json.loads(read(p))) == DATASOURCE]
     )
-    for path in sorted(DASHBOARDS.glob("*.py")):
+    for path in sorted(DASHBOARDS.glob("*.json")):
         try:
-            dashboard = load_dashboard(path).render()
-        except Exception as exc:  # a broken definition must name its own file
-            problems.append(f"{path.name}: {type(exc).__name__}: {exc}")
+            dashboard = json.loads(read(path))
+        except json.JSONDecodeError as exc:
+            problems.append(f"{path.name}: not valid JSON: {exc}")
             continue
         problems.extend(check_dashboard(path.name, dashboard, index))
-        built.append((path.stem, dashboard))
+        built.append((path, dashboard))
     return built, problems
 
 
@@ -862,13 +851,10 @@ def main() -> int:
 
     if dashboards:
         (DIST / "dashboards").mkdir(parents=True, exist_ok=True)
-        for name, dashboard in dashboards:
-            target = DIST / "dashboards" / f"{name}.json"
-            target.write_text(
-                json.dumps(dashboard, indent=2) + "\n", encoding="utf-8"
-            )
+        for path, dashboard in dashboards:
+            shutil.copyfile(path, DIST / "dashboards" / path.name)
             widget_count = len(dashboard["widgets"])
-            print(f"  {name:34} dashboard    {widget_count:2} widgets")
+            print(f"  {path.stem:34} dashboard    {widget_count:2} widgets")
 
     print(
         f"\nBuilt {len(built)} modules and {len(dashboards)} dashboards "
