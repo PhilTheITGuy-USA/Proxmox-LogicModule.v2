@@ -434,7 +434,7 @@ monitored.
 
 ### 3.8 Carried over from v1
 
-**Everything is copied into this repository** from v1 commit `2e0237b` (v1 complete), the commit
+**Everything is copied into this repository** from v1 commit `2e0237b` (v1's tag `v1.0.0`; `dca3f23` since v1's history rewrite, 2026-10-27) (v1 complete; the copy is tagged `v1-base`), the commit
 recorded here, as the skill pins its fixtures: all 19 modules' scripts and definitions as the
 starting point of §3.2's rows, and the pieces below unchanged except where stated (user,
 2026-10-25: v2 is standalone and customises its own copy). **Done 2026-10-25,** at the user's

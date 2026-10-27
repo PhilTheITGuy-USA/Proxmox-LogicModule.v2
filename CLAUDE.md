@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repo is
 
 The second generation of the Proxmox VE LogicModule suite, **built**: 19 modules and an Enhanced
-Script NetScan, on branch `v2-implementation` (plan `docs/superpowers/plans/2026-10-25-proxmox-v2.md`,
-executed 2026-10-26). It began as a verbatim copy of v1 at `2e0237b`, so `git diff 2e0237b` shows
-every v2 change; v1 itself lives on in the sibling repo `..\Proxmox-LogicModule`.
+Script NetScan, on `main` (plan `docs/superpowers/plans/2026-10-25-proxmox-v2.md`, executed
+2026-10-26). It began as a verbatim copy of v1 at `2e0237b` (v1's tag `v1.0.0`; `dca3f23` since v1's history rewrite, 2026-10-27), in the commit
+tagged `v1-base`, so `git diff v1-base` shows every v2 change; v1 itself lives on in the sibling repo `..\Proxmox-LogicModule`.
 
 **v2 is standalone** (user, 2026-10-25): it never requires v1, never changes v1, and **there is no
 migration from v1** -- no one runs either version, so nothing is planned or built for one. Module

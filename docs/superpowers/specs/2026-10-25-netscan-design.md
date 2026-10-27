@@ -8,7 +8,7 @@ compares addresses (§6); revised after spike S5 (2026-10-25): every property is
 the cluster role is a property, and only unchanging groups are written (§4, §5). Part of the v2
 architecture spec
 (`2026-10-21-proxmox-v2-architecture-design.md`, §3.3), which it details. Nothing here is built.
-Built on v1 complete at `2e0237b`.
+Built on v1 complete at `2e0237b` (v1's tag `v1.0.0`; `dca3f23` since v1's history rewrite, 2026-10-27).
 
 Each claim about LogicMonitor or Proxmox is tagged by how it is known:
 

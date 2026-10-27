@@ -42,4 +42,4 @@ lists the PropertySources for import through the portal. The NetScan script is
   article
 - `docs/superpowers/specs/` and `plans/` — the v2 design and its implementation plan
 - `docs/research/` — what LogicMonitor's suites and the Proxmox community do, with sources
-- `docs/v1/` — v1's own documentation; v2 began as a copy of v1 at `2e0237b`
+- `docs/v1/` — v1's own documentation; v2 began as a copy of v1 at `2e0237b` (v1's tag `v1.0.0`; `dca3f23` since v1's history rewrite, 2026-10-27), tagged `v1-base` here
