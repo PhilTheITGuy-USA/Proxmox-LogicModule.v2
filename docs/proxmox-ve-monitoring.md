@@ -315,6 +315,28 @@ nodes. A node carrying the role keeps its node properties too.
 
 The node's hostname should be its cluster address, so its topology vertex matches without SNMP.
 
+### Guest Resources Monitored From Inside
+
+A guest that you monitor as its own resource, over SNMP or WMI, is labelled a virtual machine
+(`VirtualMachineResource`) on topology maps by `addERI_Proxmox_VE_GuestResource`, which
+recognises the guest by its MAC address. A guest that the NetScan created or adopted needs nothing
+here: the NetScan sets `pve.guest.mac` from Proxmox, and that is used whatever the prefix.
+
+Without the NetScan, the module recognises a Linux or Windows resource whose
+`auto.network.mac_address` starts with `bc:24:11`, Proxmox's default guest prefix. If your
+cluster hands out a different prefix (**Datacenter > Options > MAC address prefix**), set it on
+the resource group that holds those guests:
+
+| Property | Value | Example values | Required |
+|---|---|---|---|
+| `pve.guest.mac_prefix` | The MAC prefixes your guests use, comma-separated, in either case | `bc:24:11,02:00:00` | Only if the cluster's prefix is not `bc:24:11` |
+
+The list replaces the default rather than adding to it, so include `bc:24:11` if guests still use
+it. A resource whose MAC matches none of the prefixes is left as it is. Not covered: a guest NIC
+given a hand-set MAC outside every prefix, a resource whose `auto.network.mac_address` is a
+different NIC's MAC, and guests that are neither Linux nor Windows, such as virtual firewalls and
+routers, which keep the type their own modules give them.
+
 ## Considerations
 
 ### Licensing
