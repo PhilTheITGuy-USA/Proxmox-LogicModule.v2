@@ -1,37 +1,32 @@
 /*
- * TopologySource: cluster -> node -> guest edges, so Proxmox appears in topology maps and
- * a node's alerts can explain its guests'.
+ * TopologySource: the Proxmox VE map, modelled on LogicMonitor's vSphere suite.
+ *
+ *   Manage    cluster -> node
+ *   Compute   node -> guest
+ *   Storage   node -> store, guest -> store, store -> pool -> disk, node -> Ceph OSD -> disk,
+ *             and node -> guest for a host path or device no store covers
+ *   Network   node -> bridge, bond or port -> the interfaces under it; bridge or SDN VNet -> guest
  *
  * THIS SCRIPT CANNOT BE COMPILED OR RUN OUTSIDE A COLLECTOR. Every LogicMonitor
- * TopologySource works through com.logicmonitor.mod.Snippets: lmTopo.eriPreProcessor normalises keys and drops the blocked ones, lmTopo.isMac
- * validates a MAC, and lmTopo.generateTopology emits the output format. Reimplementing those
- * would mean inventing a format LogicMonitor does not document fully, and an output the
- * portal does not recognise is dropped silently. So this script takes the Collector
- * dependency. Everything it does with the Proxmox API uses
- * the same preamble as every other module, so that half stays conventional.
+ * TopologySource works through com.logicmonitor.mod.Snippets: lmTopo.eriPreProcessor normalises
+ * keys and drops the blocked ones, and lmTopo.generateTopology emits the output format. So
+ * everything Proxmox-side lives in the preamble: pveTopoInput does the reads and pveTopoPlan
+ * decides every edge, and the harness tests both. This script only turns keys into ERIs.
  *
- * The identity that makes this work:
+ * A vertex is drawn only where an instance or resource carries its key:
  *
- *   guest  -- the MAC of its first virtual NIC, read from the guest config. LogicMonitor
- *             already gives a monitored guest a MAC-keyed ERI, so the two match with no
- *             name guessing. This is what VMware_vSphere_VirtualMachine_Topology does.
- *   node   -- Proxmox exposes no hardware UUID or MAC for a node anywhere in its API
- *             (/cluster/status gives name, ip, nodeid; /nodes/{node}/status gives none;
- *             /nodes/{node}/network has no hwaddr). So the node keys are synthesised,
- *             and addERI_Proxmox_VE_Node stamps the identical keys on each node's own
- *             resource. The vertex carries one: pveTopoNodeKey(node, ip), which needs only
- *             the node's name and the address /cluster/status reports for it -- among
- *             the resource's system.ips, so a token-less node matches with no property
- *             set. Only a row with no usable address falls back to pveTopoKey(cluster,
- *             node). Never both: lm.topo joins a vertex's keys into one ID, and the portal
- *             then matches only a resource carrying all of them. A node whose resource
- *             lacks the key is not drawn: the portal
- *             renders only vertices that match a resource or a DataSource instance.
- *   cluster - synthesised, pveTopoKey(cluster, null). Proxmox_VE_Cluster_Status's one instance
- *             carries the same key as type Cluster, and an instance
- *             vertex takes edges from every matched node, so the cluster is drawn above all
- *             its nodes. A standalone host has no
- *             cluster, and gets no cluster vertex and no Cluster edges.
+ *   cluster   Proxmox_VE_Cluster_Status's instance, HyperVisorCluster
+ *   node      the node's resource, through addERI_Proxmox_VE_Node, HyperVisor. One key per
+ *             node vertex: lm.topo joins a vertex's keys into one ID, and the portal then
+ *             matches only a resource carrying every one of them.
+ *   guest     the MAC of its first NIC: Proxmox_VE_Cluster_GuestStatus's instance, and the
+ *             guest's own resource where it has one
+ *   store     Proxmox_VE_Cluster_StorageCapacity's instances, VMDatastore
+ *   pool      Proxmox_VE_Node_StoragePools (ZFS, LVM, LVM-thin) and
+ *             Proxmox_VE_Cluster_CephPools, StorageAggregate
+ *   OSD       Proxmox_VE_Cluster_CephOSD, StorageNode; disk  Proxmox_VE_Node_Disks, PhysicalDisk
+ *   network   Proxmox_VE_Node_Network (VirtualSwitch, PhysicalNIC, NICVIRTUAL) and
+ *             Proxmox_VE_Cluster_SDN (VirtualSwitch)
  */
 import com.logicmonitor.mod.Snippets
 import com.santaba.agent.groovy.utils.GroovyScriptHelper as GSH
@@ -46,8 +41,6 @@ if (!pveRole('Proxmox_VE_Cluster_Topology').collect) {
 }
 
 def debug = false
-def log = false
-def logCacheContext = 'Proxmox_VE_Cluster_Topology'
 
 // Namespacing and the key blacklist are host properties LogicMonitor's own topology
 // scripts honour; a portal with duplicate keys across environments relies on them.
@@ -56,85 +49,22 @@ def keyBlacklist = (pveHostProp('topo.blacklist') ?: '').tokenize(',')
 
 def modLoader = GSH.getInstance(GroovySystem.version)
     .getScript('Snippets', Snippets.getLoader()).withBinding(getBinding())
-def lmDebugSnip = modLoader.load('lm.debug', '1')
-def lmDebug = lmDebugSnip.debugSnippetFactory(out, debug, log, logCacheContext)
 def lmTopo = modLoader.load('lm.topo', '0')
 def lmTopoData = modLoader.load('lm.data.topo', '1').create()
 
-def eri = { List keys ->
-    lmTopo.eriPreProcessor(keys, lmTopoData.blockedKeys, keyNamespace, keyBlacklist)
+def eris = [:]
+def eri = { String key ->
+    eris.computeIfAbsent(key) { lmTopo.eriPreProcessor([key], lmTopoData.blockedKeys, keyNamespace, keyBlacklist) }
 }
 
 try {
     def edges = []
-
-    /*
-     * The cluster's own name, which /cluster/status reports as the single row of type
-     * "cluster". A standalone host has no such row: it gets no cluster vertex, and its
-     * name falls back to the node's for the guests' fallback keys, which still have to be
-     * unique across a portal that monitors several standalone hosts.
-     */
-    def status = pveGet('/cluster/status') ?: []
-    def clusterName = pveTopoClusterName(status)
-    def clustered = status.any { it.type?.toString() == 'cluster' }
-    def clusterEri = clustered ? eri([pveTopoKey(clusterName, null)]) : null
-
-    // The address /cluster/status reports for each node: the second half of its IP key.
-    def nodeIps = status.findAll { it.type?.toString() == 'node' && it.name }
-        .collectEntries { [(it.name.toString()): it.ip?.toString()] }
-
-    def nodes = (pveGet('/cluster/resources?type=node') ?: [])
-    def nodeEris = [:]
-    nodes.each { node ->
-        def nodeName = node.node?.toString()
-        if (!nodeName) { return }
-        // One key, never two (see the header); a row with no usable address falls back
-        // to the cluster-scoped key, so no null reaches eriPreProcessor.
-        nodeEris[nodeName] = eri([pveTopoNodeVertexKey(clusterName, nodeName, nodeIps[nodeName])])
-        // Every node gets its cluster edge, offline included: a node that is down is
-        // still part of the cluster, and dropping it would make the map forget the
-        // thing that has just gone wrong.
-        if (clusterEri) {
-            lmTopo.registerEdge('Cluster', clusterEri, nodeEris[nodeName], edges)
-        }
+    pveTopoPlan(pveTopoInput()).each { type, from, to ->
+        // A key the blacklist or lm.data.topo's blocked list removes leaves no vertex to join.
+        def source = eri(from)
+        def target = eri(to)
+        if (source && target) { lmTopo.registerEdge(type, source, target, edges) }
     }
-
-    /*
-     * One config read per guest, O(guests) -- acceptable because a TopologySource runs
-     * hourly, not every five minutes, and the MAC lives nowhere else: /cluster/resources
-     * carries no network detail at all.
-     */
-    def guests = (pveGet('/cluster/resources?type=vm') ?: [])
-        .findAll { it.type in ['qemu', 'lxc'] && !it.template }
-
-    /*
-     * The reads go through pveForEachGuest: to the node that owns the guest, never to an
-     * offline node, stopped for a node after its first failure, bounded in concurrency and
-     * time. Two failures are distinguished, and they are not the same thing.
-     *
-     * A config that reads but has no MAC is a guest with no virtual NIC. That is a
-     * permanent fact, so the synthesised fallback key is stable -- what VMware's VM
-     * topology does. It resolves to no resource, and the portal draws no vertex that
-     * matches nothing, so such a guest is emitted but stays off the map.
-     *
-     * A config that cannot be read is transient. Falling back there would change the
-     * guest's identity for one run and change it back on the next, rewriting the map
-     * around a blip. Omitting the edge is the smaller error, so the guest is skipped.
-     */
-    pveForEachGuest('Config reads', guests, status, '/config', { guest, config, error ->
-        def nodeName = guest.node?.toString()
-        def vmid = guest.vmid
-        def kind = guest.type?.toString()
-        def nodeEri = nodeEris[nodeName]
-        if (!nodeEri || !vmid || !kind || error != null || config == null) { return }
-
-        def mac = pveGuestMac(config)
-        def guestEri = (mac && lmTopo.isMac(mac, lmTopoData.blockedKeys, false)) ?
-            eri([mac]) : eri([pveTopoKey(clusterName, kind + '-' + vmid)])
-
-        lmTopo.registerEdge('Compute', nodeEri, guestEri, edges)
-    })
-
     println lmTopo.generateTopology(edges, keyNamespace, keyBlacklist, null, debug)
     return 0
 } catch (Exception exception) {

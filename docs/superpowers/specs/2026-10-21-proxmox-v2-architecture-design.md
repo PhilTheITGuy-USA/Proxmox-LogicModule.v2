@@ -304,6 +304,39 @@ documents "Manually Assigning Properties to Resources".
 
 ### 3.4 Topology
 
+> **Amended 2026-10-28 (user, the vSphere topology model).** The map is modelled on LogicMonitor's
+> vSphere suite, with Proxmox's own depth added (research
+> `docs/research/2026-10-28-lm-vsphere-topology.md`). The user chose, 2026-10-28: parity plus
+> Proxmox depth (pools, disks, bridges, SDN), with new carrier DataSources; vSphere's vocabulary
+> (Manage edges, `HyperVisorCluster`, `HyperVisor`); every store a `VMDatastore`, local stores one
+> vertex per node, shared and network stores one per cluster, the kind in the instance name; guest
+> to store directly, without virtual-disk vertices.
+>
+> - **Edges.** Manage: cluster → node. Compute: node → guest. Storage: node → store; guest → store
+>   (from `rootfs`, `mpN`, `scsiN`, `virtioN`, `sataN`, `ideN`, `efidiskN`, `tpmstateN`; a bind
+>   mount joins the store whose directory holds it); node → guest for a host path or passed-through
+>   device no store covers; store → ZFS pool, LVM thin pool, volume group, Ceph pool or (a directory
+>   store on a Proxmox-made mount) disk; thin pool → volume group → disk; ZFS pool → disk; node →
+>   Ceph OSD → disk. Network: node → its top interfaces → bond members, bridge ports and VLAN
+>   interfaces; bridge or SDN VNet → guest; SDN zone → VNet, under the bridge the zone rides on or
+>   the node. Not drawn: node uplink → physical switch (Proxmox gives no interface MAC or LLDP),
+>   guest disks as vertices, backup targets.
+> - **Vertices and carriers** (`pveTopoVertexKey`, `proxmoxve--<cluster>--…`): stores on
+>   `Cluster_StorageCapacity` (`VMDatastore`; a shared store's key on one instance only, the first
+>   node's by name); pools on the new `Node_StoragePools` and `Cluster_CephPools`
+>   (`StorageAggregate`); OSDs on `Cluster_CephOSD` (`StorageNode`); disks on `Node_Disks`
+>   (`PhysicalDisk`); interfaces on the new `Node_Network` (`VirtualSwitch`, `PhysicalNIC`,
+>   `NICVIRTUAL`); SDN zones and VNets on the new `Cluster_SDN` (`VirtualSwitch`). Cluster modules
+>   stamp keys only where they collect; node modules read the cluster name from their own node.
+>   With `topo.namespace` or `topo.blacklist` set, carriers stamp nothing, as before.
+> - **Where it is decided.** `pveTopoInput` (the reads) and `pveTopoPlan` (the edges) in the
+>   preamble; the TopologySource only turns keys into ERIs. Cost per hourly run: a handful of
+>   cluster reads, six or so per online node plus one per ZFS pool, and the guest-config reads it
+>   already made.
+> - **Unverified** until the lab sees it: that `HyperVisorCluster` and `HyperVisor` render and the
+>   node takes `HyperVisor` at priority 3 over `net.l2`; that the new carriers' instance vertices draw
+>   and join the plan's edges; ZFS, Ceph and SDN (the lab has none).
+
 - **Node vertices:** each node resource's own ERI, using v1's name-plus-IP key
   (`pveTopoNodeVertexKey`) and still exactly one key per vertex (v1 DESIGN §7, 2026-10-21).
 - **Guest vertices:** the MAC, as in v1.

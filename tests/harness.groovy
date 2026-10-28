@@ -131,7 +131,8 @@ def hostProps = [
 def nodeHostProps = hostProps + ['pve.api.url': 'http://127.0.0.1:1', 'pve.node': 'pve1',
                                  'system.hostname': '127.0.0.1:' + server.address.port]
 def NODE_SCOPED = ['Proxmox_VE_Node_Disks', 'Proxmox_VE_Node_Services', 'Proxmox_VE_Node_Certificates',
-                   'Proxmox_VE_Node_Replication', 'Proxmox_VE_Node_Subscription', 'Proxmox_VE_Node_Detail']
+                   'Proxmox_VE_Node_Replication', 'Proxmox_VE_Node_Subscription', 'Proxmox_VE_Node_Detail',
+                   'Proxmox_VE_Node_StoragePools', 'Proxmox_VE_Node_Network']
 
 // Modules whose collection calls each guest's own node, so a guest on an offline node reports nothing.
 def GUEST_NODE_READ_MODULES = ['Proxmox_VE_Cluster_Snapshots']
@@ -527,8 +528,8 @@ note('cluster-eri-on', clusterOn.exit == 0 && clusterOnAd.keySet() == ['cluster'
 // Byte for byte the TopologySource's cluster vertex, pveTopoKey(cluster, null).
 note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceID') == 'proxmoxve--pve-cluster',
      "cluster key was ${clusterOnAd['cluster']?.predef}")
-// Cluster renders the cluster icon; VirtualCluster renders "??" (DESIGN section 7, spike 3).
-note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceType') == 'Cluster',
+// HyperVisorCluster, as LogicMonitor's vSphere suite types a cluster (VirtualCluster renders "??").
+note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceType') == 'HyperVisorCluster',
      "cluster type was ${clusterOnAd['cluster']?.predef}")
 
 // A standalone host has no cluster vertex to carry, but keeps its instance and its data.
@@ -1037,8 +1038,12 @@ note('guest-mac', gm.cluster == 'pve-cluster', "cluster name was ${gm.cluster}")
 note('guest-mac', gm.single == 'pve-a', "standalone cluster name was ${gm.single}")
 note('guest-mac', gm.empty == 'standalone', "empty status cluster name was ${gm.empty}")
 // The fallback key must be built from the same cluster name in both places.
-note('guest-mac', new File(ROOT, 'scripts/Proxmox_VE_Cluster_Topology.topo.groovy').text.contains('pveTopoClusterName('),
+// The TopologySource's reads and decisions are pveTopoInput and pveTopoPlan in the preamble.
+def topoModel = preamble.substring(preamble.indexOf('def pveTopoInput = {'))
+note('guest-mac', topoModel.contains('pveTopoClusterName('),
      'the TopologySource derives its cluster name without pveTopoClusterName')
+note('guest-mac', new File(ROOT, 'scripts/Proxmox_VE_Cluster_Topology.topo.groovy').text.contains('pveTopoPlan(pveTopoInput())'),
+     'the TopologySource does not draw what pveTopoPlan decides')
 
 def discoverRaw = runSource(preamble + "pveDiscover('qemu/1', 'n', 'd', [a: 'x'], " +
     "['predef.externalResourceID': 'bc:24:11:00:00:01'])", [hostProps: hostProps])
@@ -1056,7 +1061,7 @@ note('discover-raw', discoverRaw.thrown == null && discoverRaw.stdout.trim() ==
 // version, they can drift apart and every node vertex stops matching its resource --
 // with nothing failing anywhere, because each half is individually correct.
 def eriScript = new File(ROOT, 'scripts/addERI_Proxmox_VE_Node.groovy').text
-def topoScript = new File(ROOT, 'scripts/Proxmox_VE_Cluster_Topology.topo.groovy').text
+def topoScript = topoModel
 
 note('addERI', eriScript.contains('pveTopoKey('),
      'the ERI PropertySource builds its node key without pveTopoKey')
@@ -1276,8 +1281,8 @@ def adRows = { String module ->
         .collect { [name: it.group(2), description: it.group(3)] }
 }
 def storageNames = adRows('Proxmox_VE_Cluster_StorageCapacity')*.name
-note('sizes', storageNames.contains('local on pve1 (107 GB)') && storageNames.contains('ceph-vm on pve1 (11.0 TB)') &&
-              storageNames.contains('backup.nfs on pve2'),
+note('sizes', storageNames.contains('local on pve1 (local, dir, 107 GB)') && storageNames.contains('ceph-vm on pve1 (shared, rbd, 11.0 TB)') &&
+              storageNames.contains('backup.nfs on pve2 (network, nfs)'),
      "storage names were ${storageNames}")
 def osdNames = adRows('Proxmox_VE_Cluster_CephOSD')*.name
 // An OSD whose tree entry reports no size keeps its bare name.
@@ -1872,6 +1877,202 @@ note('scale-cluster-status', scaleStatus.exit == 0 && scaleStatus.requests.size(
     def bulk = atScale(f)
     note('scale-bulk', bulk.exit == 0 && bulk.requests.size() == 1, "${f} made ${bulk.requests.size()} requests at scale")
 }
+
+// ------------------------------------------------- topology model (vSphere-style)
+//
+// pveTopoPlan decides every edge the TopologySource draws, and the carriers' discoveries stamp
+// the keys those edges end on. The two are checked against each other here: a key one side
+// builds and the other does not is a vertex that silently never draws.
+
+def topoFixtures = [
+    '/cluster/resources?type=storage': fixtures['/cluster/resources?type=storage'] + [
+        [id: 'storage/pve1/local-lvm', type: 'storage', storage: 'local-lvm', node: 'pve1', status: 'available',
+         disk: 152000000000, maxdisk: 380000000000, shared: false, plugintype: 'lvmthin'],
+        [id: 'storage/pve1/tank', type: 'storage', storage: 'tank', node: 'pve1', status: 'available',
+         disk: 1, maxdisk: 2, shared: false, plugintype: 'zfspool'],
+        [id: 'storage/pve1/usb-media', type: 'storage', storage: 'usb-media', node: 'pve1', status: 'available',
+         disk: 1, maxdisk: 2, shared: true, plugintype: 'dir'],
+        [id: 'storage/pve1/backup.nfs', type: 'storage', storage: 'backup.nfs', node: 'pve1', status: 'available',
+         disk: 1, maxdisk: 2, shared: true, plugintype: 'nfs'],
+    ],
+    '/cluster/resources?type=vm': fixtures['/cluster/resources?type=vm'] + [
+        [id: 'lxc/103', type: 'lxc', vmid: 103, name: 'media', node: 'pve1', template: false],
+    ],
+    '/nodes/pve1/lxc/103/config': [hostname: 'media',
+        net0: 'name=eth0,bridge=labnet,hwaddr=BC:24:11:0E:00:03,type=veth',
+        rootfs: 'local-lvm:subvol-103-disk-0,size=8G',
+        mp0: '/mnt/pve/usb-media/library,mp=/media',
+        mp1: '/srv/scratch,mp=/scratch',
+        mp2: 'local-lvm:subvol-103-disk-1,mp=/data,size=4G'],
+]
+def topoRun = withFixtures(topoFixtures) { runSource(preamble + '\nreturn pveTopoPlan(pveTopoInput())', [hostProps: hostProps]) }
+note('topo-plan', topoRun.thrown == null, "pveTopoPlan(pveTopoInput()) threw ${topoRun.thrown}: ${topoRun.stderr}")
+def topoPlan = (topoRun.exit ?: []).collect { it as List }
+def topoPlanSet = topoPlan as Set
+def topoKey = { String... parts -> (['proxmoxve', 'pve-cluster'] + parts.toList()).join('--') }
+def topoN1 = 'proxmoxve--node--pve1--192-168-10-11'
+def topoN2 = 'proxmoxve--node--pve2--fd00-0-0-0-0-0-0-12'
+def topoWeb = 'bc:24:11:0e:00:02'
+def topoMedia = 'bc:24:11:0e:00:03'
+[
+    ['Manage', 'proxmoxve--pve-cluster', topoN1], ['Manage', 'proxmoxve--pve-cluster', topoN2],
+    ['Compute', topoN1, topoWeb], ['Compute', topoN1, topoMedia],
+    // A local store per node, a shared or network store once for the cluster.
+    ['Storage', topoN1, topoKey('storage', 'pve1', 'local')], ['Storage', topoN1, topoKey('storage', 'ceph-vm')],
+    ['Storage', topoN2, topoKey('storage', 'backup-nfs')], ['Storage', topoN1, topoKey('storage', 'backup-nfs')],
+    ['Storage', topoWeb, topoKey('storage', 'pve1', 'local-lvm')], ['Storage', topoMedia, topoKey('storage', 'pve1', 'local-lvm')],
+    // A bind mount inside a store's directory joins that store; one outside every store
+    // falls back to node -> guest.
+    ['Storage', topoMedia, topoKey('storage', 'usb-media')], ['Storage', topoN1, topoMedia],
+    // Store -> pool -> disk, thin pool -> volume group, Ceph store -> Ceph pool.
+    ['Storage', topoKey('storage', 'pve1', 'local-lvm'), topoKey('pool', 'pve1', 'lvmthin', 'pve-data')],
+    ['Storage', topoKey('pool', 'pve1', 'lvmthin', 'pve-data'), topoKey('pool', 'pve1', 'lvm', 'pve')],
+    ['Storage', topoKey('pool', 'pve1', 'lvm', 'pve'), topoKey('disk', 'pve1', 'sdb')],
+    ['Storage', topoKey('storage', 'pve1', 'tank'), topoKey('pool', 'pve1', 'zfs', 'rpool')],
+    ['Storage', topoKey('pool', 'pve1', 'zfs', 'rpool'), topoKey('disk', 'pve1', 'nvme0n1')],
+    ['Storage', topoKey('pool', 'pve1', 'zfs', 'rpool'), topoKey('disk', 'pve1', 'sdb')],
+    ['Storage', topoKey('storage', 'ceph-vm'), topoKey('cephpool', 'ceph-vm')],
+    ['Storage', topoKey('storage', 'usb-media'), topoKey('disk', 'pve1', 'sda')],
+    ['Storage', topoN1, topoKey('osd', '0')], ['Storage', topoN2, topoKey('osd', '2')], ['Storage', topoKey('osd', '0'), topoKey('disk', 'pve1', 'sdc')],
+    // Network: node -> top interfaces -> the ones under them; bridge or VNet -> guest.
+    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr0')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'bond0')],
+    ['Network', topoKey('net', 'pve1', 'bond0'), topoKey('net', 'pve1', 'eno1')], ['Network', topoKey('net', 'pve1', 'bond0'), topoKey('net', 'pve1', 'eno2')],
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'vmbr0-20')], ['Network', topoN1, topoKey('net', 'pve1', 'eno3')],
+    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr1')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoWeb],
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('sdn', 'lab')], ['Network', topoN2, topoKey('sdn', 'lab')],
+    ['Network', topoKey('sdn', 'lab'), topoKey('sdn', 'lab', 'labnet')], ['Network', topoKey('sdn', 'lab', 'labnet'), topoMedia],
+].each { expected ->
+    note('topo-plan-edges', expected in topoPlanSet, "missing edge ${expected}")
+}
+[
+    ['Network', topoN1, topoKey('net', 'pve1', 'bond0')], ['Network', topoN1, topoKey('net', 'pve1', 'eno1')],
+    ['Network', topoN1, topoKey('net', 'pve1', 'lo')], ['Network', topoKey('net', 'pve1', 'labnet'), topoMedia],
+    ['Storage', topoN1, topoWeb],
+].each { unexpected ->
+    note('topo-plan-edges', !(unexpected in topoPlanSet), "unexpected edge ${unexpected}")
+}
+note('topo-plan-edges', topoPlan.size() == topoPlanSet.size(), 'the topoPlan repeats an edge')
+note('topo-plan-edges', topoPlan.every { it[0] in ['Manage', 'Compute', 'Storage', 'Network'] },
+     "an edge type outside vSphere's: ${topoPlan.collect { it[0] }.unique()}")
+note('topo-plan-requests', !topoRun.stderr.contains('not read'), "a topology read failed: ${topoRun.stderr}")
+
+// Every key a carrier stamps is one the topoPlan draws, with the type the design gives it.
+def topoPlannedKeys = topoPlan.collectMany { [it[1], it[2]] } as Set
+def carrierKeys = { String script, Map props ->
+    def run = withFixtures(topoFixtures) { runScript(new File(scriptsDir, script), [hostProps: props]) }
+    note('topo-carriers', run.exit == 0, "${script} exit ${run.exit}: ${run.stderr}")
+    parseAd(run.stdout).collectEntries { id, p -> [(id): [key: p.predef['predef.externalResourceID'], type: p.predef['predef.externalResourceType']]] }
+}
+def expectCarried = { String script, Map props, Map expected ->
+    def got = carrierKeys(script, props)
+    expected.each { id, want ->
+        note('topo-carriers', got[id] == want, "${script} ${id} carried ${got[id]}, expected ${want}")
+    }
+    got.values().findAll { it.key }.each { carried ->
+        note('topo-carriers', carried.key in topoPlannedKeys, "${script} stamps ${carried.key}, which the topoPlan never draws")
+    }
+    got
+}
+def storageCarried = expectCarried('Proxmox_VE_Cluster_StorageCapacity.ad.groovy', hostProps, [
+    'storage-pve1-local'     : [key: topoKey('storage', 'pve1', 'local'), type: 'VMDatastore'],
+    'storage-pve1-local-lvm' : [key: topoKey('storage', 'pve1', 'local-lvm'), type: 'VMDatastore'],
+    'storage-pve1-ceph-vm'   : [key: topoKey('storage', 'ceph-vm'), type: 'VMDatastore'],
+    // One instance carries a shared store: the first node by name.
+    'storage-pve1-backup-nfs': [key: topoKey('storage', 'backup-nfs'), type: 'VMDatastore'],
+    'storage-pve2-backup-nfs': [key: null, type: null],
+])
+def storageAd = withFixtures(topoFixtures) { runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_StorageCapacity.ad.groovy'), [hostProps: hostProps]) }
+['backup.nfs on pve2 (network, nfs)', 'local on pve1 (local, dir, 107 GB)', 'ceph-vm on pve1 (shared, rbd, 11.0 TB)',
+ 'usb-media on pve1 (shared, dir'].each { label ->
+    note('topo-storage-kind', storageAd.stdout.contains('##' + label), "no storage instance named ${label}:\n${storageAd.stdout}")
+}
+expectCarried('Proxmox_VE_Node_StoragePools.ad.groovy', nodeHostProps, [
+    'zfs-rpool'       : [key: topoKey('pool', 'pve1', 'zfs', 'rpool'), type: 'StorageAggregate'],
+    'lvm-pve'         : [key: topoKey('pool', 'pve1', 'lvm', 'pve'), type: 'StorageAggregate'],
+    'lvmthin-pve-data': [key: topoKey('pool', 'pve1', 'lvmthin', 'pve-data'), type: 'StorageAggregate'],
+])
+expectCarried('Proxmox_VE_Node_Disks.ad.groovy', nodeHostProps, [
+    'pve1-sda'    : [key: topoKey('disk', 'pve1', 'sda'), type: 'PhysicalDisk'],
+    'pve1-nvme0n1': [key: topoKey('disk', 'pve1', 'nvme0n1'), type: 'PhysicalDisk'],
+])
+expectCarried('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps, [
+    'vmbr0'   : [key: topoKey('net', 'pve1', 'vmbr0'), type: 'VirtualSwitch'],
+    'bond0'   : [key: topoKey('net', 'pve1', 'bond0'), type: 'PhysicalNIC'],
+    'eno1'    : [key: topoKey('net', 'pve1', 'eno1'), type: 'PhysicalNIC'],
+    'vmbr0-20': [key: topoKey('net', 'pve1', 'vmbr0-20'), type: 'NICVIRTUAL'],
+])
+note('topo-carriers', !carrierKeys('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps).containsKey('lo'), 'loopback was discovered')
+expectCarried('Proxmox_VE_Cluster_CephPools.ad.groovy', hostProps, [
+    'ceph-vm': [key: topoKey('cephpool', 'ceph-vm'), type: 'StorageAggregate'],
+])
+note('topo-carriers', !carrierKeys('Proxmox_VE_Cluster_CephPools.ad.groovy', hostProps).keySet().any { it.contains('mgr') },
+     "Ceph's own .mgr pool was discovered")
+expectCarried('Proxmox_VE_Cluster_CephOSD.ad.groovy', hostProps, [
+    'osd-0': [key: topoKey('osd', '0'), type: 'StorageNode'],
+    'osd-2': [key: topoKey('osd', '2'), type: 'StorageNode'],
+])
+expectCarried('Proxmox_VE_Cluster_SDN.ad.groovy', hostProps, [
+    'zone-lab'   : [key: topoKey('sdn', 'lab'), type: 'VirtualSwitch'],
+    'vnet-labnet': [key: topoKey('sdn', 'lab', 'labnet'), type: 'VirtualSwitch'],
+])
+// A standby stamps no keys: its copies would double every vertex.
+withFixtures(['/cluster/status': statusWith([:], [:], 1)]) {
+    ['Proxmox_VE_Cluster_StorageCapacity.ad.groovy', 'Proxmox_VE_Cluster_CephPools.ad.groovy', 'Proxmox_VE_Cluster_SDN.ad.groovy',
+     'Proxmox_VE_Cluster_CephOSD.ad.groovy'].each { script ->
+        def run = runScript(new File(scriptsDir, script), [hostProps: hostProps + standbyProps])
+        note('topo-carrier-standby', run.exit == 0 && run.stdout.trim() && !run.stdout.contains('predef.'),
+             "${script} on a standby: exit ${run.exit}, ${run.stdout.take(160)}")
+    }
+}
+// topo.namespace rewrites the TopologySource's keys, so the carriers step aside.
+['Proxmox_VE_Node_StoragePools.ad.groovy', 'Proxmox_VE_Node_Network.ad.groovy', 'Proxmox_VE_Node_Disks.ad.groovy'].each { script ->
+    def run = runScript(new File(scriptsDir, script), [hostProps: nodeHostProps + ['topo.namespace': 'x']])
+    note('topo-carrier-namespace', run.exit == 0 && !run.stdout.contains('predef.') && run.stderr.contains('topo.namespace'),
+         "${script} with topo.namespace: exit ${run.exit}, stderr ${run.stderr}")
+}
+
+// The topoParsing the topoPlan rests on.
+def topoParsing = runSource(preamble + '''
+return [
+    kinds  : [pveStorageKind('nfs', true, null), pveStorageKind('rbd', true, [:]), pveStorageKind('rbd', true, [monhost: '10.0.0.5']),
+              pveStorageKind('dir', true, null), pveStorageKind('dir', 0, null), pveStorageKind('lvmthin', false, null),
+              pveStorageKind('pbs', true, null), pveStorageKind('zfspool', null, null)],
+    volumes: pveGuestVolumes([scsi0: 'local-lvm:vm-101-disk-0,size=32G', ide2: 'local:iso/debian.iso,media=cdrom',
+                              ide0: 'none,media=cdrom', efidisk0: 'local-lvm:vm-101-disk-1,size=4M',
+                              unused0: 'local-lvm:vm-101-disk-9', mp0: '/mnt/media,mp=/media', scsi1: '/dev/disk/by-id/ata-X,size=1T',
+                              usb0: 'host=1234:5678', usb1: 'spice', virtio1: 'nas:101/vm-101-disk-0.qcow2', net0: 'virtio=AA:BB:CC:DD:EE:FF',
+                              tpmstate0: 'local-lvm:vm-101-disk-2,size=4M,version=v2.0']),
+    disks  : [pveDiskOf('/dev/sdb3', [[devpath: '/dev/sdb']]), pveDiskOf('nvme0n1p2', [[devpath: '/dev/nvme0n1']]),
+              pveDiskOf('ata-Disk_SER123-part1', [[devpath: '/dev/sdz', serial: 'SER123']]), pveDiskOf('sdq', [[devpath: '/dev/sda']]),
+              pveDiskOf('wwn-0x5000c500a1b2c3d4', [[devpath: '/dev/sdy', wwn: '0x5000c500a1b2c3d4']]),
+              pveDiskOf('dm-3', [[devpath: '/dev/dm-3-x']])],
+    paths  : [pveStoreForPath('/mnt/pve/nas/media', [[storage: 'nas', type: 'nfs']])?.storage,
+              pveStoreForPath('/mnt', [[storage: 'usb', type: 'dir', path: '/mnt/usb']])?.storage,
+              pveStoreForPath('/mnt/media', [[storage: 'usb', type: 'dir', path: '/mnt/media/proxmox']])?.storage,
+              pveStoreForPath('/srv/x', [[storage: 'local', type: 'dir', path: '/var/lib/vz']])?.storage],
+]
+''', [hostProps: hostProps])
+note('topo-parsing', topoParsing.thrown == null, "parsing helpers threw ${topoParsing.thrown}")
+def topoParsed = topoParsing.exit ?: [:]
+note('topo-storage-kinds', topoParsed.kinds == ['network', 'shared', 'network', 'shared', 'local', 'local', 'network', 'local'],
+     "storage kinds were ${topoParsed.kinds}")
+def volumeSlots = (topoParsed.volumes ?: []).collectEntries { [(it.slot): it] }
+note('topo-volumes', volumeSlots.keySet() == ['scsi0', 'efidisk0', 'mp0', 'scsi1', 'usb0', 'virtio1', 'tpmstate0'] as Set,
+     "volumes read were ${volumeSlots.keySet()} (CD-ROM media, unused volumes, SPICE USB and NICs must be skipped)")
+note('topo-volumes', volumeSlots.scsi0?.storage == 'local-lvm' && volumeSlots.virtio1?.storage == 'nas' &&
+                     volumeSlots.mp0?.path == '/mnt/media' && volumeSlots.scsi1?.device && volumeSlots.usb0?.device,
+     "volumes topoParsed as ${topoParsed.volumes}")
+note('topo-disks', topoParsed.disks == ['sdb', 'nvme0n1', 'sdz', null, 'sdy', null], "disks resolved as ${topoParsed.disks}")
+note('topo-paths', topoParsed.paths == ['nas', null, 'usb', null], "bind paths matched ${topoParsed.paths}")
+
+// The map tolerates a node that cannot be read: its node-side edges are left out, the rest drawn.
+def topoPartial = withFixtures(topoFixtures + ['/nodes/pve1/network': null, '/nodes/pve1/disks/zfs': null]) {
+    runSource(preamble + '\nreturn pveTopoPlan(pveTopoInput())', [hostProps: hostProps])
+}
+def topoPartialSet = (topoPartial.exit ?: []).collect { it as List } as Set
+note('topo-partial', topoPartial.thrown == null && ['Compute', topoN1, topoWeb] in topoPartialSet &&
+                     !topoPartialSet.any { it[2] == topoKey('net', 'pve1', 'bond0') } && topoPartial.stderr.contains('/network'),
+     "with /network failing: ${topoPartial.thrown} / ${topoPartial.stderr.take(200)}")
 
 server.stop(0)
 server2.stop(0)

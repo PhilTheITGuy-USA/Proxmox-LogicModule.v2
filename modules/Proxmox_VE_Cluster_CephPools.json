@@ -1,0 +1,85 @@
+{
+  "name": "Proxmox_VE_Cluster_CephPools",
+  "displayedAs": "Proxmox VE Cluster Ceph Pools",
+  "description": "Use and replication of each pool in a Proxmox VE hyper-converged Ceph cluster.",
+  "group": "Proxmox VE",
+  "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
+  "searchKeywords": "proxmox,pve,ceph,pool,rbd,rados,replication,storage,hyperconverged,topology",
+  "technicalNotes": "BatchScript. Every node answers /nodes/{node}/ceph/pool for the whole cluster, so one call discovers and collects every pool; online nodes are tried in turn only until one answers. Requires Sys.Audit or Datastore.Audit on /. A cluster without Ceph discovers nothing.\n\nPools whose names start with a dot, such as .mgr, are Ceph's own and are left out. The wildvalue is the pool name.\n\nUsedPercent is the share of the pool's usable space in use, as Ceph's df reports it: a fraction in current releases, converted to percent. It alerts at 75, 85 and 95: Ceph's own near-full warning starts at 85% of an OSD, and a pool fills faster than its fullest OSD suggests. Replicas and MinReplicas are the pool's size and min_size: below MinReplicas copies, Ceph stops I/O to the pool.\n\nEach instance carries a topology vertex for Proxmox_VE_Cluster_Topology (predef.externalResourceID and predef.externalResourceType). The keys are written plain, so where topo.namespace or topo.blacklist is set, which rewrites the TopologySource's keys, discovery stamps none: the instances stay, off the map. The vertex is type StorageAggregate, drawn under the RBD stores that use the pool.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.\n\nUnits: UsedGB in GB. MB and GB are decimal (10^6 and 10^9 bytes); the product page states the suite's convention.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "5m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Cluster_CephPools.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Cluster_CephPools.ad.groovy",
+  "discoveryInterval": "60m",
+  "datapoints": [
+    {
+      "name": "UsedGB",
+      "description": "Data stored in the pool, GB (decimal, 10^9 bytes)."
+    },
+    {
+      "name": "UsedPercent",
+      "description": "Share of the pool's usable space in use, percent.",
+      "threshold": "> 75 85 95",
+      "conditional": true,
+      "alertBody": "Ceph pool ##INSTANCE## is ##VALUE##% full. When an OSD under it reaches Ceph's full ratio, writes to the pool stop.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "Replicas",
+      "description": "Copies Ceph keeps of each object (the pool's size).",
+      "conditional": true
+    },
+    {
+      "name": "MinReplicas",
+      "description": "Copies below which Ceph stops I/O to the pool (min_size).",
+      "conditional": true
+    },
+    {
+      "name": "PlacementGroups",
+      "description": "The pool's placement group count (pg_num).",
+      "conditional": true
+    }
+  ],
+  "graphs": [
+    {
+      "title": "Used",
+      "verticalLabel": "%",
+      "max": 100,
+      "lines": [
+        {
+          "dp": "UsedPercent",
+          "legend": "Used",
+          "color": "blue"
+        }
+      ]
+    },
+    {
+      "title": "Data Stored",
+      "verticalLabel": "GB",
+      "lines": [
+        {
+          "dp": "UsedGB",
+          "legend": "Stored",
+          "color": "blue"
+        }
+      ]
+    },
+    {
+      "title": "Replication",
+      "verticalLabel": "copies",
+      "lines": [
+        {
+          "dp": "Replicas",
+          "legend": "Replicas",
+          "color": "green"
+        },
+        {
+          "dp": "MinReplicas",
+          "legend": "Minimum for I/O",
+          "color": "red"
+        }
+      ]
+    }
+  ]
+}

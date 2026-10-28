@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-The second generation of the Proxmox VE LogicModule suite, **built**: 19 modules and an Enhanced
+The second generation of the Proxmox VE LogicModule suite, **built**: 23 modules and an Enhanced
 Script NetScan, on `main` (plan `docs/superpowers/plans/2026-10-25-proxmox-v2.md`, executed
 2026-10-26). It began as a verbatim copy of v1 at `2e0237b` (v1's tag `v1.0.0`; `dca3f23` since v1's history rewrite, 2026-10-27), in the commit
 tagged `v1-base`, so `git diff v1-base` shows every v2 change; v1 itself lives on in the sibling repo `..\Proxmox-LogicModule`.
@@ -104,7 +104,12 @@ the authority; this is the map.
   NetScan (`scanConfigId` 0 in the audit log) and the NetScan still updates it; the audit log
   records only some of a NetScan's updates, so read the resource; `system.resourceUpdatedOn`
   does not change on a NetScan update.
-- **Topology:** guest vertices are keyed by the bare MAC of the first NIC, which GuestStatus
+- **Topology** is modelled on LogicMonitor's vSphere suite (spec A§3.4, amended 2026-10-28;
+  research `docs/research/2026-10-28-lm-vsphere-topology.md`): Manage, Compute, Storage and
+  Network edges, every one decided by the preamble's pure `pveTopoPlan(pveTopoInput())`, which
+  the harness runs. Every vertex key is built by one preamble helper shared by the plan and the
+  discovery that carries it, and the harness checks each carrier stamps only keys the plan draws.
+- **Guest vertices** are keyed by the bare MAC of the first NIC, which GuestStatus
   instances and `addERI_Proxmox_VE_GuestResource` also carry; node keys are synthesised from name
   and corosync address and stamped by `addERI_Proxmox_VE_Node`.
 
@@ -113,6 +118,9 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
+- **Branch `topology-vsphere-model`** (2026-10-28, the vSphere topology model, A§3.4 amended): local
+  checks only -- build clean (23 modules); compile job passed; harness 1,975 of 1,975; lint 0 errors,
+  4 warnings; both dashboards check clean. **Not yet imported or run on the lab.**
 - **Local checks** (2026-10-27, after the review fixes, the lab-detail scrub and the status
   names): build clean; compile job passed; harness 1,489 of 1,489; lint 0 errors, 4 warnings;
   both dashboard exports check clean.

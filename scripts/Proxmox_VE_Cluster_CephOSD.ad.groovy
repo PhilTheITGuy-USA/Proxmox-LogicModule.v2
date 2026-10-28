@@ -14,6 +14,9 @@
  * The wildvalue is the OSD name ("osd.12"), which is cluster-unique, deliberately without
  * the host. An OSD's host is a CRUSH placement that can change, and an id built from it
  * would be destroyed by a rebalance -- the same reasoning as guest instance ids.
+ *
+ * Each instance carries the OSD vertex Proxmox_VE_Cluster_Topology draws between its node and
+ * its disk, type StorageNode.
  */
 if (pveConfigError) {
     System.err.println(pveConfigError)
@@ -65,6 +68,7 @@ try {
         return 0
     }
 
+    def cluster = pveCarrierCluster('Ceph OSD', false)
     collectOSDs(tree.root).each { osd ->
         def name = osd.name?.toString()
         if (!name) { return }
@@ -80,7 +84,8 @@ try {
                 pve_host        : osd.host,
                 pve_device_class: osd.device_class,
                 pve_osd_type    : osd.osdtype
-            ]
+            ],
+            cluster && osd.id != null ? pveEri(pveTopoVertexKey(cluster, ['osd', osd.id.toString()]), 'StorageNode') : [:]
         )
     }
     return 0

@@ -883,3 +883,518 @@ def pveForEachGuest = { String what, List guests, List statusRows, String suffix
         System.err.println(what + ': time budget reached: ' + overBudget.get() + ' guests not read this run.')
     }
 }
+
+// ----------------------------------------------------------- topology model
+
+/*
+ * The map is modelled on LogicMonitor's vSphere suite: cluster -> node (Manage), node -> guest
+ * (Compute), node and guest -> storage -> pool -> disk (Storage), node -> bridge or SDN VNet ->
+ * guest (Network). A vertex is drawn only where an instance or resource carries its key, so
+ * each key below is built here once and used by both the TopologySource and the DataSource
+ * discovery that carries it; the two must agree byte for byte.
+ */
+def pveTopoVertexKey = { String cluster, List parts -> pveTopoFold(['proxmoxve', cluster] + parts) }
+
+/*
+ * local, shared or network. Network: the store lives on another system (NFS, SMB, GlusterFS,
+ * iSCSI, Proxmox Backup Server, or Ceph with a monhost, which is an external cluster). Shared:
+ * this cluster's own Ceph, or a store Proxmox is told every node sees (the shared flag).
+ * Local: everything else, one per node.
+ */
+def pveStorageKind = { String type, shared, Map cfg ->
+    def kind = type?.toLowerCase()
+    if (kind in ['nfs', 'cifs', 'glusterfs', 'iscsi', 'iscsidirect', 'pbs', 'esxi']) { return 'network' }
+    if (kind in ['rbd', 'cephfs']) { return cfg?.monhost ? 'network' : 'shared' }
+    shared?.toString() in ['true', '1'] ? 'shared' : 'local'
+}
+
+// A local store is one vertex per node; a shared or network store one for the cluster.
+def pveStorageKey = { String cluster, String kind, String node, String storage ->
+    kind == 'local' ? pveTopoVertexKey(cluster, ['storage', node, storage])
+                    : pveTopoVertexKey(cluster, ['storage', storage])
+}
+
+/*
+ * /cluster/resources?type=storage lists a store once per node. Each row's kind and key, and
+ * which rows carry the key: every row of a local store, and of a shared or network store only
+ * the row of the first node by name, so one key sits on one instance.
+ */
+def pveStorageVertices = { String cluster, List rows, List cfgList ->
+    def cfgByName = (cfgList ?: []).collectEntries { [(it.storage?.toString()): it] }
+    def result = [:]
+    (rows ?: []).findAll { it.storage && it.node }.groupBy { it.storage.toString() }.each { name, list ->
+        def kind = pveStorageKind(list[0].plugintype?.toString(), list[0].shared, cfgByName[name])
+        def carrier = list.min { it.node.toString() }
+        list.each { row ->
+            result[row.id?.toString()] = [kind: kind, storage: name, node: row.node.toString(),
+                key: pveStorageKey(cluster, kind, row.node.toString(), name),
+                carries: kind == 'local' || row.is(carrier)]
+        }
+    }
+    result
+}
+
+def pvePoolKey = { String cluster, String node, String kind, String name ->
+    pveTopoVertexKey(cluster, ['pool', node, kind, name])
+}
+
+def pveDiskKey = { String cluster, String node, String devpath ->
+    pveTopoVertexKey(cluster, ['disk', node, devpath.replaceAll('^/dev/', '')])
+}
+
+/*
+ * The node's interfaces that are drawn: bridges, bonds, physical ports and VLAN interfaces,
+ * Linux or Open vSwitch. Loopback and anything else Proxmox lists are left out.
+ */
+def pveNetIfaces = { List rows ->
+    (rows ?: []).findAll {
+        it.iface && it.iface.toString() != 'lo' &&
+            it.type?.toString() in ['bridge', 'bond', 'eth', 'vlan', 'OVSBridge', 'OVSBond', 'OVSPort', 'OVSIntPort']
+    }
+}
+
+// The icon each interface type takes: LogicMonitor's VirtualSwitch, PhysicalNIC and NICVIRTUAL.
+def pveNetErt = { String type ->
+    type in ['bridge', 'OVSBridge'] ? 'VirtualSwitch' : type in ['eth', 'bond', 'OVSBond'] ? 'PhysicalNIC' : 'NICVIRTUAL'
+}
+
+def pveSdnKey = { String cluster, String zone, String vnet ->
+    pveTopoVertexKey(cluster, vnet ? ['sdn', zone, vnet] : ['sdn', zone])
+}
+
+/*
+ * The cluster name a discovery keys its instances' vertices under, or null when it should
+ * stamp none. Keys are written plain, not through lm.topo, so this stays testable here; with
+ * topo.namespace or topo.blacklist set the TopologySource's keys change and these would stop
+ * matching, so the feature steps aside and says why. A cluster module stamps only where it
+ * collects (a standby's keys would double every vertex); a node module reads the name from
+ * its own node, which answers with the same cluster row the TopologySource reads.
+ */
+def pveCarrierCluster = { String what, boolean nodeScoped ->
+    def blocking = ['topo.namespace', 'topo.blacklist'].findAll { pveHostProp(it) }
+    if (blocking) {
+        System.err.println(what + ' ERIs skipped: ' + blocking.join(' and ') +
+            ' is set, which rewrites the topology keys these would have to match.')
+        return null
+    }
+    if (!nodeScoped && !pveRole().collect) { return null }
+    try {
+        pveTopoClusterName((nodeScoped ? pveNodeGet('/cluster/status') : pveGet('/cluster/status')) ?: [])
+    } catch (Exception failure) {
+        System.err.println(what + ' ERIs skipped: ' + failure.message)
+        null
+    }
+}
+
+// The two instance properties that put an instance on the map.
+def pveEri = { String key, String type -> key ? ['predef.externalResourceID': key, 'predef.externalResourceType': type] : [:] }
+
+/*
+ * This node's storage pools, for Proxmox_VE_Node_StoragePools' discovery and collection
+ * alike: ZFS pools, LVM volume groups and LVM thin pools, sizes in bytes. A node without
+ * one kind (no ZFS installed) answers an error for it, which skips that kind and says so; a
+ * node that cannot be reached at all fails the run.
+ */
+def pveNodePools = { String node ->
+    def read = { String path ->
+        try {
+            pveNodeGet('/nodes/' + node + path)
+        } catch (IOException failure) {
+            if (pveFailureStatus(failure) == null) { throw failure }
+            System.err.println(path + ' not read on ' + node + ': ' + failure.message)
+            null
+        }
+    }
+    def bytes = { value -> (value ?: 0) as long }
+    def pools = []
+    (read('/disks/zfs') ?: []).findAll { it.name }.each { zfs ->
+        pools << [id: 'zfs/' + zfs.name, kind: 'zfs', name: zfs.name.toString(), label: 'ZFS pool',
+                  size: bytes(zfs.size), used: bytes(zfs.alloc), free: bytes(zfs.free),
+                  health: zfs.health?.toString(), frag: zfs.frag]
+    }
+    def lvm = read('/disks/lvm')
+    ((lvm instanceof Map ? lvm.children : null) ?: []).findAll { it.name }.each { vg ->
+        pools << [id: 'lvm/' + vg.name, kind: 'lvm', name: vg.name.toString(), label: 'LVM volume group',
+                  size: bytes(vg.size), used: bytes(vg.size) - bytes(vg.free), free: bytes(vg.free)]
+    }
+    (read('/disks/lvmthin') ?: []).findAll { it.vg && it.lv }.each { thin ->
+        pools << [id: 'lvmthin/' + thin.vg + '/' + thin.lv, kind: 'lvmthin', name: thin.vg + '/' + thin.lv,
+                  label: 'LVM thin pool', size: bytes(thin.lv_size), used: bytes(thin.used),
+                  free: bytes(thin.lv_size) - bytes(thin.used),
+                  metaSize: bytes(thin.metadata_size), metaUsed: bytes(thin.metadata_used)]
+    }
+    pools
+}
+
+/*
+ * This cluster's Ceph pools, from the first online node that answers (every node answers for
+ * the whole cluster), or null on a cluster without Ceph. Pools whose names start with a dot,
+ * such as .mgr, are Ceph's own and are left out.
+ */
+def pveCephPools = { ->
+    def nodes = (pveGet('/cluster/resources?type=node') ?: []).findAll { it.status?.toString() == 'online' && it.node }
+    for (node in nodes) {
+        try {
+            def pools = pveGet('/nodes/' + node.node + '/ceph/pool')
+            if (pools != null) { return pools.findAll { it.pool_name && !it.pool_name.toString().startsWith('.') } }
+        } catch (Exception unavailable) {
+            System.err.println('Ceph pools unavailable from ' + node.node + ': ' + unavailable.message)
+        }
+    }
+    null
+}
+
+/*
+ * SDN zones and VNets, or null where SDN is not set up (the API then answers an error). A
+ * connection failure is not "no SDN" and is thrown.
+ */
+def pveSdn = { ->
+    try {
+        [zones: (pveGet('/cluster/sdn/zones') ?: []).findAll { it.zone },
+         vnets: (pveGet('/cluster/sdn/vnets') ?: []).findAll { it.vnet && it.zone }]
+    } catch (IOException failure) {
+        if (pveFailureStatus(failure) == null) { throw failure }
+        System.err.println('No SDN configuration: ' + failure.message)
+        null
+    }
+}
+
+/*
+ * The storage a guest's disks and mount points use, from its config: every rootfs, mpN,
+ * scsiN, virtioN, sataN, ideN, efidiskN and tpmstateN entry. Each is [storage: name] for a
+ * volume on a Proxmox store, [path: ...] for a host directory bind-mounted into a container,
+ * or [device: ...] for a disk or USB device passed straight through. CD-ROM media and unused
+ * volumes are not counted: neither is storage the guest runs on.
+ */
+def pveGuestVolumes = { Map config ->
+    def found = []
+    (config ?: [:]).each { key, value ->
+        def slot = key.toString()
+        def text = value?.toString() ?: ''
+        if (slot ==~ /usb\d+/) {
+            if (text.contains('host=')) { found << [slot: slot, device: text] }
+            return
+        }
+        if (slot ==~ /dev\d+/) { found << [slot: slot, device: text.tokenize(',')[0]]; return }
+        if (!(slot ==~ /(rootfs|mp\d+|scsi\d+|virtio\d+|sata\d+|ide\d+|efidisk\d+|tpmstate\d+)/)) { return }
+        if (text.contains('media=cdrom')) { return }
+        def volume = text.tokenize(',').find { !it.contains('=') || it.startsWith('volume=') }
+        volume = volume?.replaceFirst('^volume=', '')?.trim()
+        if (!volume || volume == 'none') { return }
+        if (volume.startsWith('/dev/')) { found << [slot: slot, device: volume] }
+        else if (volume.startsWith('/')) { found << [slot: slot, path: volume] }
+        else if (volume.contains(':')) { found << [slot: slot, storage: volume.substring(0, volume.indexOf(':'))] }
+    }
+    found
+}
+
+// The directory a store keeps its files in on a node: its path, or /mnt/pve/<name> where
+// Proxmox mounts a network share itself.
+def pveStoragePath = { Map cfg ->
+    if (!cfg) { return null }
+    if (cfg.path) { return cfg.path.toString().replaceAll('/+$', '') }
+    cfg.type?.toString() in ['nfs', 'cifs', 'glusterfs', 'cephfs'] ? '/mnt/pve/' + cfg.storage : null
+}
+
+/*
+ * The store a host path bind-mounted into a container lies on: the store whose directory
+ * holds the path, or a store kept inside the bind-mounted directory, the longest match first.
+ * A path of one segment (/mnt) contains too much to say, so only the first direction counts.
+ */
+def pveStoreForPath = { String path, List cfgs ->
+    def bind = path?.replaceAll('/+$', '')
+    if (!bind) { return null }
+    def depth = bind.tokenize('/').size()
+    def matches = (cfgs ?: []).collect { [cfg: it, dir: pveStoragePath(it)] }.findAll { it.dir }.findAll {
+        bind == it.dir || bind.startsWith(it.dir + '/') || (depth >= 2 && it.dir.startsWith(bind + '/'))
+    }
+    matches ? matches.max { it.dir.length() }.cfg : null
+}
+
+/*
+ * The physical disk a device name refers to, as the short name Node_Disks keys it by (sda,
+ * nvme0n1): a disk itself, one of its partitions (sda3, nvme0n1p3, or a partition row's
+ * parent), or a /dev/disk/by-id name, which carries the disk's serial or WWN. Null when no
+ * disk on the node matches.
+ */
+def pveDiskOf = { String name, List rows ->
+    def base = name?.tokenize('/')?.last()?.replaceFirst(/-part\d+$/, '')
+    if (!base) { return null }
+    def whole = (rows ?: []).findAll { it.devpath && !it.parent }
+    def shortOf = { row -> row.devpath.toString().replaceAll('^/dev/', '') }
+    def direct = whole.find { shortOf(it) == base }
+    if (direct) { return shortOf(direct) }
+    def part = (rows ?: []).find { it.parent && it.devpath?.toString()?.endsWith('/' + base) }
+    if (part) { return part.parent.toString().replaceAll('^/dev/', '') }
+    def parent = (base =~ /^(.*\d)p\d+$/).with { it.find() ? it.group(1) : null } ?:
+                 (base =~ /^([a-z]+)\d+$/).with { it.find() ? it.group(1) : null }
+    if (parent && whole.any { shortOf(it) == parent }) { return parent }
+    def byId = whole.find {
+        (it.serial && base.contains(it.serial.toString())) ||
+            (it.wwn && base.contains(it.wwn.toString().replaceFirst('^0x', '')))
+    }
+    byId ? shortOf(byId) : null
+}
+
+// Every leaf device of a ZFS pool's vdev tree, as /nodes/{node}/disks/zfs/{pool} returns it.
+def pveZfsLeaves = { tree ->
+    def found = []
+    def stack = [tree]
+    while (stack) {
+        def entry = stack.remove(stack.size() - 1)
+        if (!(entry instanceof Map)) { continue }
+        if (entry.children instanceof List && entry.children) { stack.addAll(entry.children) }
+        else if (entry.name && entry.leaf?.toString() == '1') { found << entry.name.toString() }
+    }
+    found
+}
+
+/*
+ * Everything the TopologySource needs from the API, read once: the cluster, its storage and
+ * SDN definitions, every guest's config, and each online node's network, pools and disks.
+ * A read that fails leaves its part empty and says so on stderr; the map draws what was
+ * read. Per-node reads go through the cluster API, and a node whose first read cannot
+ * connect is not asked again this run.
+ */
+def pveTopoInput = { ->
+    def status = pveGet('/cluster/status') ?: []
+    def optional = { String what, Closure read ->
+        try { read() } catch (Exception failure) {
+            System.err.println(what + ' not read: ' + failure.message)
+            null
+        }
+    }
+    def input = [
+        status   : status,
+        cluster  : pveTopoClusterName(status),
+        nodes    : (pveGet('/cluster/resources?type=node') ?: []),
+        storages : optional('Storage', { pveGet('/cluster/resources?type=storage') }) ?: [],
+        storageCfg: optional('Storage definitions', { pveGet('/storage') }) ?: [],
+        sdnZones : optional('SDN zones', { pveGet('/cluster/sdn/zones') }) ?: [],
+        sdnVnets : optional('SDN VNets', { pveGet('/cluster/sdn/vnets') }) ?: [],
+        configs  : [:],
+        perNode  : [:],
+        osdTree  : null,
+        cephPools: []
+    ]
+    def guests = pveGuestList()
+    input.guests = guests
+    pveForEachGuest('Config reads', guests, status, '/config', { guest, config, error ->
+        if (error == null && config instanceof Map) { input.configs[guest.id.toString()] = config }
+    })
+
+    def online = input.nodes.findAll { it.status?.toString() == 'online' && it.node }.collect { it.node.toString() }
+    online.each { node ->
+        def data = [:]
+        def stopped = false
+        def read = { String key, String path ->
+            if (stopped) { return }
+            try {
+                data[key] = pveGet('/nodes/' + node + path)
+            } catch (Exception failure) {
+                System.err.println('Topology: ' + path + ' on ' + node + ' not read: ' + failure.message)
+                if (pveFailureStatus(failure) == null) { stopped = true }
+            }
+        }
+        read('network', '/network')
+        read('disks', '/disks/list?include-partitions=1&skipsmart=1')
+        read('dirs', '/disks/directory')
+        read('lvm', '/disks/lvm')
+        read('lvmthin', '/disks/lvmthin')
+        read('zfs', '/disks/zfs')
+        data.zfsDetail = [:]
+        (data.zfs ?: []).each { pool ->
+            if (!stopped && pool.name) {
+                read('zfs:' + pool.name, '/disks/zfs/' + URLEncoder.encode(pool.name.toString(), 'UTF-8'))
+                data.zfsDetail[pool.name.toString()] = data.remove('zfs:' + pool.name)
+            }
+        }
+        input.perNode[node] = data
+    }
+
+    // Ceph answers the same from every node: ask online nodes in turn until one does.
+    if (input.storageCfg.any { it.type?.toString() == 'rbd' && !it.monhost }) {
+        for (node in online) {
+            def tree = optional('Ceph OSD tree on ' + node, { pveGet('/nodes/' + node + '/ceph/osd') })
+            if (tree) {
+                input.osdTree = tree
+                input.cephPools = optional('Ceph pools on ' + node, { pveGet('/nodes/' + node + '/ceph/pool') }) ?: []
+                break
+            }
+        }
+    }
+    input
+}
+
+/*
+ * The edges, as [type, from key, to key], from what pveTopoInput read. Pure, so the harness
+ * can check every rule; the TopologySource only turns the keys into ERIs and prints them.
+ */
+def pveTopoPlan = { Map input ->
+    def cluster = input.cluster
+    def edges = new LinkedHashSet()
+    def edge = { String type, String from, String to -> if (from && to && from != to) { edges << [type, from, to] } }
+
+    def status = input.status ?: []
+    def clustered = status.any { it.type?.toString() == 'cluster' }
+    def ips = status.findAll { it.type?.toString() == 'node' && it.name }
+        .collectEntries { [(it.name.toString()): it.ip?.toString()] }
+    def nodeKey = { String node -> pveTopoNodeVertexKey(cluster, node, ips[node]) }
+    def clusterKey = clustered ? pveTopoKey(cluster, null) : null
+
+    // Manage: the cluster above every node, offline ones too.
+    def nodeNames = (input.nodes ?: []).collect { it.node?.toString() }.findAll { it }
+    nodeNames.each { node -> if (clusterKey) { edge('Manage', clusterKey, nodeKey(node)) } }
+
+    // Storage: each node to every store it lists.
+    def stores = pveStorageVertices(cluster, input.storages, input.storageCfg)
+    def cfgs = input.storageCfg ?: []
+    def cfgByName = cfgs.collectEntries { [(it.storage?.toString()): it] }
+    def storeKeyOn = { String node, String name ->
+        def row = stores.values().find { it.storage == name && it.node == node } ?:
+                  stores.values().find { it.storage == name }
+        row ? (row.kind == 'local' ? pveStorageKey(cluster, 'local', node, name) : row.key)
+            : pveStorageKey(cluster, pveStorageKind(cfgByName[name]?.type?.toString(), cfgByName[name]?.shared, cfgByName[name]), node, name)
+    }
+    stores.values().each { row -> edge('Storage', nodeKey(row.node), row.key) }
+
+    // Storage: each store to the pool or disk under it, on every node that lists it.
+    stores.values().each { row ->
+        def cfg = cfgByName[row.storage]
+        def data = input.perNode?.get(row.node) ?: [:]
+        switch (cfg?.type?.toString()) {
+            case 'zfspool':
+                def pool = cfg.pool?.toString()?.tokenize('/')?.getAt(0)
+                if (pool) { edge('Storage', row.key, pvePoolKey(cluster, row.node, 'zfs', pool)) }
+                break
+            case 'lvmthin':
+                if (cfg.vgname && cfg.thinpool) {
+                    edge('Storage', row.key, pvePoolKey(cluster, row.node, 'lvmthin', cfg.vgname + '/' + cfg.thinpool))
+                }
+                break
+            case 'lvm':
+                if (cfg.vgname) { edge('Storage', row.key, pvePoolKey(cluster, row.node, 'lvm', cfg.vgname.toString())) }
+                break
+            case 'rbd':
+                if (!cfg.monhost) { edge('Storage', row.key, pveTopoVertexKey(cluster, ['cephpool', (cfg.pool ?: 'rbd').toString()])) }
+                break
+            case 'dir':
+                def dir = pveStoragePath(cfg)
+                def mount = (data.dirs ?: []).findAll { it.path && (dir == it.path || dir?.startsWith(it.path.toString() + '/')) }
+                    .max { it.path.toString().length() }
+                def disk = mount ? pveDiskOf(mount.device?.toString(), data.disks) : null
+                if (disk) { edge('Storage', row.key, pveDiskKey(cluster, row.node, disk)) }
+                break
+        }
+    }
+
+    // Storage: thin pool -> volume group -> disk, and ZFS pool -> disk, per node.
+    (input.perNode ?: [:]).each { node, data ->
+        (data.lvmthin ?: []).each { thin ->
+            if (thin.vg && thin.lv) {
+                edge('Storage', pvePoolKey(cluster, node, 'lvmthin', thin.vg + '/' + thin.lv),
+                     pvePoolKey(cluster, node, 'lvm', thin.vg.toString()))
+            }
+        }
+        ((data.lvm instanceof Map ? data.lvm.children : null) ?: []).each { vg ->
+            (vg.children ?: []).each { pv ->
+                def disk = pveDiskOf(pv.name?.toString(), data.disks)
+                if (vg.name && disk) { edge('Storage', pvePoolKey(cluster, node, 'lvm', vg.name.toString()), pveDiskKey(cluster, node, disk)) }
+            }
+        }
+        (data.zfsDetail ?: [:]).each { pool, tree ->
+            pveZfsLeaves(tree).each { leaf ->
+                def disk = pveDiskOf(leaf, data.disks)
+                if (disk) { edge('Storage', pvePoolKey(cluster, node, 'zfs', pool), pveDiskKey(cluster, node, disk)) }
+            }
+        }
+        // A Ceph OSD on its disk.
+        (data.disks ?: []).findAll { !it.parent && it.devpath }.each { disk ->
+            def ids = ((disk.'osdid-list' ?: []) + [disk.osdid]).findAll { it != null && (it as int) >= 0 }.unique()
+            ids.each { id ->
+                edge('Storage', pveTopoVertexKey(cluster, ['osd', id.toString()]),
+                     pveDiskKey(cluster, node, disk.devpath.toString()))
+            }
+        }
+    }
+
+    // Storage: each node to the OSDs CRUSH places on it.
+    def osdStack = input.osdTree?.root ? [input.osdTree.root] : []
+    while (osdStack) {
+        def entry = osdStack.remove(osdStack.size() - 1)
+        if (!(entry instanceof Map)) { continue }
+        if (entry.type?.toString() == 'osd' && entry.host && entry.id != null) {
+            edge('Storage', nodeKey(entry.host.toString()), pveTopoVertexKey(cluster, ['osd', entry.id.toString()]))
+        }
+        if (entry.children instanceof List) { osdStack.addAll(entry.children) }
+    }
+
+    // Network: each node to its top interfaces, and each interface to the ports, bond
+    // members or VLAN interfaces under it.
+    def ifaceNames = [:]
+    (input.perNode ?: [:]).each { node, data ->
+        def ifaces = pveNetIfaces(data.network)
+        def names = ifaces.collect { it.iface.toString() } as Set
+        ifaceNames[node] = names
+        def children = [:].withDefault { [] }
+        ifaces.each { iface ->
+            def name = iface.iface.toString()
+            ((iface.bridge_ports ?: '') + ' ' + (iface.ovs_ports ?: '') + ' ' + (iface.slaves ?: '') + ' ' +
+                (iface.ovs_bonds ?: '')).tokenize(' ').findAll { it in names && it != name }.each { children[name] << it }
+            def raw = iface.'vlan-raw-device'?.toString() ?: iface.ovs_bridge?.toString() ?:
+                      (name.contains('.') ? name.substring(0, name.lastIndexOf('.')) : null)
+            if (raw && raw in names && raw != name) { children[raw] << name }
+        }
+        def under = children.values().flatten() as Set
+        ifaces.each { iface ->
+            def name = iface.iface.toString()
+            if (!(name in under)) { edge('Network', nodeKey(node), pveTopoVertexKey(cluster, ['net', node, name])) }
+            children[name].unique().each { child ->
+                edge('Network', pveTopoVertexKey(cluster, ['net', node, name]), pveTopoVertexKey(cluster, ['net', node, child]))
+            }
+        }
+    }
+
+    // Network: SDN zones and VNets, cluster-wide. A zone hangs off the bridge it rides on, on
+    // each node it spans, or off the node where it names no bridge the node has.
+    def vnets = (input.sdnVnets ?: []).findAll { it.vnet && it.zone }.collectEntries { [(it.vnet.toString()): it.zone.toString()] }
+    (input.sdnZones ?: []).findAll { it.zone }.each { zone ->
+        def zoneKey = pveSdnKey(cluster, zone.zone.toString(), null)
+        def spans = zone.nodes ? zone.nodes.toString().tokenize(',').collect { it.trim() } : nodeNames
+        spans.findAll { it in nodeNames }.each { node ->
+            def bridge = zone.bridge?.toString()
+            edge('Network', bridge && bridge in (ifaceNames[node] ?: [])
+                 ? pveTopoVertexKey(cluster, ['net', node, bridge]) : nodeKey(node), zoneKey)
+        }
+        vnets.findAll { it.value == zone.zone.toString() }.each { vnet, z ->
+            edge('Network', zoneKey, pveSdnKey(cluster, z, vnet))
+        }
+    }
+
+    // Each guest whose config was read: Compute from its node, Storage to its stores (or from
+    // its node, for a path or device no store covers), Network from its bridges or VNets.
+    (input.guests ?: []).each { guest ->
+        def config = input.configs?.get(guest.id?.toString())
+        def node = guest.node?.toString()
+        if (!(config instanceof Map) || !node || !guest.vmid) { return }
+        def guestKey = pveGuestMac(config) ?: pveTopoKey(cluster, guest.type + '-' + guest.vmid)
+        edge('Compute', nodeKey(node), guestKey)
+        def nodeCfgs = cfgs.findAll { cfg -> stores.values().any { it.storage == cfg.storage?.toString() && it.node == node } }
+        pveGuestVolumes(config).each { volume ->
+            if (volume.storage) {
+                edge('Storage', guestKey, storeKeyOn(node, volume.storage))
+            } else if (volume.path && pveStoreForPath(volume.path, nodeCfgs)) {
+                edge('Storage', guestKey, storeKeyOn(node, pveStoreForPath(volume.path, nodeCfgs).storage.toString()))
+            } else {
+                edge('Storage', nodeKey(node), guestKey)
+            }
+        }
+        config.keySet().findAll { it.toString() ==~ /net\d+/ }.sort().each { slot ->
+            def bridge = config[slot].toString().tokenize(',').find { it.startsWith('bridge=') }?.substring(7)
+            if (!bridge) { return }
+            if (vnets.containsKey(bridge)) { edge('Network', pveSdnKey(cluster, vnets[bridge], bridge), guestKey) }
+            else { edge('Network', pveTopoVertexKey(cluster, ['net', node, bridge]), guestKey) }
+        }
+    }
+    edges as List
+}

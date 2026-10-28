@@ -214,7 +214,32 @@
       "plugintype": "nfs"
     }
   ],
-  "/nodes/pve1/rrddata?timeframe=hour&cf=AVERAGE": [{"time": 1792965600, "cpu": 0.12, "iowait": 0.004, "loadavg": 0.25, "maxcpu": 4, "pressurecpusome": 1.0, "pressureiosome": 0.2, "pressureiofull": 0.1, "pressurememorysome": 0, "pressurememoryfull": 0}, {"time": 1792965660, "cpu": 0.1, "iowait": 0.0045, "loadavg": 0.21, "maxcpu": 4, "pressurecpusome": 2.5, "pressureiosome": 0.37, "pressureiofull": 0.34, "pressurememorysome": 0, "pressurememoryfull": 0}],
+  "/nodes/pve1/rrddata?timeframe=hour&cf=AVERAGE": [
+    {
+      "time": 1792965600,
+      "cpu": 0.12,
+      "iowait": 0.004,
+      "loadavg": 0.25,
+      "maxcpu": 4,
+      "pressurecpusome": 1.0,
+      "pressureiosome": 0.2,
+      "pressureiofull": 0.1,
+      "pressurememorysome": 0,
+      "pressurememoryfull": 0
+    },
+    {
+      "time": 1792965660,
+      "cpu": 0.1,
+      "iowait": 0.0045,
+      "loadavg": 0.21,
+      "maxcpu": 4,
+      "pressurecpusome": 2.5,
+      "pressureiosome": 0.37,
+      "pressureiofull": 0.34,
+      "pressurememorysome": 0,
+      "pressurememoryfull": 0
+    }
+  ],
   "/nodes/pve1/status": {
     "cpu": 0.1523,
     "loadavg": [
@@ -1253,6 +1278,301 @@
       "name": "current",
       "parent": "spec-test",
       "running": 1
+    }
+  ],
+  "/storage": [
+    {
+      "storage": "local",
+      "type": "dir",
+      "path": "/var/lib/vz",
+      "content": "iso,vztmpl,backup"
+    },
+    {
+      "storage": "local-lvm",
+      "type": "lvmthin",
+      "vgname": "pve",
+      "thinpool": "data",
+      "content": "images,rootdir"
+    },
+    {
+      "storage": "ceph-vm",
+      "type": "rbd",
+      "pool": "ceph-vm",
+      "content": "images",
+      "krbd": 0
+    },
+    {
+      "storage": "backup.nfs",
+      "type": "nfs",
+      "server": "192.0.2.50",
+      "export": "/export/backup",
+      "path": "/mnt/pve/backup.nfs",
+      "content": "backup"
+    },
+    {
+      "storage": "usb-media",
+      "type": "dir",
+      "path": "/mnt/pve/usb-media",
+      "content": "backup",
+      "shared": 1,
+      "nodes": "pve1"
+    },
+    {
+      "storage": "tank",
+      "type": "zfspool",
+      "pool": "rpool/data",
+      "content": "images,rootdir"
+    }
+  ],
+  "/nodes/pve1/network": [
+    {
+      "iface": "eno1",
+      "type": "eth",
+      "active": 1,
+      "exists": 1,
+      "families": [
+        "inet"
+      ]
+    },
+    {
+      "iface": "eno2",
+      "type": "eth",
+      "active": 1,
+      "exists": 1,
+      "families": [
+        "inet"
+      ]
+    },
+    {
+      "iface": "eno3",
+      "type": "eth",
+      "exists": 1,
+      "families": [
+        "inet"
+      ]
+    },
+    {
+      "iface": "bond0",
+      "type": "bond",
+      "slaves": "eno1 eno2",
+      "bond_mode": "802.3ad",
+      "active": 1,
+      "autostart": 1
+    },
+    {
+      "iface": "vmbr0",
+      "type": "bridge",
+      "bridge_ports": "bond0",
+      "bridge_vlan_aware": 1,
+      "active": 1,
+      "autostart": 1,
+      "cidr": "192.168.10.11/24"
+    },
+    {
+      "iface": "vmbr0.20",
+      "type": "vlan",
+      "active": 1,
+      "autostart": 1,
+      "cidr": "10.20.0.11/24"
+    },
+    {
+      "iface": "vmbr1",
+      "type": "bridge",
+      "bridge_ports": "",
+      "autostart": 1
+    },
+    {
+      "iface": "lo",
+      "type": "loopback",
+      "active": 1,
+      "autostart": 1
+    }
+  ],
+  "/nodes/pve1/disks/list?include-partitions=1&skipsmart=1": [
+    {
+      "devpath": "/dev/sda",
+      "size": 4000787030016,
+      "model": "WDC WD40EFRX-68N32N0",
+      "serial": "WD-WCC7K0000001",
+      "used": "partitions",
+      "gpt": 1,
+      "osdid": -1
+    },
+    {
+      "devpath": "/dev/sda1",
+      "parent": "/dev/sda",
+      "size": 4000785960960,
+      "used": "ext4",
+      "mounted": 1
+    },
+    {
+      "devpath": "/dev/sdb",
+      "size": 512110190592,
+      "model": "Samsung SSD 860 EVO 500GB",
+      "serial": "S3Z8NB0K000002",
+      "used": "partitions",
+      "gpt": 1,
+      "osdid": -1
+    },
+    {
+      "devpath": "/dev/sdb3",
+      "parent": "/dev/sdb",
+      "size": 511000000000,
+      "used": "LVM"
+    },
+    {
+      "devpath": "/dev/nvme0n1",
+      "size": 1024209543168,
+      "model": "Samsung SSD 980 PRO 1TB",
+      "serial": "S5GXNF0N000003",
+      "used": "partitions",
+      "gpt": 1,
+      "osdid": -1
+    },
+    {
+      "devpath": "/dev/nvme0n1p3",
+      "parent": "/dev/nvme0n1",
+      "size": 1020000000000,
+      "used": "ZFS"
+    },
+    {
+      "devpath": "/dev/sdc",
+      "size": 4000787030016,
+      "model": "HGST HUS726T4TALA6L4",
+      "serial": "V6G0000004",
+      "used": "LVM",
+      "osdid": 0,
+      "osdid-list": [
+        0
+      ]
+    }
+  ],
+  "/nodes/pve1/disks/directory": [
+    {
+      "path": "/mnt/pve/usb-media",
+      "device": "/dev/sda1",
+      "type": "ext4",
+      "unitfile": "/etc/systemd/system/mnt-pve-usb\\x2dmedia.mount",
+      "options": "defaults"
+    }
+  ],
+  "/nodes/pve1/disks/lvm": {
+    "leaf": 0,
+    "children": [
+      {
+        "name": "pve",
+        "size": 511000000000,
+        "free": 16000000000,
+        "leaf": 0,
+        "children": [
+          {
+            "name": "/dev/sdb3",
+            "size": 511000000000,
+            "free": 16000000000,
+            "leaf": 1
+          }
+        ]
+      }
+    ]
+  },
+  "/nodes/pve1/disks/lvmthin": [
+    {
+      "lv": "data",
+      "vg": "pve",
+      "lv_size": 380000000000,
+      "used": 152000000000,
+      "metadata_size": 3900000000,
+      "metadata_used": 390000000
+    }
+  ],
+  "/nodes/pve1/disks/zfs": [
+    {
+      "name": "rpool",
+      "size": 1000000000000,
+      "alloc": 250000000000,
+      "free": 750000000000,
+      "frag": 12,
+      "dedup": 1.0,
+      "health": "ONLINE"
+    }
+  ],
+  "/nodes/pve1/disks/zfs/rpool": {
+    "name": "rpool",
+    "state": "ONLINE",
+    "children": [
+      {
+        "name": "mirror-0",
+        "state": "ONLINE",
+        "leaf": 0,
+        "children": [
+          {
+            "name": "nvme0n1p3",
+            "state": "ONLINE",
+            "leaf": 1
+          },
+          {
+            "name": "ata-Samsung_SSD_860_EVO_500GB_S3Z8NB0K000002-part4",
+            "state": "ONLINE",
+            "leaf": 1
+          }
+        ]
+      }
+    ]
+  },
+  "/nodes/pve1/ceph/pool": [
+    {
+      "pool": 2,
+      "pool_name": "ceph-vm",
+      "size": 3,
+      "min_size": 2,
+      "pg_num": 128,
+      "type": "replicated",
+      "crush_rule_name": "replicated_rule",
+      "bytes_used": 1649267441664,
+      "percent_used": 0.2748
+    },
+    {
+      "pool": 1,
+      "pool_name": ".mgr",
+      "size": 3,
+      "min_size": 2,
+      "pg_num": 1,
+      "type": "replicated",
+      "crush_rule_name": "replicated_rule",
+      "bytes_used": 1048576,
+      "percent_used": 0.0
+    }
+  ],
+  "/cluster/sdn/zones": [
+    {
+      "zone": "lab",
+      "type": "vlan",
+      "bridge": "vmbr0",
+      "nodes": "pve1,pve2"
+    }
+  ],
+  "/cluster/sdn/vnets": [
+    {
+      "vnet": "labnet",
+      "zone": "lab",
+      "tag": 30,
+      "type": "vnet"
+    }
+  ],
+  "/cluster/resources?type=sdn": [
+    {
+      "id": "sdn/pve1/lab",
+      "type": "sdn",
+      "sdn": "lab",
+      "node": "pve1",
+      "status": "ok"
+    },
+    {
+      "id": "sdn/pve2/lab",
+      "type": "sdn",
+      "sdn": "lab",
+      "node": "pve2",
+      "status": "error"
     }
   ]
 }

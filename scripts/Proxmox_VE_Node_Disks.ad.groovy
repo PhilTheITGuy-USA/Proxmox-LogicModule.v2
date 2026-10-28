@@ -7,6 +7,9 @@
  *
  * The wildvalue drops the /dev/ prefix -- "pve1/sda" rather than "pve1//dev/sda" -- which
  * keeps it readable once the character fold has run.
+ *
+ * Each instance carries the disk vertex Proxmox_VE_Cluster_Topology draws under a pool, a
+ * directory store or a Ceph OSD, type PhysicalDisk.
  */
 if (pveConfigError) {
     System.err.println(pveConfigError)
@@ -16,6 +19,7 @@ if (pveConfigError) {
 try {
     def nodeName = pveSelfNode()
     def disks = pveNodeGet('/nodes/' + nodeName + '/disks/list') ?: []
+    def cluster = pveCarrierCluster('Disk', true)
 
     disks.each { disk ->
         def devpath = disk.devpath?.toString()
@@ -35,7 +39,8 @@ try {
                 pve_serial : disk.serial,
                 pve_vendor : disk.vendor,
                 pve_type   : disk.type
-            ]
+            ],
+            cluster ? pveEri(pveDiskKey(cluster, nodeName, devpath), 'PhysicalDisk') : [:]
         )
     }
     return 0

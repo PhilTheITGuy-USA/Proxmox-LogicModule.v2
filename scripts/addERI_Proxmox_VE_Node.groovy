@@ -56,9 +56,9 @@ lmtopo = modLoader.load('lm.topo', '0')
 def keyNamespace = pveHostProp('topo.namespace') ? pveHostProp(pveHostProp('topo.namespace')) : ''
 def keyBlacklist = (pveHostProp('topo.blacklist') ?: '').tokenize(',')
 
-// The ERT chooses the icon on a rendered map. PhysicalServer is what a Proxmox node's
-// resource already reports, and what LogicMonitor's own addERI_VMware_VeloCloud uses.
-def ert = 'PhysicalServer'
+// The ERT chooses the icon on a rendered map: HyperVisor, the type LogicMonitor's vSphere suite
+// gives an ESXi host.
+def ert = 'HyperVisor'
 
 try {
     def identity = null
@@ -92,9 +92,10 @@ try {
     /*
      * Its own category, so this combines with the MAC-based ERIs the resource already has
      * rather than replacing them: keys from every category merge into the ID, and the
-     * resource type comes from the highest-priority entry across all categories. This emits
-     * PhysicalServer, the type a node already has, so priority 1 is
-     * harmless. Stamping into net.l2 would fight the MACs.
+     * resource type comes from the highest-priority entry across all categories. The built-in
+     * addERI_Linux stamps net.l2 at priority 2 as PhysicalServer, so this is priority 3: at a
+     * lower priority the keys merge but the node stays PhysicalServer. Stamping into net.l2
+     * would fight the MACs.
      */
     def keys = []
     if (identity) {
@@ -107,7 +108,7 @@ try {
     }
 
     def eriArray = new JSONArray()
-    lmtopo.emitEri('proxmoxve', 1, keys, ert, eriArray)
+    lmtopo.emitEri('proxmoxve', 3, keys, ert, eriArray)
     lmtopo.printEriArray(eriArray, keyNamespace, keyBlacklist)
     return 0
 } catch (Exception exception) {

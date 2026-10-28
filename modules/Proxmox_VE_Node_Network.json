@@ -1,0 +1,72 @@
+{
+  "name": "Proxmox_VE_Node_Network",
+  "displayedAs": "Proxmox VE Node Network",
+  "description": "State of this Proxmox VE node's bridges, bonds, physical ports and VLAN interfaces, asked of the node itself.",
+  "group": "Proxmox VE",
+  "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
+  "searchKeywords": "proxmox,pve,network,bridge,vmbr,bond,vlan,ovs,interface,topology",
+  "technicalNotes": "BatchScript: one /nodes/{node}/network call to this node per interval; any API token may read it.\n\nOne instance per interface Proxmox manages of these types: bridge, bond, eth, vlan, and the Open vSwitch OVSBridge, OVSBond, OVSPort and OVSIntPort. Loopback is left out. The wildvalue is the interface name.\n\nActive is Proxmox's own flag. Healthy is 0 only for an interface set to start at boot (autostart) that is not active -- a bridge whose guests have lost their network, or a bond member that is down -- so an unused port is not an alert. Ports counts a bridge's ports or a bond's members.\n\nProxmox gives no interface MAC address or link speed in this endpoint, and no CDP or LLDP neighbours, so the link from a node's ports to the physical switch is drawn, as for any server, by the switch's own topology where the switch is monitored.\n\nEach instance carries a topology vertex for Proxmox_VE_Cluster_Topology (predef.externalResourceID and predef.externalResourceType). The keys are written plain, so where topo.namespace or topo.blacklist is set, which rewrites the TopologySource's keys, discovery stamps none: the instances stay, off the map. The vertex is VirtualSwitch for a bridge, PhysicalNIC for a port or bond and NICVIRTUAL for a VLAN interface, drawn between the node and the guests on it.\n\nApplies on ProxmoxVE_Node resources the NetScan has not marked unreachable (pve.netscan.reachable). The node is asked directly, at this resource's own hostname, and never through another node: another node would answer for itself. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "5m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Node_Network.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Node_Network.ad.groovy",
+  "instanceGroupProperty": "auto.pve_iface_type",
+  "discoveryInterval": "60m",
+  "datapoints": [
+    {
+      "name": "Active",
+      "description": "1 when Proxmox reports the interface active.",
+      "statusNames": {
+        "0": "Inactive",
+        "1": "Active"
+      }
+    },
+    {
+      "name": "Healthy",
+      "description": "0 when the interface is set to start at boot but is not active; 1 otherwise.",
+      "threshold": "< 1 1 1",
+      "statusNames": {
+        "0": "Down",
+        "1": "OK"
+      },
+      "alertBody": "Network interface ##INSTANCE## on ##HOST## is set to start at boot but is not active. Guests on a bridge that is down have no network.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "Ports",
+      "description": "Bridges and bonds only: the number of ports or bond members configured.",
+      "conditional": true
+    }
+  ],
+  "graphs": [
+    {
+      "title": "Interface State",
+      "verticalLabel": "1 = yes",
+      "max": 1,
+      "lines": [
+        {
+          "dp": "Healthy",
+          "legend": "Healthy",
+          "color": "green"
+        },
+        {
+          "dp": "Active",
+          "legend": "Active",
+          "color": "blue"
+        }
+      ]
+    },
+    {
+      "title": "Ports",
+      "verticalLabel": "ports",
+      "lines": [
+        {
+          "dp": "Ports",
+          "legend": "Ports or members",
+          "color": "black"
+        }
+      ]
+    }
+  ]
+}

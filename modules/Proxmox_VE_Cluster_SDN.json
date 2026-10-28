@@ -1,0 +1,68 @@
+{
+  "name": "Proxmox_VE_Cluster_SDN",
+  "displayedAs": "Proxmox VE Cluster SDN",
+  "description": "State of each Proxmox VE SDN zone and VNet across the cluster's nodes.",
+  "group": "Proxmox VE",
+  "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
+  "searchKeywords": "proxmox,pve,sdn,zone,vnet,vlan,vxlan,evpn,network,topology",
+  "technicalNotes": "BatchScript: /cluster/sdn/zones, /cluster/sdn/vnets and /cluster/resources?type=sdn per interval, however many nodes. Requires SDN.Audit, which the PVEAuditor role includes. A cluster without SDN discovers nothing.\n\nOne instance per zone (zone/<zone>) and per VNet (vnet/<vnet>). Proxmox reports state per zone and node, so a VNet carries its zone's figures. NodesTotal counts the nodes reporting the zone, NodesOK those reporting it ok; Healthy is 1 when every one does. A zone defined but not yet applied reports no nodes, and no Healthy value rather than a failure.\n\nEach instance carries a topology vertex for Proxmox_VE_Cluster_Topology (predef.externalResourceID and predef.externalResourceType). The keys are written plain, so where topo.namespace or topo.blacklist is set, which rewrites the TopologySource's keys, discovery stamps none: the instances stay, off the map. The vertex is type VirtualSwitch, drawn between the nodes (or the bridge the zone rides on) and the guests attached to the VNet.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "5m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Cluster_SDN.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Cluster_SDN.ad.groovy",
+  "instanceGroupProperty": "auto.pve_sdn_kind",
+  "discoveryInterval": "60m",
+  "datapoints": [
+    {
+      "name": "NodesTotal",
+      "description": "Nodes reporting the zone."
+    },
+    {
+      "name": "NodesOK",
+      "description": "Nodes reporting the zone ok."
+    },
+    {
+      "name": "Healthy",
+      "description": "1 when every node reporting the zone reports it ok. Absent for a zone no node reports yet.",
+      "threshold": "< 1 1 1",
+      "conditional": true,
+      "statusNames": {
+        "0": "Not OK",
+        "1": "OK"
+      },
+      "alertBody": "SDN ##INSTANCE## is not ok on every node: ##NodesOK## of ##NodesTotal## nodes report it ok. Guests on its VNets may have lost their network on the others; check Datacenter > SDN in the Proxmox web interface.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago."
+    }
+  ],
+  "graphs": [
+    {
+      "title": "Nodes",
+      "verticalLabel": "nodes",
+      "lines": [
+        {
+          "dp": "NodesTotal",
+          "legend": "Reporting",
+          "color": "black"
+        },
+        {
+          "dp": "NodesOK",
+          "legend": "OK",
+          "color": "green"
+        }
+      ]
+    },
+    {
+      "title": "SDN State",
+      "verticalLabel": "1 = yes",
+      "max": 1,
+      "lines": [
+        {
+          "dp": "Healthy",
+          "legend": "Healthy",
+          "color": "green"
+        }
+      ]
+    }
+  ]
+}

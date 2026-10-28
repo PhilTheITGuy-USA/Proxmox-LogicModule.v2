@@ -1,0 +1,117 @@
+{
+  "name": "Proxmox_VE_Node_StoragePools",
+  "displayedAs": "Proxmox VE Node Storage Pools",
+  "description": "Size, use and health of this Proxmox VE node's ZFS pools, LVM volume groups and LVM thin pools, asked of the node itself.",
+  "group": "Proxmox VE",
+  "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
+  "searchKeywords": "proxmox,pve,zfs,zpool,lvm,lvm-thin,thinpool,volume group,storage,pool,topology",
+  "technicalNotes": "BatchScript: three calls to this node per interval, /nodes/{node}/disks/zfs, /disks/lvm and /disks/lvmthin. Requires Sys.Audit on /, which the PVEAuditor role includes. A node without one kind -- no ZFS installed -- answers an error for it; that kind is skipped. A node that cannot be reached fails the run, so its instances are kept.\n\nThe pools are what Proxmox stores sit on: a zfspool store on a ZFS pool, an lvmthin store on a thin pool, which sits in a volume group, an lvm store on a volume group. Proxmox_VE_Cluster_StorageCapacity reports the store; this module the pool beneath it, including what the store does not show -- a ZFS pool's health and fragmentation, a thin pool's metadata use, which stops every write in the pool when it fills.\n\nWildvalues are the pool's kind and name: zfs/<pool>, lvm/<vg>, lvmthin/<vg>/<lv>.\n\nHealthy is reported for ZFS pools only, 1 when the pool is ONLINE; DEGRADED, FAULTED or any other state is 0. FragmentationPercent is ZFS's own figure. MetadataUsedPercent is reported for thin pools only.\n\nEach instance carries a topology vertex for Proxmox_VE_Cluster_Topology (predef.externalResourceID and predef.externalResourceType). The keys are written plain, so where topo.namespace or topo.blacklist is set, which rewrites the TopologySource's keys, discovery stamps none: the instances stay, off the map. The vertex is type StorageAggregate, drawn between the store and the node's disks.\n\nApplies on ProxmoxVE_Node resources the NetScan has not marked unreachable (pve.netscan.reachable). The node is asked directly, at this resource's own hostname, and never through another node: another node would answer for itself. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.\n\nUnits: sizes in GB. MB and GB are decimal (10^6 and 10^9 bytes); the product page states the suite's convention.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "10m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Node_StoragePools.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Node_StoragePools.ad.groovy",
+  "instanceGroupProperty": "auto.pve_pool_type",
+  "discoveryInterval": "60m",
+  "datapoints": [
+    {
+      "name": "SizeGB",
+      "description": "Pool size, GB (decimal, 10^9 bytes)."
+    },
+    {
+      "name": "UsedGB",
+      "description": "Space allocated in the pool, GB (decimal, 10^9 bytes)."
+    },
+    {
+      "name": "FreeGB",
+      "description": "Space free in the pool, GB (decimal, 10^9 bytes)."
+    },
+    {
+      "name": "UsedPercent",
+      "description": "Pool utilisation, percent.",
+      "threshold": "> 85 90 95",
+      "alertBody": "Storage pool ##INSTANCE## on ##HOST## is ##VALUE##% full. A full thin pool or ZFS pool stops writes for every guest on it.\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "Healthy",
+      "description": "ZFS pools only: 1 when the pool is ONLINE, 0 in any other state (DEGRADED, FAULTED, UNAVAIL, ...).",
+      "threshold": "< 1 1 1",
+      "conditional": true,
+      "statusNames": {
+        "0": "Not online",
+        "1": "Online"
+      },
+      "alertBody": "ZFS pool ##INSTANCE## on ##HOST## is not ONLINE: a device in it has failed or is missing. Check zpool status on the node.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago."
+    },
+    {
+      "name": "FragmentationPercent",
+      "description": "ZFS pools only: free-space fragmentation, percent, as zpool reports it.",
+      "conditional": true
+    },
+    {
+      "name": "MetadataUsedPercent",
+      "description": "LVM thin pools only: metadata space used, percent. A thin pool whose metadata fills stops every write in the pool.",
+      "threshold": "> 80 90 95",
+      "conditional": true,
+      "alertBody": "LVM thin pool ##INSTANCE## on ##HOST## has used ##VALUE##% of its metadata space. When it fills, every write to every volume in the pool fails. Extend the metadata volume (lvextend --poolmetadatasize).\n\nThis started at ##START##, ##DURATION## ago."
+    }
+  ],
+  "graphs": [
+    {
+      "title": "Capacity",
+      "verticalLabel": "GB",
+      "lines": [
+        {
+          "dp": "UsedGB",
+          "legend": "Used",
+          "color": "blue"
+        },
+        {
+          "dp": "FreeGB",
+          "legend": "Free",
+          "color": "green"
+        },
+        {
+          "dp": "SizeGB",
+          "legend": "Size",
+          "color": "black"
+        }
+      ]
+    },
+    {
+      "title": "Used",
+      "verticalLabel": "%",
+      "max": 100,
+      "lines": [
+        {
+          "dp": "UsedPercent",
+          "legend": "Used",
+          "color": "blue"
+        },
+        {
+          "dp": "MetadataUsedPercent",
+          "legend": "Thin pool metadata",
+          "color": "orange"
+        },
+        {
+          "dp": "FragmentationPercent",
+          "legend": "ZFS fragmentation",
+          "color": "fuchsia"
+        }
+      ]
+    },
+    {
+      "title": "Pool State",
+      "verticalLabel": "1 = yes",
+      "max": 1,
+      "lines": [
+        {
+          "dp": "Healthy",
+          "legend": "ZFS pool online",
+          "color": "green"
+        }
+      ]
+    }
+  ]
+}

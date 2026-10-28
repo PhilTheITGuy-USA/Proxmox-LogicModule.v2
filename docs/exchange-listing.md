@@ -16,7 +16,7 @@ cluster modules.
 ## Overview
 
 The Proxmox VE package monitors Proxmox VE clusters and standalone hosts through the Proxmox VE
-REST API, with a read-only API token (the `PVEAuditor` role). It has 19 LogicModules: 15
+REST API, with a read-only API token (the `PVEAuditor` role). It has 23 LogicModules: 19
 DataSources, a TopologySource and three PropertySources.
 
 **How it applies.** An Enhanced Script NetScan, one per cluster, creates a resource for each
@@ -42,8 +42,11 @@ hourly and ask each guest's own node.
 **Node modules** collect on each node's own resource and ask only that node, so a node's alerts
 are raised, routed and silenced on the node.
 
-**Topology.** Cluster to node and node to guest, with guests matched to their own resources by
-MAC address, so a node's alerts explain its guests'.
+**Topology.** Modelled on LogicMonitor's vSphere suite: cluster to node to guest, with guests
+matched to their own resources by MAC address, so a node's alerts explain its guests'; storage
+from each guest and node to its stores, labelled local, shared or network, and on to the ZFS,
+LVM and Ceph pools and the disks beneath them; and networking from each node through its
+bridges and bonds, or SDN VNets, to its guests.
 
 **Requirements.** A Collector at version 32.400 or later (the Enhanced Script NetScan),
 HTTPS to port 8006 and ping to every node, a Proxmox VE API token with `PVEAuditor` on `/`, and a
@@ -72,12 +75,16 @@ address are designed for but not yet seen on a live cluster.
 | `Proxmox_VE_Cluster_StorageCapacity` | DataSource | 10 min |
 | `Proxmox_VE_Cluster_Ceph` | DataSource | 5 min |
 | `Proxmox_VE_Cluster_CephOSD` | DataSource | 5 min |
+| `Proxmox_VE_Cluster_CephPools` | DataSource | 5 min |
+| `Proxmox_VE_Cluster_SDN` | DataSource | 5 min |
 | `Proxmox_VE_Cluster_Backups` | DataSource | 60 min |
 | `Proxmox_VE_Cluster_Snapshots` | DataSource | 60 min |
 | `Proxmox_VE_Cluster_Topology` | TopologySource | 60 min |
 | `Proxmox_VE_Node_Detail` | DataSource | 5 min |
 | `Proxmox_VE_Node_Services` | DataSource | 5 min |
 | `Proxmox_VE_Node_Replication` | DataSource | 10 min |
+| `Proxmox_VE_Node_StoragePools` | DataSource | 10 min |
+| `Proxmox_VE_Node_Network` | DataSource | 5 min |
 | `Proxmox_VE_Node_Disks` | DataSource | 240 min |
 | `Proxmox_VE_Node_Certificates` | DataSource | 240 min |
 | `Proxmox_VE_Node_Subscription` | DataSource | 720 min |

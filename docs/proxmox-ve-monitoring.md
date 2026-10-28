@@ -490,9 +490,11 @@ so no module replaces another.
 | Proxmox VE Cluster Storage Capacity | DataSource | Capacity and availability of every storage, per node | — |
 | Proxmox VE Cluster Ceph | DataSource | Ceph health, placement groups and capacity | — |
 | Proxmox VE Cluster Ceph OSD | DataSource | Each OSD's state, fill level and latency | — |
+| Proxmox VE Cluster Ceph Pools | DataSource | Each Ceph pool's use and replication | — |
+| Proxmox VE Cluster SDN | DataSource | State of each SDN zone and VNet across the nodes | — |
 | Proxmox VE Cluster Backups | DataSource | Backup jobs, each guest's last backup, unprotected guests | — |
 | Proxmox VE Cluster Snapshots | DataSource | Snapshot count and age per guest, hourly | — |
-| `Proxmox_VE_Cluster_Topology` | TopologySource | Cluster to node, node to guest | — |
+| `Proxmox_VE_Cluster_Topology` | TopologySource | The map, modelled on vSphere's: cluster, nodes and guests; storage (stores, pools, disks, Ceph); networking (bridges, bonds, SDN) *(not yet verified)* | — |
 
 **Proxmox VE Node modules** (apply on `ProxmoxVE_Node`)
 
@@ -504,6 +506,8 @@ so no module replaces another.
 | Proxmox VE Node Certificates | DataSource | TLS certificate expiry | — |
 | Proxmox VE Node Subscription | DataSource | Subscription status and renewal date | — |
 | Proxmox VE Node Replication | DataSource | Replication job failures, staleness and duration | — |
+| Proxmox VE Node Storage Pools | DataSource | Size, use and health of ZFS pools, LVM volume groups and thin pools | — |
+| Proxmox VE Node Network | DataSource | State of bridges, bonds, ports and VLAN interfaces | — |
 
 **Proxmox VE PropertySources and NetScan**
 
