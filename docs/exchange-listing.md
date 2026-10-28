@@ -46,7 +46,7 @@ are raised, routed and silenced on the node.
 matched to their own resources by MAC address, so a node's alerts explain its guests'; storage
 from each guest and node to its stores, labelled local, shared or network, and on to the ZFS,
 LVM and Ceph pools and the disks beneath them; and networking from each node through its
-bridges and bonds, or SDN VNets, to its guests.
+bridges, or SDN VNets, to its guests.
 
 **Requirements.** A Collector at version 32.400 or later (the Enhanced Script NetScan),
 HTTPS to port 8006 and ping to every node, a Proxmox VE API token with `PVEAuditor` on `/`, and a

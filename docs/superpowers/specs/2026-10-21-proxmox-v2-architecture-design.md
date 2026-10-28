@@ -317,8 +317,9 @@ documents "Manually Assigning Properties to Resources".
 >   mount joins the store whose directory holds it); node → guest for a host path or passed-through
 >   device no store covers; store → ZFS pool, LVM thin pool, volume group, Ceph pool or (a directory
 >   store on a Proxmox-made mount) disk; thin pool → volume group → disk; ZFS pool → disk; node →
->   Ceph OSD → disk. Network: node → its top interfaces → bond members, bridge ports and VLAN
->   interfaces; bridge or SDN VNet → guest; SDN zone → VNet, under the bridge the zone rides on or
+>   Ceph OSD → disk. Network: node → bridge; bridge or SDN VNet → guest (physical ports, bonds and
+>   VLAN interfaces are discovered and keyed but kept off the map, user 2026-10-28: a switch joins
+>   at the node, by the MACs on its resource); SDN zone → VNet, under the bridge the zone rides on or
 >   the node. Not drawn: node uplink → physical switch (Proxmox gives no interface MAC or LLDP),
 >   guest disks as vertices, backup targets.
 > - **Vertices and carriers** (`pveTopoVertexKey`, `proxmoxve--<cluster>--…`): stores on

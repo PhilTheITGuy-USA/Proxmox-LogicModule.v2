@@ -1329,29 +1329,15 @@ def pveTopoPlan = { Map input ->
         if (entry.children instanceof List) { osdStack.addAll(entry.children) }
     }
 
-    // Network: each node to its top interfaces, and each interface to the ports, bond
-    // members or VLAN interfaces under it.
+    // Network: each node to its bridges, the virtual switches its guests attach to. Physical
+    // ports, bonds and VLAN interfaces are discovered and carry keys (Node_Network) but are not
+    // drawn (user, 2026-10-28): a switch joins the map at the node, by the MACs on its resource.
     def ifaceNames = [:]
     (input.perNode ?: [:]).each { node, data ->
-        def ifaces = pveNetIfaces(data.network)
-        def names = ifaces.collect { it.iface.toString() } as Set
-        ifaceNames[node] = names
-        def children = [:].withDefault { [] }
-        ifaces.each { iface ->
-            def name = iface.iface.toString()
-            ((iface.bridge_ports ?: '') + ' ' + (iface.ovs_ports ?: '') + ' ' + (iface.slaves ?: '') + ' ' +
-                (iface.ovs_bonds ?: '')).tokenize(' ').findAll { it in names && it != name }.each { children[name] << it }
-            def raw = iface.'vlan-raw-device'?.toString() ?: iface.ovs_bridge?.toString() ?:
-                      (name.contains('.') ? name.substring(0, name.lastIndexOf('.')) : null)
-            if (raw && raw in names && raw != name) { children[raw] << name }
-        }
-        def under = children.values().flatten() as Set
-        ifaces.each { iface ->
-            def name = iface.iface.toString()
-            if (!(name in under)) { edge('Network', nodeKey(node), pveTopoVertexKey(cluster, ['net', node, name])) }
-            children[name].unique().each { child ->
-                edge('Network', pveTopoVertexKey(cluster, ['net', node, name]), pveTopoVertexKey(cluster, ['net', node, child]))
-            }
+        def bridges = pveNetIfaces(data.network).findAll { it.type?.toString() in ['bridge', 'OVSBridge'] }
+        ifaceNames[node] = bridges.collect { it.iface.toString() } as Set
+        bridges.each { bridge ->
+            edge('Network', nodeKey(node), pveTopoVertexKey(cluster, ['net', node, bridge.iface.toString()]))
         }
     }
 

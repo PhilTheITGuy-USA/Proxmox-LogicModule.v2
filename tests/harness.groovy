@@ -1934,18 +1934,20 @@ def topoMedia = 'bc:24:11:0e:00:03'
     ['Storage', topoKey('storage', 'ceph-vm'), topoKey('cephpool', 'ceph-vm')],
     ['Storage', topoKey('storage', 'usb-media'), topoKey('disk', 'pve1', 'sda')],
     ['Storage', topoN1, topoKey('osd', '0')], ['Storage', topoN2, topoKey('osd', '2')], ['Storage', topoKey('osd', '0'), topoKey('disk', 'pve1', 'sdc')],
-    // Network: node -> top interfaces -> the ones under them; bridge or VNet -> guest.
-    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr0')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'bond0')],
-    ['Network', topoKey('net', 'pve1', 'bond0'), topoKey('net', 'pve1', 'eno1')], ['Network', topoKey('net', 'pve1', 'bond0'), topoKey('net', 'pve1', 'eno2')],
-    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'vmbr0-20')], ['Network', topoN1, topoKey('net', 'pve1', 'eno3')],
-    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr1')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoWeb],
+    // Network: node -> bridge; bridge or VNet -> guest.
+    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr0')], ['Network', topoN1, topoKey('net', 'pve1', 'vmbr1')],
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoWeb],
     ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('sdn', 'lab')], ['Network', topoN2, topoKey('sdn', 'lab')],
     ['Network', topoKey('sdn', 'lab'), topoKey('sdn', 'lab', 'labnet')], ['Network', topoKey('sdn', 'lab', 'labnet'), topoMedia],
 ].each { expected ->
     note('topo-plan-edges', expected in topoPlanSet, "missing edge ${expected}")
 }
 [
+    // Ports, bonds and VLAN interfaces are carried but not drawn (user, 2026-10-28).
     ['Network', topoN1, topoKey('net', 'pve1', 'bond0')], ['Network', topoN1, topoKey('net', 'pve1', 'eno1')],
+    ['Network', topoN1, topoKey('net', 'pve1', 'eno3')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'bond0')],
+    ['Network', topoKey('net', 'pve1', 'bond0'), topoKey('net', 'pve1', 'eno1')],
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'vmbr0-20')],
     ['Network', topoN1, topoKey('net', 'pve1', 'lo')], ['Network', topoKey('net', 'pve1', 'labnet'), topoMedia],
     ['Storage', topoN1, topoWeb],
 ].each { unexpected ->
@@ -1963,13 +1965,17 @@ def carrierKeys = { String script, Map props ->
     note('topo-carriers', run.exit == 0, "${script} exit ${run.exit}: ${run.stderr}")
     parseAd(run.stdout).collectEntries { id, p -> [(id): [key: p.predef['predef.externalResourceID'], type: p.predef['predef.externalResourceType']]] }
 }
-def expectCarried = { String script, Map props, Map expected ->
+// undrawnTypes: vertex types a carrier keys for later use, which the plan does not draw.
+def expectCarried = { String script, Map props, Map expected, List undrawnTypes = [] ->
     def got = carrierKeys(script, props)
     expected.each { id, want ->
         note('topo-carriers', got[id] == want, "${script} ${id} carried ${got[id]}, expected ${want}")
     }
-    got.values().findAll { it.key }.each { carried ->
-        note('topo-carriers', carried.key in topoPlannedKeys, "${script} stamps ${carried.key}, which the topoPlan never draws")
+    got.values().findAll { it.key && !(it.type in undrawnTypes) }.each { carried ->
+        note('topo-carriers', carried.key in topoPlannedKeys, "${script} stamps ${carried.key}, which the plan never draws")
+    }
+    got.values().findAll { it.key && it.type in undrawnTypes }.each { carried ->
+        note('topo-carriers', !(carried.key in topoPlannedKeys), "${script} stamps ${carried.key}, a ${carried.type} the plan should not draw")
     }
     got
 }
@@ -2000,7 +2006,7 @@ expectCarried('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps, [
     'bond0'   : [key: topoKey('net', 'pve1', 'bond0'), type: 'PhysicalNIC'],
     'eno1'    : [key: topoKey('net', 'pve1', 'eno1'), type: 'PhysicalNIC'],
     'vmbr0-20': [key: topoKey('net', 'pve1', 'vmbr0-20'), type: 'NICVIRTUAL'],
-])
+], ['PhysicalNIC', 'NICVIRTUAL'])
 note('topo-carriers', !carrierKeys('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps).containsKey('lo'), 'loopback was discovered')
 expectCarried('Proxmox_VE_Cluster_CephPools.ad.groovy', hostProps, [
     'ceph-vm': [key: topoKey('cephpool', 'ceph-vm'), type: 'StorageAggregate'],

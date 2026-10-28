@@ -5,7 +5,7 @@
  *   Compute   node -> guest
  *   Storage   node -> store, guest -> store, store -> pool -> disk, node -> Ceph OSD -> disk,
  *             and node -> guest for a host path or device no store covers
- *   Network   node -> bridge, bond or port -> the interfaces under it; bridge or SDN VNet -> guest
+ *   Network   node -> bridge; bridge or SDN VNet -> guest (ports, bonds, VLANs kept off the map)
  *
  * THIS SCRIPT CANNOT BE COMPILED OR RUN OUTSIDE A COLLECTOR. Every LogicMonitor
  * TopologySource works through com.logicmonitor.mod.Snippets: lmTopo.eriPreProcessor normalises
