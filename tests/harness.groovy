@@ -2002,12 +2002,22 @@ expectCarried('Proxmox_VE_Node_Disks.ad.groovy', nodeHostProps, [
     'pve1-nvme0n1': [key: topoKey('disk', 'pve1', 'nvme0n1'), type: 'PhysicalDisk'],
 ])
 expectCarried('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps, [
-    'vmbr0'   : [key: topoKey('net', 'pve1', 'vmbr0'), type: 'VirtualSwitch'],
-    'bond0'   : [key: topoKey('net', 'pve1', 'bond0'), type: 'PhysicalNIC'],
-    'eno1'    : [key: topoKey('net', 'pve1', 'eno1'), type: 'PhysicalNIC'],
-    'vmbr0-20': [key: topoKey('net', 'pve1', 'vmbr0-20'), type: 'NICVIRTUAL'],
-], ['PhysicalNIC', 'NICVIRTUAL'])
-note('topo-carriers', !carrierKeys('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps).containsKey('lo'), 'loopback was discovered')
+    'vmbr0': [key: topoKey('net', 'pve1', 'vmbr0'), type: 'VirtualSwitch'],
+    'vmbr1': [key: topoKey('net', 'pve1', 'vmbr1'), type: 'VirtualSwitch'],
+])
+// Only bridges: the node's SNMP monitoring covers its ports, and no switch can join a port
+// vertex without a MAC (user, 2026-10-28).
+def bridgeIds = carrierKeys('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps).keySet()
+note('topo-carriers', bridgeIds == ['vmbr0', 'vmbr1'] as Set, "Node_Network discovered ${bridgeIds}, expected only the bridges")
+
+// A volume group is nearly all allocated by design: it reports AllocatedPercent, which carries
+// no alert, and never UsedPercent; the pools on it keep UsedPercent.
+def poolRun = runScript(new File(scriptsDir, 'Proxmox_VE_Node_StoragePools.collect.groovy'), [hostProps: nodeHostProps])
+def poolKeys = parseBatch(poolRun.stdout)
+note('pool-vg-allocation', poolKeys['lvm-pve']?.containsKey('AllocatedPercent') && !poolKeys['lvm-pve']?.containsKey('UsedPercent') &&
+                           poolKeys['lvmthin-pve-data']?.containsKey('UsedPercent') && poolKeys['zfs-rpool']?.containsKey('UsedPercent') &&
+                           !poolKeys['lvmthin-pve-data']?.containsKey('AllocatedPercent'),
+     "pool datapoints were ${poolKeys}")
 expectCarried('Proxmox_VE_Cluster_CephPools.ad.groovy', hostProps, [
     'ceph-vm': [key: topoKey('cephpool', 'ceph-vm'), type: 'StorageAggregate'],
 ])

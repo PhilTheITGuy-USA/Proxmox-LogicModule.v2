@@ -5,7 +5,7 @@
   "group": "Proxmox VE",
   "appliesTo": "hasCategory(\"ProxmoxVE_Node\") && pve.netscan.reachable != \"false\"",
   "searchKeywords": "proxmox,pve,zfs,zpool,lvm,lvm-thin,thinpool,volume group,storage,pool,topology",
-  "technicalNotes": "BatchScript: three calls to this node per interval, /nodes/{node}/disks/zfs, /disks/lvm and /disks/lvmthin. Requires Sys.Audit on /, which the PVEAuditor role includes. A node without one kind -- no ZFS installed -- answers an error for it; that kind is skipped. A node that cannot be reached fails the run, so its instances are kept.\n\nThe pools are what Proxmox stores sit on: a zfspool store on a ZFS pool, an lvmthin store on a thin pool, which sits in a volume group, an lvm store on a volume group. Proxmox_VE_Cluster_StorageCapacity reports the store; this module the pool beneath it, including what the store does not show -- a ZFS pool's health and fragmentation, a thin pool's metadata use, which stops every write in the pool when it fills.\n\nWildvalues are the pool's kind and name: zfs/<pool>, lvm/<vg>, lvmthin/<vg>/<lv>.\n\nHealthy is reported for ZFS pools only, 1 when the pool is ONLINE; DEGRADED, FAULTED or any other state is 0. FragmentationPercent is ZFS's own figure. MetadataUsedPercent is reported for thin pools only.\n\nEach instance carries a topology vertex for Proxmox_VE_Cluster_Topology (predef.externalResourceID and predef.externalResourceType). The keys are written plain, so where topo.namespace or topo.blacklist is set, which rewrites the TopologySource's keys, discovery stamps none: the instances stay, off the map. The vertex is type StorageAggregate, drawn between the store and the node's disks.\n\nApplies on ProxmoxVE_Node resources the NetScan has not marked unreachable (pve.netscan.reachable). The node is asked directly, at this resource's own hostname, and never through another node: another node would answer for itself. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.\n\nUnits: sizes in GB. MB and GB are decimal (10^6 and 10^9 bytes); the product page states the suite's convention.",
+  "technicalNotes": "BatchScript: three calls to this node per interval, /nodes/{node}/disks/zfs, /disks/lvm and /disks/lvmthin. Requires Sys.Audit on /, which the PVEAuditor role includes. A node without one kind -- no ZFS installed -- answers an error for it; that kind is skipped. A node that cannot be reached fails the run, so its instances are kept.\n\nThe pools are what Proxmox stores sit on: a zfspool store on a ZFS pool, an lvmthin store on a thin pool, which sits in a volume group, an lvm store on a volume group. Proxmox_VE_Cluster_StorageCapacity reports the store; this module the pool beneath it, including what the store does not show -- a ZFS pool's health and fragmentation, a thin pool's metadata use, which stops every write in the pool when it fills.\n\nWildvalues are the pool's kind and name: zfs/<pool>, lvm/<vg>, lvmthin/<vg>/<lv>.\n\nA volume group reports AllocatedPercent rather than UsedPercent, and without a threshold: the Proxmox installer allocates nearly all of one to root, swap and the data thin pool, so it reads about 97% from the first day, and how full the guests' storage is shows on the thin pool. FreeGB on a volume group is space not yet allocated, which snapshots and new volumes draw from. Healthy is reported for ZFS pools only, 1 when the pool is ONLINE; DEGRADED, FAULTED or any other state is 0. FragmentationPercent is ZFS's own figure. MetadataUsedPercent is reported for thin pools only.\n\nEach instance carries a topology vertex for Proxmox_VE_Cluster_Topology (predef.externalResourceID and predef.externalResourceType). The keys are written plain, so where topo.namespace or topo.blacklist is set, which rewrites the TopologySource's keys, discovery stamps none: the instances stay, off the map. The vertex is type StorageAggregate, drawn between the store and the node's disks.\n\nApplies on ProxmoxVE_Node resources the NetScan has not marked unreachable (pve.netscan.reachable). The node is asked directly, at this resource's own hostname, and never through another node: another node would answer for itself. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.\n\nUnits: sizes in GB. MB and GB are decimal (10^6 and 10^9 bytes); the product page states the suite's convention.",
   "collectionMethod": "batchscript",
   "collectionInterval": "10m",
   "multiInstance": true,
@@ -21,17 +21,23 @@
     },
     {
       "name": "UsedGB",
-      "description": "Space allocated in the pool, GB (decimal, 10^9 bytes)."
+      "description": "Space used in the pool, GB (decimal, 10^9 bytes); for a volume group, space allocated to its volumes."
     },
     {
       "name": "FreeGB",
-      "description": "Space free in the pool, GB (decimal, 10^9 bytes)."
+      "description": "Space free in the pool, GB (decimal, 10^9 bytes); for a volume group, space not yet allocated."
     },
     {
       "name": "UsedPercent",
-      "description": "Pool utilisation, percent.",
+      "description": "ZFS and thin pools: utilisation, percent. A full pool stops writes for every guest on it.",
       "threshold": "> 85 90 95",
-      "alertBody": "Storage pool ##INSTANCE## on ##HOST## is ##VALUE##% full. A full thin pool or ZFS pool stops writes for every guest on it.\n\nThis started at ##START##, ##DURATION## ago."
+      "alertBody": "Storage pool ##INSTANCE## on ##HOST## is ##VALUE##% full. A full thin pool or ZFS pool stops writes for every guest on it.\n\nThis started at ##START##, ##DURATION## ago.",
+      "conditional": true
+    },
+    {
+      "name": "AllocatedPercent",
+      "description": "Volume groups only: share allocated to logical volumes, percent. No threshold: a Proxmox volume group is nearly all allocated by design.",
+      "conditional": true
     },
     {
       "name": "Healthy",
@@ -88,6 +94,11 @@
           "dp": "UsedPercent",
           "legend": "Used",
           "color": "blue"
+        },
+        {
+          "dp": "AllocatedPercent",
+          "legend": "Volume group allocated",
+          "color": "black"
         },
         {
           "dp": "MetadataUsedPercent",

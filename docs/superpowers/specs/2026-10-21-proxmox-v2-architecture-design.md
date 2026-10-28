@@ -318,22 +318,24 @@ documents "Manually Assigning Properties to Resources".
 >   device no store covers; store → ZFS pool, LVM thin pool, volume group, Ceph pool or (a directory
 >   store on a Proxmox-made mount) disk; thin pool → volume group → disk; ZFS pool → disk; node →
 >   Ceph OSD → disk. Network: node → bridge; bridge or SDN VNet → guest (physical ports, bonds and
->   VLAN interfaces are discovered and keyed but kept off the map, user 2026-10-28: a switch joins
->   at the node, by the MACs on its resource); SDN zone → VNet, under the bridge the zone rides on or
+>   VLAN interfaces are not discovered, user 2026-10-28: a switch joins at the node, by the MACs on
+>   its resource, and the node's SNMP interface monitoring covers its ports); SDN zone → VNet, under the bridge the zone rides on or
 >   the node. Not drawn: node uplink → physical switch (Proxmox gives no interface MAC or LLDP),
 >   guest disks as vertices, backup targets.
 > - **Vertices and carriers** (`pveTopoVertexKey`, `proxmoxve--<cluster>--…`): stores on
 >   `Cluster_StorageCapacity` (`VMDatastore`; a shared store's key on one instance only, the first
 >   node's by name); pools on the new `Node_StoragePools` and `Cluster_CephPools`
 >   (`StorageAggregate`); OSDs on `Cluster_CephOSD` (`StorageNode`); disks on `Node_Disks`
->   (`PhysicalDisk`); interfaces on the new `Node_Network` (`VirtualSwitch`, `PhysicalNIC`,
->   `NICVIRTUAL`); SDN zones and VNets on the new `Cluster_SDN` (`VirtualSwitch`). Cluster modules
+>   (`PhysicalDisk`); bridges on the new `Node_Network` (`VirtualSwitch`); SDN zones and VNets on the new `Cluster_SDN` (`VirtualSwitch`). Cluster modules
 >   stamp keys only where they collect; node modules read the cluster name from their own node.
 >   With `topo.namespace` or `topo.blacklist` set, carriers stamp nothing, as before.
 > - **Where it is decided.** `pveTopoInput` (the reads) and `pveTopoPlan` (the edges) in the
 >   preamble; the TopologySource only turns keys into ERIs. Cost per hourly run: a handful of
 >   cluster reads, six or so per online node plus one per ZFS pool, and the guest-config reads it
 >   already made.
+> - **Volume groups** report `AllocatedPercent` without a threshold, never `UsedPercent`: the Proxmox
+>   installer allocates nearly all of one by design, so it read 97% and alerted on the lab (user,
+>   2026-10-28). Thin and ZFS pools keep `UsedPercent` and its alert.
 > - **Unverified** until the lab sees it: that `HyperVisorCluster` and `HyperVisor` render and the
 >   node takes `HyperVisor` at priority 3 over `net.l2`; that the new carriers' instance vertices draw
 >   and join the plan's edges; ZFS, Ceph and SDN (the lab has none).

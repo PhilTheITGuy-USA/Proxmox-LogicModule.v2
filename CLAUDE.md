@@ -119,7 +119,7 @@ What each layer has proved. Spike detail is in the architecture spec's §5 table
 when a layer changes.
 
 - **Branch `topology-vsphere-model`** (2026-10-28, the vSphere topology model, A§3.4 amended): local
-  checks only -- build clean (23 modules); compile job passed; harness 1,975 of 1,975; lint 0 errors,
+  checks only -- build clean (23 modules); compile job passed; harness 1,867 of 1,867; lint 0 errors,
   4 warnings; both dashboards check clean. **Not yet imported or run on the lab.**
 - **Local checks** (2026-10-27, after the review fixes, the lab-detail scrub and the status
   names): build clean; compile job passed; harness 1,489 of 1,489; lint 0 errors, 4 warnings;

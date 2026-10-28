@@ -507,7 +507,7 @@ so no module replaces another.
 | Proxmox VE Node Subscription | DataSource | Subscription status and renewal date | — |
 | Proxmox VE Node Replication | DataSource | Replication job failures, staleness and duration | — |
 | Proxmox VE Node Storage Pools | DataSource | Size, use and health of ZFS pools, LVM volume groups and thin pools | — |
-| Proxmox VE Node Network | DataSource | State of bridges, bonds, ports and VLAN interfaces | — |
+| Proxmox VE Node Network | DataSource | State of the bridges guests attach to | — |
 
 **Proxmox VE PropertySources and NetScan**
 

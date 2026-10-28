@@ -943,19 +943,13 @@ def pveDiskKey = { String cluster, String node, String devpath ->
 }
 
 /*
- * The node's interfaces that are drawn: bridges, bonds, physical ports and VLAN interfaces,
- * Linux or Open vSwitch. Loopback and anything else Proxmox lists are left out.
+ * The node's bridges, Linux or Open vSwitch: the virtual switches its guests attach to, and the
+ * only interfaces on the map. Ports, bonds and VLAN interfaces are left out (user, 2026-10-28):
+ * Proxmox gives no interface MAC, so a switch joins the map at the node, and the node's SNMP
+ * interface monitoring already covers its ports.
  */
-def pveNetIfaces = { List rows ->
-    (rows ?: []).findAll {
-        it.iface && it.iface.toString() != 'lo' &&
-            it.type?.toString() in ['bridge', 'bond', 'eth', 'vlan', 'OVSBridge', 'OVSBond', 'OVSPort', 'OVSIntPort']
-    }
-}
-
-// The icon each interface type takes: LogicMonitor's VirtualSwitch, PhysicalNIC and NICVIRTUAL.
-def pveNetErt = { String type ->
-    type in ['bridge', 'OVSBridge'] ? 'VirtualSwitch' : type in ['eth', 'bond', 'OVSBond'] ? 'PhysicalNIC' : 'NICVIRTUAL'
+def pveNetBridges = { List rows ->
+    (rows ?: []).findAll { it.iface && it.type?.toString() in ['bridge', 'OVSBridge'] }
 }
 
 def pveSdnKey = { String cluster, String zone, String vnet ->
@@ -1334,7 +1328,7 @@ def pveTopoPlan = { Map input ->
     // drawn (user, 2026-10-28): a switch joins the map at the node, by the MACs on its resource.
     def ifaceNames = [:]
     (input.perNode ?: [:]).each { node, data ->
-        def bridges = pveNetIfaces(data.network).findAll { it.type?.toString() in ['bridge', 'OVSBridge'] }
+        def bridges = pveNetBridges(data.network)
         ifaceNames[node] = bridges.collect { it.iface.toString() } as Set
         bridges.each { bridge ->
             edge('Network', nodeKey(node), pveTopoVertexKey(cluster, ['net', node, bridge.iface.toString()]))

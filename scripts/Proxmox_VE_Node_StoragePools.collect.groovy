@@ -12,7 +12,13 @@ try {
         pveEmit(id, 'SizeGB', pveGB(pool.size))
         pveEmit(id, 'UsedGB', pveGB(pool.used))
         pveEmit(id, 'FreeGB', pveGB(pool.free > 0 ? pool.free : 0))
-        pveEmit(id, 'UsedPercent', pvePercent(pool.used, pool.size))
+        if (pool.kind == 'lvm') {
+            // A volume group is nearly all allocated to its volumes by design, so its share is
+            // allocation, not fullness, and carries no alert.
+            pveEmit(id, 'AllocatedPercent', pvePercent(pool.used, pool.size))
+        } else {
+            pveEmit(id, 'UsedPercent', pvePercent(pool.used, pool.size))
+        }
         if (pool.kind == 'zfs' && pool.health) {
             // ONLINE is the only state in which every vdev is working.
             pveEmit(id, 'Healthy', pool.health == 'ONLINE' ? 1 : 0)

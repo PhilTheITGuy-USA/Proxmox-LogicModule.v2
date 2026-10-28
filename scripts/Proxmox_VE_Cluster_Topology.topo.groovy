@@ -25,8 +25,7 @@
  *   pool      Proxmox_VE_Node_StoragePools (ZFS, LVM, LVM-thin) and
  *             Proxmox_VE_Cluster_CephPools, StorageAggregate
  *   OSD       Proxmox_VE_Cluster_CephOSD, StorageNode; disk  Proxmox_VE_Node_Disks, PhysicalDisk
- *   network   Proxmox_VE_Node_Network (VirtualSwitch, PhysicalNIC, NICVIRTUAL) and
- *             Proxmox_VE_Cluster_SDN (VirtualSwitch)
+ *   bridge    Proxmox_VE_Node_Network, VirtualSwitch; SDN  Proxmox_VE_Cluster_SDN, VirtualSwitch
  */
 import com.logicmonitor.mod.Snippets
 import com.santaba.agent.groovy.utils.GroovyScriptHelper as GSH
