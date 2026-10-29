@@ -407,9 +407,8 @@ history is kept. v2.0.0 to v2.0.1 changed only this page.
 4. Leave the NetScan and the dashboards as they are. Re-running the NetScan is not needed.
 
 The cluster's map vertex has a new key, `proxmoxve--cluster--<cluster name>` in place of
-`proxmoxve--<cluster name>`. After the upgrade the map draws the cluster under the new key, with its edges to every node.
-The record under the old key is no longer drawn by any module *(not yet verified: whether it
-stays visible on the map)*.
+`proxmoxve--<cluster name>`. After the upgrade the map draws the cluster under the new key,
+with its edges to every node, and the vertex under the old key drops off the map.
 
 ## Troubleshooting
 
