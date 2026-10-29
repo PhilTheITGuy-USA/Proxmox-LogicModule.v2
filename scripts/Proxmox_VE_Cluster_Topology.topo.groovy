@@ -21,7 +21,7 @@
  *             matches only a resource carrying every one of them.
  *   guest     the MAC of its first NIC: Proxmox_VE_Cluster_GuestStatus's instance, and the
  *             guest's own resource where it has one
- *   store     Proxmox_VE_Cluster_StorageCapacity's instances, VMDatastore
+ *   store     Proxmox_VE_Cluster_StorageCapacity's instances, StorageVolume (VMDatastore takes no edges)
  *   pool      Proxmox_VE_Node_StoragePools (ZFS, LVM, LVM-thin) and
  *             Proxmox_VE_Cluster_CephPools, StorageAggregate
  *   OSD       Proxmox_VE_Cluster_CephOSD, StorageNode; disk  Proxmox_VE_Node_Disks, PhysicalDisk

@@ -308,7 +308,7 @@ documents "Manually Assigning Properties to Resources".
 > vSphere suite, with Proxmox's own depth added (research
 > `docs/research/2026-10-28-lm-vsphere-topology.md`). The user chose, 2026-10-28: parity plus
 > Proxmox depth (pools, disks, bridges, SDN), with new carrier DataSources; vSphere's vocabulary
-> (Manage edges, `HyperVisorCluster`, `HyperVisor`); every store a `VMDatastore`, local stores one
+> (Manage edges, `HyperVisorCluster`, `HyperVisor`); every store a `StorageVolume`, local stores one
 > vertex per node, shared and network stores one per cluster, the kind in the instance name; guest
 > to store directly, without virtual-disk vertices.
 >
@@ -323,7 +323,10 @@ documents "Manually Assigning Properties to Resources".
 >   the node. Not drawn: node uplink → physical switch (Proxmox gives no interface MAC or LLDP),
 >   guest disks as vertices, backup targets.
 > - **Vertices and carriers** (`pveTopoVertexKey`, `proxmoxve--<cluster>--…`): stores on
->   `Cluster_StorageCapacity` (`VMDatastore`; a shared store's key on one instance only, the first
+>   `Cluster_StorageCapacity` (`StorageVolume`, not vSphere's `VMDatastore`: on the lab, 2026-10-28,
+>   store vertices typed `VMDatastore` resolved to their instances but took no edges, before and after
+>   the instances were deleted and rediscovered, and took every edge once typed `StorageVolume`; a
+>   shared store's key on one instance only, the first
 >   node's by name); pools on the new `Node_StoragePools` and `Cluster_CephPools`
 >   (`StorageAggregate`); OSDs on `Cluster_CephOSD` (`StorageNode`); disks on `Node_Disks`
 >   (`PhysicalDisk`); bridges on the new `Node_Network` (`VirtualSwitch`); SDN zones and VNets on the new `Cluster_SDN` (`VirtualSwitch`). Cluster modules

@@ -11,9 +11,10 @@
  * iSCSI, Proxmox Backup Server, an external Ceph). /storage tells an external Ceph from this
  * cluster's own; without it a Ceph store reads as shared.
  *
- * The instances also carry the storage vertices Proxmox_VE_Cluster_Topology draws, type
- * VMDatastore as in LogicMonitor's vSphere suite: a local store one per node, a shared or
- * network store one for the cluster, carried by the instance of the first node by name.
+ * The instances also carry the storage vertices Proxmox_VE_Cluster_Topology draws: a local store
+ * one per node, a shared or network store one for the cluster, carried by the instance of the
+ * first node by name. Type StorageVolume, not vSphere's VMDatastore: the map takes no edges into a
+ * VMDatastore vertex a DataSource instance carries (lab, 2026-10-28).
  */
 if (pveConfigError) {
     System.err.println(pveConfigError)
@@ -55,8 +56,6 @@ try {
                 pve_shared      : store.shared ? 'true' : 'false',
                 pve_storage_kind: kind
             ],
-            // Experiment (lab, 2026-10-28): VMDatastore vertices took no edges; StorageVolume tests
-            // whether the type is why.
             cluster && vertex?.carries ? pveEri(vertex.key, 'StorageVolume') : [:]
         )
     }

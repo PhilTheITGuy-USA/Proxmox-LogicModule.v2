@@ -118,9 +118,16 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Branch `topology-vsphere-model`** (2026-10-28, the vSphere topology model, A§3.4 amended): local
-  checks only -- build clean (23 modules); compile job passed; harness 1,867 of 1,867; lint 0 errors,
-  4 warnings; both dashboards check clean. **Not yet imported or run on the lab.**
+- **Branch `topology-vsphere-model`** (2026-10-28, the vSphere topology model, A§3.4 amended):
+  build clean (23 modules); compile job passed; harness 1,867 of 1,867; lint 0 errors, 4 warnings;
+  both dashboards check clean. **Imported and run on the lab** (user, 2026-10-28): nodes draw as
+  `HyperVisor`; node -> bridge -> guests; node -> store, every guest -> its stores (Media01 -> its
+  root store, and -> a USB directory store through its bind mount), store -> thin pool -> volume
+  group -> disk; ports, bonds and VLAN interfaces stay off the map; volume groups report
+  `AllocatedPercent` with no alert. **Store vertices typed `VMDatastore` took no edges** -- before
+  and after their instances were deleted and rediscovered -- and took every edge once typed
+  `StorageVolume`. Unexplained: the cluster vertex still reads `Cluster` though its instance
+  carries `HyperVisorCluster`. Not seen: ZFS, Ceph, SDN (the lab has none).
 - **Local checks** (2026-10-27, after the review fixes, the lab-detail scrub and the status
   names): build clean; compile job passed; harness 1,489 of 1,489; lint 0 errors, 4 warnings;
   both dashboard exports check clean.

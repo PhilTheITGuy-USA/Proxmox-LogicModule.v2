@@ -50,6 +50,15 @@ monitoring DataSources, set in Active Discovery as `predef.externalResourceID` a
 So LogicMonitor itself puts one vertex key on several instances (the datastore on three
 DataSources) and relies on the map drawing it once.
 
+**`VMDatastore` takes no edges here (lab, 2026-10-28).** This suite's store vertices, carried on
+`Proxmox_VE_Cluster_StorageCapacity` instances as `VMDatastore`, resolved to their instances yet
+took none of the edges the TopologySource printed for them (its Test Script output listed them),
+before and after the instances were deleted and rediscovered; pool vertices typed
+`StorageAggregate` on the same kind of carrier took theirs. Retyped `StorageVolume`, with nothing
+else changed, every store edge drew. The user's screenshots of a vSphere portal show LogicMonitor's
+own datastore vertices as "??" [inferred: the same cause]. Where an ERT is LM-specific, prove it on
+a portal before relying on it.
+
 ## 3. Hyper-V, for virtual networking
 
 `HyperV_Topology` (PowerShell, on the Hyper-V host) draws what vSphere does not [script]:
