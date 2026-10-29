@@ -48,8 +48,12 @@ python ../logicmonitor-modules-skill/skill/scripts/lm_lint_module.py dist
 python ../logicmonitor-modules-skill/skill/scripts/lm_dashboards.py check dist/dashboards/*.json --modules modules
 ```
 
-The harness has no single-test filter: redirect its output to a file and read the `FAILED`
-lines (`note('<name>', ...)` names each check). Rebuild before running it -- it reads `dist/`.
+Rebuild before the compile job or the harness: both read `dist/`, not the sources. The harness
+has no single-test filter; `note('<name>', ...)` names each check, so read its `FAILED` lines:
+
+```sh
+docker compose -f tests/docker-compose.yml run --rm tests > "$TMP/harness.txt" 2>&1; grep FAILED "$TMP/harness.txt"
+```
 
 ## Build rules that bite
 
@@ -69,6 +73,9 @@ lines (`note('<name>', ...)` names each check). Rebuild before running it -- it 
 - Collector objects are not Java collections: `hostProps` and `netscanProps` are
   `com.santaba.common.util.ParamMap` (`get` / `set`, no `put`, not a `Map`). Never type a
   parameter that receives them as `Map`.
+- **Module counts in prose are checked** (`check_doc_counts`): in `README.md` and this file, a
+  number before "modules", "DataSources", "PropertySources" or "TopologySources" (digits or a
+  word up to twenty) must match `modules/`, or the build fails.
 - Most sources are CRLF. When a Bash heredoc or `sed` must write a backslash, use the Edit tool instead:
   the Bash tool collapses doubled backslashes.
 

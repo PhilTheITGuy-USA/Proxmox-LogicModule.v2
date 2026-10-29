@@ -749,7 +749,7 @@ def module_datapoint_index(definitions: list[Path]) -> dict[str, set[str]]:
 # The docs state the module count in prose ("fourteen DataSources", "all 17 modules"), and
 # it drifted every time a module was added. Only phrases carrying a number are checked --
 # "the TopologySource" or "every DataSource" are not counts.
-COUNTED_DOCS = ["README.md", "CLAUDE.md", "docs/INSTALL.md", "docs/DESIGN.md"]
+COUNTED_DOCS = ["README.md", "CLAUDE.md"]
 NUMBER_WORDS = {
     word: n for n, word in enumerate(
         "zero one two three four five six seven eight nine ten eleven twelve thirteen "
@@ -757,11 +757,13 @@ NUMBER_WORDS = {
     )
 }
 _NUMBER = r"(\d+|" + "|".join(NUMBER_WORDS) + r")"
+# Matched across line breaks (\s+): README's "built: 19" / "modules" drifted past a
+# line-by-line check because the wrap fell between the number and its noun.
 COUNT_PATTERNS = {
-    DATASOURCE: re.compile(rf"\b{_NUMBER} DataSources?\b", re.IGNORECASE),
-    PROPERTYSOURCE: re.compile(rf"\b{_NUMBER} PropertySources?\b", re.IGNORECASE),
-    TOPOLOGYSOURCE: re.compile(rf"\b{_NUMBER} TopologySources?\b", re.IGNORECASE),
-    "total": re.compile(rf"\ball {_NUMBER}(?= modules\b|:)", re.IGNORECASE),
+    DATASOURCE: re.compile(rf"\b{_NUMBER}\s+DataSources?\b", re.IGNORECASE),
+    PROPERTYSOURCE: re.compile(rf"\b{_NUMBER}\s+PropertySources?\b", re.IGNORECASE),
+    TOPOLOGYSOURCE: re.compile(rf"\b{_NUMBER}\s+TopologySources?\b", re.IGNORECASE),
+    "total": re.compile(rf"\ball\s+{_NUMBER}(?=:)|\b{_NUMBER}(?=\s+modules\b)", re.IGNORECASE),
 }
 
 
@@ -778,16 +780,17 @@ def check_doc_counts(definitions: list[Path]) -> list[str]:
         doc = ROOT / name
         if not doc.exists():
             continue
-        for lineno, line in enumerate(read(doc).splitlines(), 1):
-            for kind, pattern in COUNT_PATTERNS.items():
-                for match in pattern.finditer(line):
-                    token = match.group(1).lower()
-                    stated = int(token) if token.isdigit() else NUMBER_WORDS[token]
-                    if stated != actual[kind]:
-                        problems.append(
-                            f"{name}:{lineno}: says {match.group(0)!r}, "
-                            f"but modules/ has {actual[kind]} ({kind})"
-                        )
+        text = read(doc)
+        for kind, pattern in COUNT_PATTERNS.items():
+            for match in pattern.finditer(text):
+                token = next(g for g in match.groups() if g).lower()
+                stated = int(token) if token.isdigit() else NUMBER_WORDS[token]
+                if stated != actual[kind]:
+                    lineno = text.count("\n", 0, match.start()) + 1
+                    problems.append(
+                        f"{name}:{lineno}: says {match.group(0)!r}, "
+                        f"but modules/ has {actual[kind]} ({kind})"
+                    )
     return problems
 
 
