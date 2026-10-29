@@ -15,7 +15,8 @@ and, optionally, its guests as separate resources, the way LogicMonitor monitors
 
 v2 is standalone: it needs no v1 installed and never touches v1's modules. It is built: 23
 modules and the NetScan, checked locally, imported into a portal and run against a two-node
-Proxmox VE 9.2 lab cluster. `CLAUDE.md` records what each of those layers has verified.
+Proxmox VE 9.2 lab cluster. The architecture spec's §5
+(`docs/superpowers/specs/`) records what each of those layers has verified.
 
 ## Install
 

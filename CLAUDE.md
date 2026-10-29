@@ -17,8 +17,12 @@ never collide in a portal.
 
 ## Layout
 
-- `modules/*.json` -- module definitions. `scripts/*.groovy` -- their scripts; the build prepends
-  the shared preamble `scripts/lib/pve_common.groovy` to each.
+- `modules/*.json` -- module definitions in the suite's own compact form, not LogicMonitor's
+  export shape: `build_module` / `build_propertysource` / `build_topologysource` expand them, and
+  their `collectScript` / `discoveryScript` name files in `scripts/`. `scripts/*.groovy` -- those
+  scripts; the build prepends the shared preamble `scripts/lib/pve_common.groovy` to each. ERI
+  and topology scripts land in `dist/scripts/collector-only/` (they need `lm.topo`), which the
+  compile job and the harness never reach.
 - `scripts/Proxmox_VE_NetScan.groovy` -- the NetScan body: the Collector-only reads (Proxmox, the
   `lm.api` portal lookup) and the emit. Its decisions live in `scripts/lib/pve_netscan.groovy`'s
   pure `pveNetscanPlan(input)`, so the harness tests them without a Collector.
@@ -122,44 +126,9 @@ the authority; this is the map.
 
 ## Verification -- the one record
 
-What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
-when a layer changes.
-
-- **v2.1.0, the vSphere topology model** (2026-10-28, A§3.4 amended; merged from `topology-vsphere-model`):
-  build clean (23 modules); compile job passed; harness 1,856 of 1,856; lint 0 errors, 4 warnings;
-  both dashboards check clean. **Imported and run on the lab** (user, 2026-10-28): nodes draw as
-  `HyperVisor`; node -> store, every guest -> its stores (Media01 -> its
-  root store, and -> a USB directory store through its bind mount), store -> thin pool -> volume
-  group -> disk; bridges, ports, bonds and VLAN interfaces stay off the map (user, 2026-10-28); volume groups report
-  `AllocatedPercent` with no alert. **Store vertices typed `VMDatastore` took no edges** -- before
-  and after their instances were deleted and rediscovered -- and took every edge once typed
-  `StorageVolume`. The portal keeps a vertex record per key with its first type; a fresh cluster
-  record typed `HyperVisorCluster` took no Manage edges, so the cluster is `Cluster` under a key of
-  its own shape, `proxmoxve--cluster--<name>`: confirmed, a new record with both Manage edges on the
-  first run after the retype (lab, 2026-10-28), and the old `proxmoxve--<name>` vertex is drawn
-  nowhere: the portal's `/topology/data` around both nodes and the cluster instance holds one
-  `Cluster` vertex, the new key's (lab, 2026-10-29). Not seen: ZFS, Ceph, SDN (the lab has none).
-- **Local checks** (2026-10-27, after the review fixes, the lab-detail scrub and the status
-  names): build clean; compile job passed; harness 1,489 of 1,489; lint 0 errors, 4 warnings;
-  both dashboard exports check clean.
-- **Portal import** (2026-10-26): every module imports, through `tools/Import-Modules.ps1` and the
-  portal for the PropertySources; the NetScan runs on the Collector, the trimmed 29,784-byte build included; the dashboards in `dashboards/` are the portal's exports of the final layout (user, 2026-10-27). Every module re-imported 2026-10-27 with the review's notes (user). The status-names build re-imported too (user, 2026-10-27): the names show on the datapoints, and an alert on a stopped guest's `Status` (a temporary `< 1` threshold) read "Status: Not running (0)".
-- **Live target**, the lab cluster `Labcluster` (two nodes, PVE 9.2.3, no HA, no Ceph, no
-  replication), 2026-10-26: S2, S3, S4, S5, S6 and S8 done -- the NetScan creates Node-A (active),
-  Node-B (standby) and the guest Webapp01, and a re-run adds nothing and leaves the expected
-  properties; the standby takes over when corosync or pveproxy stops on the active and hands back
-  with its alerts cleared. The guest ERI's bare-MAC key joins a NetScan-created guest to its
-  map vertex: Webapp01, drawn alone beside its vertex before the fix, is drawn once, under
-  Node-A (user, 2026-10-26). **Not yet seen on the lab:** Replication and Ceph (nothing to read),
-  a cluster address (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the
-  default duplicate-IP exclusion. S3: with every guest selected, the six guests monitored over SNMP/WMI are caught by
-  address and not sent; with `hostname.source=lm` and *All matching resources*, Nvr01 is adopted
-  -- Proxmox properties, `ProxmoxVE_Guest` beside its six SNMP categories, the Guests group beside
-  its own, same device -- and re-runs rewrite values on the NetScan's own and on detached
-  resources under the defaults. A run with every guest selected then adopted the other five
-  (Media01, audio01, Relay01, Kiosk01, automation01: one `adopted:` line each in the report,
-  portal names kept, Nvr01's too, so the `lm` display-name fix holds). Unexplained: three runs that missed Node-A's value while it was
-  attached. S7's sharing half is deferred (user, 2026-10-26).
+What each layer (local checks / portal import / live target) has proved is recorded in one place:
+the architecture spec's §5, its spike table and the *Verification by layer* table under it, with
+what the lab has not yet shown. When a layer changes, add a row there, not here.
 
 ## Documents
 
