@@ -899,7 +899,7 @@ def pveTopoVertexKey = { String cluster, List parts -> pveTopoFold(['proxmoxve',
  * The cluster vertex's key. The portal keeps a vertex record per key that outlives the
  * instances carrying it, with the type it was first drawn as: deleting and rediscovering the
  * carrier re-attached the same record, still typed Cluster (lab, 2026-10-28). A key of its own
- * shape, proxmoxve--cluster--<name>, gave the cluster a fresh record typed HyperVisorCluster.
+ * shape, proxmoxve--cluster--<name>, gives the cluster a fresh record.
  */
 def pveTopoClusterKey = { String cluster -> pveTopoFold(['proxmoxve', 'cluster', cluster]) }
 

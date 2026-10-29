@@ -308,7 +308,7 @@ documents "Manually Assigning Properties to Resources".
 > vSphere suite, with Proxmox's own depth added (research
 > `docs/research/2026-10-28-lm-vsphere-topology.md`). The user chose, 2026-10-28: parity plus
 > Proxmox depth (pools, disks, bridges, SDN), with new carrier DataSources; vSphere's vocabulary
-> (Manage edges, `HyperVisorCluster`, `HyperVisor`); every store a `StorageVolume`, local stores one
+> (Manage edges, `HyperVisor`; the cluster stays `Cluster`, below); every store a `StorageVolume`, local stores one
 > vertex per node, shared and network stores one per cluster, the kind in the instance name; guest
 > to store directly, without virtual-disk vertices.
 >
@@ -340,11 +340,14 @@ documents "Manually Assigning Properties to Resources".
 >   `proxmoxve--<cluster>`: the portal keeps one vertex record per key, which outlives the instances
 >   carrying it and kept the type it was first drawn as. Retyped `HyperVisorCluster`, and with its
 >   instance deleted and rediscovered, the lab's cluster vertex kept its ID and its type `Cluster`
->   (lab, 2026-10-28); a new key is the only way to a new record.
+>   (lab, 2026-10-28); a new key is the only way to a new record. Under the new key the fresh
+>   record took `HyperVisorCluster` from its instance and **took no Manage edges** across the topology
+>   runs after the import, as `VMDatastore` took none; so the cluster is typed `Cluster`, the type that
+>   drew it with every Manage edge since 2026-10-26.
 > - **Volume groups** report `AllocatedPercent` without a threshold, never `UsedPercent`: the Proxmox
 >   installer allocates nearly all of one by design, so it read 97% and alerted on the lab (user,
 >   2026-10-28). Thin and ZFS pools keep `UsedPercent` and its alert.
-> - **Unverified** until the lab sees it: that `HyperVisorCluster` and `HyperVisor` render and the
+> - **Unverified** until the lab sees it: that `HyperVisor` renders and the
 >   node takes `HyperVisor` at priority 3 over `net.l2`; that the new carriers' instance vertices draw
 >   and join the plan's edges; ZFS, Ceph and SDN (the lab has none).
 

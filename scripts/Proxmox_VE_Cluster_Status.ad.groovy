@@ -7,7 +7,8 @@
  *
  * What it adds: on a cluster, the instance carries the key
  * Proxmox_VE_Cluster_Topology draws the cluster vertex with, pveTopoClusterKey(cluster), as type
- * HyperVisorCluster, the type LogicMonitor's vSphere suite gives a cluster. An instance vertex
+ * Cluster, which renders the cluster icon. Not vSphere's HyperVisorCluster: an instance vertex of
+ * that type took no edges on the lab (2026-10-28), as VMDatastore did. An instance vertex
  * takes Manage edges to every matched node resource, so the map draws the cluster above all
  * its nodes. A standalone host has
  * no cluster vertex and gets no key. With the token on several nodes of one cluster, each
@@ -36,7 +37,7 @@ try {
                 ' is set, which rewrites the topology keys this would have to match.')
         } else {
             raw['predef.externalResourceID'] = pveTopoClusterKey(name)
-            raw['predef.externalResourceType'] = 'HyperVisorCluster'
+            raw['predef.externalResourceType'] = 'Cluster'
         }
     }
 

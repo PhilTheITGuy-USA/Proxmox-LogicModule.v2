@@ -528,8 +528,9 @@ note('cluster-eri-on', clusterOn.exit == 0 && clusterOnAd.keySet() == ['cluster'
 // Byte for byte the TopologySource's cluster vertex, pveTopoClusterKey(cluster).
 note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceID') == 'proxmoxve--cluster--pve-cluster',
      "cluster key was ${clusterOnAd['cluster']?.predef}")
-// HyperVisorCluster, as LogicMonitor's vSphere suite types a cluster (VirtualCluster renders "??").
-note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceType') == 'HyperVisorCluster',
+// Cluster: an instance vertex typed HyperVisorCluster took no edges (lab, 2026-10-28), and
+// VirtualCluster renders "??".
+note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceType') == 'Cluster',
      "cluster type was ${clusterOnAd['cluster']?.predef}")
 
 // A standalone host has no cluster vertex to carry, but keeps its instance and its data.

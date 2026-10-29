@@ -15,7 +15,7 @@
  *
  * A vertex is drawn only where an instance or resource carries its key:
  *
- *   cluster   Proxmox_VE_Cluster_Status's instance, HyperVisorCluster
+ *   cluster   Proxmox_VE_Cluster_Status's instance, Cluster (HyperVisorCluster takes no edges)
  *   node      the node's resource, through addERI_Proxmox_VE_Node, HyperVisor. One key per
  *             node vertex: lm.topo joins a vertex's keys into one ID, and the portal then
  *             matches only a resource carrying every one of them.

@@ -126,8 +126,9 @@ when a layer changes.
   group -> disk; bridges, ports, bonds and VLAN interfaces stay off the map (user, 2026-10-28); volume groups report
   `AllocatedPercent` with no alert. **Store vertices typed `VMDatastore` took no edges** -- before
   and after their instances were deleted and rediscovered -- and took every edge once typed
-  `StorageVolume`. Unexplained: the cluster vertex still reads `Cluster` though its instance
-  carries `HyperVisorCluster`. Not seen: ZFS, Ceph, SDN (the lab has none).
+  `StorageVolume`. The portal keeps a vertex record per key with its first type; a fresh cluster
+  record typed `HyperVisorCluster` took no Manage edges, so the cluster is `Cluster` under a key of
+  its own shape, `proxmoxve--cluster--<name>`. Not seen: ZFS, Ceph, SDN (the lab has none).
 - **Local checks** (2026-10-27, after the review fixes, the lab-detail scrub and the status
   names): build clean; compile job passed; harness 1,489 of 1,489; lint 0 errors, 4 warnings;
   both dashboard exports check clean.
