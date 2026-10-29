@@ -128,7 +128,8 @@ when a layer changes.
   and after their instances were deleted and rediscovered -- and took every edge once typed
   `StorageVolume`. The portal keeps a vertex record per key with its first type; a fresh cluster
   record typed `HyperVisorCluster` took no Manage edges, so the cluster is `Cluster` under a key of
-  its own shape, `proxmoxve--cluster--<name>`. Not seen: ZFS, Ceph, SDN (the lab has none).
+  its own shape, `proxmoxve--cluster--<name>`: confirmed, a new record with both Manage edges on the
+  first run after the retype (lab, 2026-10-28). Not seen: ZFS, Ceph, SDN (the lab has none).
 - **Local checks** (2026-10-27, after the review fixes, the lab-detail scrub and the status
   names): build clean; compile job passed; harness 1,489 of 1,489; lint 0 errors, 4 warnings;
   both dashboard exports check clean.
