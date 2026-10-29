@@ -386,6 +386,31 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.0.x
+
+v2.1.0 draws the topology map the way LogicMonitor's vSphere suite does, with storage and
+network layers under the nodes. Module names, datapoints, properties, the NetScan and the
+dashboards are the same as in v2.0.x, so datapoint history and alert settings carry over. The
+one visible change outside the map: `Proxmox_VE_Cluster_StorageCapacity` instance names now
+say what kind of store each is (`local-lvm on Node-A (local, lvmthin, 363 GB)`), and their
+history is kept. v2.0.0 to v2.0.1 changed only this page.
+
+1. Import the four new modules: the DataSources `Proxmox_VE_Cluster_CephPools`,
+   `Proxmox_VE_Cluster_SDN`, `Proxmox_VE_Node_Network` and `Proxmox_VE_Node_StoragePools`.
+2. Re-import every other module, in the order given in
+   [Import LogicModules](#import-logicmodules). Each module ships its own copy of the shared
+   code the topology changes touched, so a module whose own script did not change still needs
+   the new copy.
+3. Run Active Discovery on each Proxmox resource, **then** let the TopologySource run (saving
+   it triggers a run). The vertex keys must be on their instances before the first run that
+   draws them.
+4. Leave the NetScan and the dashboards as they are. Re-running the NetScan is not needed.
+
+The cluster's map vertex has a new key, `proxmoxve--cluster--<cluster name>` in place of
+`proxmoxve--<cluster name>`. After the upgrade the map draws the cluster under the new key, with its edges to every node.
+The record under the old key is no longer drawn by any module *(not yet verified: whether it
+stays visible on the map)*.
+
 ## Troubleshooting
 
 - **No data on any module:** check the token from the Collector's host. On Linux:
