@@ -118,7 +118,7 @@ the authority; this is the map.
 What each layer has proved. Spike detail is in the architecture spec's §5 table; update both here
 when a layer changes.
 
-- **Branch `topology-vsphere-model`** (2026-10-28, the vSphere topology model, A§3.4 amended):
+- **v2.1.0, the vSphere topology model** (2026-10-28, A§3.4 amended; merged from `topology-vsphere-model`):
   build clean (23 modules); compile job passed; harness 1,856 of 1,856; lint 0 errors, 4 warnings;
   both dashboards check clean. **Imported and run on the lab** (user, 2026-10-28): nodes draw as
   `HyperVisor`; node -> store, every guest -> its stores (Media01 -> its
