@@ -943,10 +943,9 @@ def pveDiskKey = { String cluster, String node, String devpath ->
 }
 
 /*
- * The node's bridges, Linux or Open vSwitch: the virtual switches its guests attach to, and the
- * only interfaces on the map. Ports, bonds and VLAN interfaces are left out (user, 2026-10-28):
- * Proxmox gives no interface MAC, so a switch joins the map at the node, and the node's SNMP
- * interface monitoring already covers its ports.
+ * The node's bridges, Linux or Open vSwitch: the virtual switches its guests attach to.
+ * Node_Network monitors them; ports, bonds and VLAN interfaces are left to the node's SNMP
+ * interface monitoring (user, 2026-10-28).
  */
 def pveNetBridges = { List rows ->
     (rows ?: []).findAll { it.iface && it.type?.toString() in ['bridge', 'OVSBridge'] }
@@ -1145,7 +1144,7 @@ def pveZfsLeaves = { tree ->
 
 /*
  * Everything the TopologySource needs from the API, read once: the cluster, its storage and
- * SDN definitions, every guest's config, and each online node's network, pools and disks.
+ * SDN definitions, every guest's config, and each online node's pools and disks.
  * A read that fails leaves its part empty and says so on stderr; the map draws what was
  * read. Per-node reads go through the cluster API, and a node whose first read cannot
  * connect is not asked again this run.
@@ -1190,7 +1189,6 @@ def pveTopoInput = { ->
                 if (pveFailureStatus(failure) == null) { stopped = true }
             }
         }
-        read('network', '/network')
         read('disks', '/disks/list?include-partitions=1&skipsmart=1')
         read('dirs', '/disks/directory')
         read('lvm', '/disks/lvm')
@@ -1323,36 +1321,21 @@ def pveTopoPlan = { Map input ->
         if (entry.children instanceof List) { osdStack.addAll(entry.children) }
     }
 
-    // Network: each node to its bridges, the virtual switches its guests attach to. Physical
-    // ports, bonds and VLAN interfaces are discovered and carry keys (Node_Network) but are not
-    // drawn (user, 2026-10-28): a switch joins the map at the node, by the MACs on its resource.
-    def ifaceNames = [:]
-    (input.perNode ?: [:]).each { node, data ->
-        def bridges = pveNetBridges(data.network)
-        ifaceNames[node] = bridges.collect { it.iface.toString() } as Set
-        bridges.each { bridge ->
-            edge('Network', nodeKey(node), pveTopoVertexKey(cluster, ['net', node, bridge.iface.toString()]))
-        }
-    }
-
-    // Network: SDN zones and VNets, cluster-wide. A zone hangs off the bridge it rides on, on
-    // each node it spans, or off the node where it names no bridge the node has.
+    // Network: SDN zones and VNets, cluster-wide, a zone under each node it spans. Bridges,
+    // ports and bonds are kept off the map (user, 2026-10-28): a bridge repeats what the
+    // Compute edge says, and a switch joins the map at the node, by the MACs on its resource.
     def vnets = (input.sdnVnets ?: []).findAll { it.vnet && it.zone }.collectEntries { [(it.vnet.toString()): it.zone.toString()] }
     (input.sdnZones ?: []).findAll { it.zone }.each { zone ->
         def zoneKey = pveSdnKey(cluster, zone.zone.toString(), null)
         def spans = zone.nodes ? zone.nodes.toString().tokenize(',').collect { it.trim() } : nodeNames
-        spans.findAll { it in nodeNames }.each { node ->
-            def bridge = zone.bridge?.toString()
-            edge('Network', bridge && bridge in (ifaceNames[node] ?: [])
-                 ? pveTopoVertexKey(cluster, ['net', node, bridge]) : nodeKey(node), zoneKey)
-        }
+        spans.findAll { it in nodeNames }.each { node -> edge('Network', nodeKey(node), zoneKey) }
         vnets.findAll { it.value == zone.zone.toString() }.each { vnet, z ->
             edge('Network', zoneKey, pveSdnKey(cluster, z, vnet))
         }
     }
 
     // Each guest whose config was read: Compute from its node, Storage to its stores (or from
-    // its node, for a path or device no store covers), Network from its bridges or VNets.
+    // its node, for a path or device no store covers), Network from its SDN VNets.
     (input.guests ?: []).each { guest ->
         def config = input.configs?.get(guest.id?.toString())
         def node = guest.node?.toString()
@@ -1371,9 +1354,7 @@ def pveTopoPlan = { Map input ->
         }
         config.keySet().findAll { it.toString() ==~ /net\d+/ }.sort().each { slot ->
             def bridge = config[slot].toString().tokenize(',').find { it.startsWith('bridge=') }?.substring(7)
-            if (!bridge) { return }
-            if (vnets.containsKey(bridge)) { edge('Network', pveSdnKey(cluster, vnets[bridge], bridge), guestKey) }
-            else { edge('Network', pveTopoVertexKey(cluster, ['net', node, bridge]), guestKey) }
+            if (bridge && vnets.containsKey(bridge)) { edge('Network', pveSdnKey(cluster, vnets[bridge], bridge), guestKey) }
         }
     }
     edges as List

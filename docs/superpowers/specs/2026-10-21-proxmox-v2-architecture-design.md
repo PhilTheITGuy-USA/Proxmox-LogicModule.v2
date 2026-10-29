@@ -317,10 +317,10 @@ documents "Manually Assigning Properties to Resources".
 >   mount joins the store whose directory holds it); node → guest for a host path or passed-through
 >   device no store covers; store → ZFS pool, LVM thin pool, volume group, Ceph pool or (a directory
 >   store on a Proxmox-made mount) disk; thin pool → volume group → disk; ZFS pool → disk; node →
->   Ceph OSD → disk. Network: node → bridge; bridge or SDN VNet → guest (physical ports, bonds and
->   VLAN interfaces are not discovered, user 2026-10-28: a switch joins at the node, by the MACs on
->   its resource, and the node's SNMP interface monitoring covers its ports); SDN zone → VNet, under the bridge the zone rides on or
->   the node. Not drawn: node uplink → physical switch (Proxmox gives no interface MAC or LLDP),
+>   Ceph OSD → disk. Network: SDN only, node → zone → VNet → guest. Bridges, ports, bonds and VLAN
+>   interfaces are kept off the map (user, 2026-10-28): a bridge repeats what the Compute edge says, a
+>   switch joins at the node by the MACs on its resource, and the node's SNMP interface monitoring
+>   covers its ports. `Node_Network` monitors bridges only and carries no keys. Not drawn: node uplink → physical switch (Proxmox gives no interface MAC or LLDP),
 >   guest disks as vertices, backup targets.
 > - **Vertices and carriers** (`pveTopoVertexKey`, `proxmoxve--<cluster>--…`): stores on
 >   `Cluster_StorageCapacity` (`StorageVolume`, not vSphere's `VMDatastore`: on the lab, 2026-10-28,
@@ -329,7 +329,7 @@ documents "Manually Assigning Properties to Resources".
 >   shared store's key on one instance only, the first
 >   node's by name); pools on the new `Node_StoragePools` and `Cluster_CephPools`
 >   (`StorageAggregate`); OSDs on `Cluster_CephOSD` (`StorageNode`); disks on `Node_Disks`
->   (`PhysicalDisk`); bridges on the new `Node_Network` (`VirtualSwitch`); SDN zones and VNets on the new `Cluster_SDN` (`VirtualSwitch`). Cluster modules
+>   (`PhysicalDisk`); SDN zones and VNets on the new `Cluster_SDN` (`VirtualSwitch`). Cluster modules
 >   stamp keys only where they collect; node modules read the cluster name from their own node.
 >   With `topo.namespace` or `topo.blacklist` set, carriers stamp nothing, as before.
 > - **Where it is decided.** `pveTopoInput` (the reads) and `pveTopoPlan` (the edges) in the

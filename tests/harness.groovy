@@ -1934,16 +1934,16 @@ def topoMedia = 'bc:24:11:0e:00:03'
     ['Storage', topoKey('storage', 'ceph-vm'), topoKey('cephpool', 'ceph-vm')],
     ['Storage', topoKey('storage', 'usb-media'), topoKey('disk', 'pve1', 'sda')],
     ['Storage', topoN1, topoKey('osd', '0')], ['Storage', topoN2, topoKey('osd', '2')], ['Storage', topoKey('osd', '0'), topoKey('disk', 'pve1', 'sdc')],
-    // Network: node -> bridge; bridge or VNet -> guest.
-    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr0')], ['Network', topoN1, topoKey('net', 'pve1', 'vmbr1')],
-    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoWeb],
-    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('sdn', 'lab')], ['Network', topoN2, topoKey('sdn', 'lab')],
+    // Network: SDN only -- node -> zone -> VNet -> guest.
+    ['Network', topoN1, topoKey('sdn', 'lab')], ['Network', topoN2, topoKey('sdn', 'lab')],
     ['Network', topoKey('sdn', 'lab'), topoKey('sdn', 'lab', 'labnet')], ['Network', topoKey('sdn', 'lab', 'labnet'), topoMedia],
 ].each { expected ->
     note('topo-plan-edges', expected in topoPlanSet, "missing edge ${expected}")
 }
 [
-    // Ports, bonds and VLAN interfaces are carried but not drawn (user, 2026-10-28).
+    // Bridges, ports, bonds and VLAN interfaces are kept off the map (user, 2026-10-28).
+    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr0')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoWeb],
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('sdn', 'lab')],
     ['Network', topoN1, topoKey('net', 'pve1', 'bond0')], ['Network', topoN1, topoKey('net', 'pve1', 'eno1')],
     ['Network', topoN1, topoKey('net', 'pve1', 'eno3')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'bond0')],
     ['Network', topoKey('net', 'pve1', 'bond0'), topoKey('net', 'pve1', 'eno1')],
@@ -2001,12 +2001,12 @@ expectCarried('Proxmox_VE_Node_Disks.ad.groovy', nodeHostProps, [
     'pve1-sda'    : [key: topoKey('disk', 'pve1', 'sda'), type: 'PhysicalDisk'],
     'pve1-nvme0n1': [key: topoKey('disk', 'pve1', 'nvme0n1'), type: 'PhysicalDisk'],
 ])
+// Bridges are monitored, not mapped: no keys. Only bridges: the node's SNMP monitoring covers
+// its ports (user, 2026-10-28).
 expectCarried('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps, [
-    'vmbr0': [key: topoKey('net', 'pve1', 'vmbr0'), type: 'VirtualSwitch'],
-    'vmbr1': [key: topoKey('net', 'pve1', 'vmbr1'), type: 'VirtualSwitch'],
+    'vmbr0': [key: null, type: null],
+    'vmbr1': [key: null, type: null],
 ])
-// Only bridges: the node's SNMP monitoring covers its ports, and no switch can join a port
-// vertex without a MAC (user, 2026-10-28).
 def bridgeIds = carrierKeys('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps).keySet()
 note('topo-carriers', bridgeIds == ['vmbr0', 'vmbr1'] as Set, "Node_Network discovered ${bridgeIds}, expected only the bridges")
 
@@ -2041,7 +2041,7 @@ withFixtures(['/cluster/status': statusWith([:], [:], 1)]) {
     }
 }
 // topo.namespace rewrites the TopologySource's keys, so the carriers step aside.
-['Proxmox_VE_Node_StoragePools.ad.groovy', 'Proxmox_VE_Node_Network.ad.groovy', 'Proxmox_VE_Node_Disks.ad.groovy'].each { script ->
+['Proxmox_VE_Node_StoragePools.ad.groovy', 'Proxmox_VE_Node_Disks.ad.groovy'].each { script ->
     def run = runScript(new File(scriptsDir, script), [hostProps: nodeHostProps + ['topo.namespace': 'x']])
     note('topo-carrier-namespace', run.exit == 0 && !run.stdout.contains('predef.') && run.stderr.contains('topo.namespace'),
          "${script} with topo.namespace: exit ${run.exit}, stderr ${run.stderr}")
@@ -2082,13 +2082,13 @@ note('topo-disks', topoParsed.disks == ['sdb', 'nvme0n1', 'sdz', null, 'sdy', nu
 note('topo-paths', topoParsed.paths == ['nas', null, 'usb', null], "bind paths matched ${topoParsed.paths}")
 
 // The map tolerates a node that cannot be read: its node-side edges are left out, the rest drawn.
-def topoPartial = withFixtures(topoFixtures + ['/nodes/pve1/network': null, '/nodes/pve1/disks/zfs': null]) {
+def topoPartial = withFixtures(topoFixtures + ['/nodes/pve1/disks/zfs': null]) {
     runSource(preamble + '\nreturn pveTopoPlan(pveTopoInput())', [hostProps: hostProps])
 }
 def topoPartialSet = (topoPartial.exit ?: []).collect { it as List } as Set
 note('topo-partial', topoPartial.thrown == null && ['Compute', topoN1, topoWeb] in topoPartialSet &&
-                     !topoPartialSet.any { it[2] == topoKey('net', 'pve1', 'bond0') } && topoPartial.stderr.contains('/network'),
-     "with /network failing: ${topoPartial.thrown} / ${topoPartial.stderr.take(200)}")
+                     !topoPartialSet.any { it[1] == topoKey('pool', 'pve1', 'zfs', 'rpool') } && topoPartial.stderr.contains('/disks/zfs'),
+     "with /disks/zfs failing: ${topoPartial.thrown} / ${topoPartial.stderr.take(200)}")
 
 server.stop(0)
 server2.stop(0)

@@ -45,8 +45,8 @@ are raised, routed and silenced on the node.
 **Topology.** Modelled on LogicMonitor's vSphere suite: cluster to node to guest, with guests
 matched to their own resources by MAC address, so a node's alerts explain its guests'; storage
 from each guest and node to its stores, labelled local, shared or network, and on to the ZFS,
-LVM and Ceph pools and the disks beneath them; and networking from each node through its
-bridges, or SDN VNets, to its guests.
+LVM and Ceph pools and the disks beneath them; and, where SDN is set up, each node's
+zones and VNets down to the guests on them.
 
 **Requirements.** A Collector at version 32.400 or later (the Enhanced Script NetScan),
 HTTPS to port 8006 and ping to every node, a Proxmox VE API token with `PVEAuditor` on `/`, and a

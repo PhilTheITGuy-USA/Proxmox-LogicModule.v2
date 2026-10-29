@@ -494,7 +494,7 @@ so no module replaces another.
 | Proxmox VE Cluster SDN | DataSource | State of each SDN zone and VNet across the nodes | — |
 | Proxmox VE Cluster Backups | DataSource | Backup jobs, each guest's last backup, unprotected guests | — |
 | Proxmox VE Cluster Snapshots | DataSource | Snapshot count and age per guest, hourly | — |
-| `Proxmox_VE_Cluster_Topology` | TopologySource | The map, modelled on vSphere's: cluster, nodes and guests; storage (stores, pools, disks, Ceph); networking (bridges, SDN) *(not yet verified)* | — |
+| `Proxmox_VE_Cluster_Topology` | TopologySource | The map, modelled on vSphere's: cluster, nodes and guests; storage (stores, pools, disks, Ceph); SDN networking; storage and the cluster tree seen on a lab cluster | — |
 
 **Proxmox VE Node modules** (apply on `ProxmoxVE_Node`)
 
