@@ -896,6 +896,14 @@ def pveForEachGuest = { String what, List guests, List statusRows, String suffix
 def pveTopoVertexKey = { String cluster, List parts -> pveTopoFold(['proxmoxve', cluster] + parts) }
 
 /*
+ * The cluster vertex's key. The portal keeps a vertex record per key that outlives the
+ * instances carrying it, with the type it was first drawn as: deleting and rediscovering the
+ * carrier re-attached the same record, still typed Cluster (lab, 2026-10-28). A key of its own
+ * shape, proxmoxve--cluster--<name>, gave the cluster a fresh record typed HyperVisorCluster.
+ */
+def pveTopoClusterKey = { String cluster -> pveTopoFold(['proxmoxve', 'cluster', cluster]) }
+
+/*
  * local, shared or network. Network: the store lives on another system (NFS, SMB, GlusterFS,
  * iSCSI, Proxmox Backup Server, or Ceph with a monhost, which is an external cluster). Shared:
  * this cluster's own Ceph, or a store Proxmox is told every node sees (the shared flag).
@@ -1232,7 +1240,7 @@ def pveTopoPlan = { Map input ->
     def ips = status.findAll { it.type?.toString() == 'node' && it.name }
         .collectEntries { [(it.name.toString()): it.ip?.toString()] }
     def nodeKey = { String node -> pveTopoNodeVertexKey(cluster, node, ips[node]) }
-    def clusterKey = clustered ? pveTopoKey(cluster, null) : null
+    def clusterKey = clustered ? pveTopoClusterKey(cluster) : null
 
     // Manage: the cluster above every node, offline ones too.
     def nodeNames = (input.nodes ?: []).collect { it.node?.toString() }.findAll { it }

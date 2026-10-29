@@ -6,7 +6,7 @@
  * node's own (pveTopoClusterName).
  *
  * What it adds: on a cluster, the instance carries the key
- * Proxmox_VE_Cluster_Topology draws the cluster vertex with, pveTopoKey(cluster, null), as type
+ * Proxmox_VE_Cluster_Topology draws the cluster vertex with, pveTopoClusterKey(cluster), as type
  * HyperVisorCluster, the type LogicMonitor's vSphere suite gives a cluster. An instance vertex
  * takes Manage edges to every matched node resource, so the map draws the cluster above all
  * its nodes. A standalone host has
@@ -35,7 +35,7 @@ try {
             System.err.println('Cluster instance ERI skipped: ' + blocking.join(' and ') +
                 ' is set, which rewrites the topology keys this would have to match.')
         } else {
-            raw['predef.externalResourceID'] = pveTopoKey(name, null)
+            raw['predef.externalResourceID'] = pveTopoClusterKey(name)
             raw['predef.externalResourceType'] = 'HyperVisorCluster'
         }
     }

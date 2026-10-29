@@ -336,6 +336,11 @@ documents "Manually Assigning Properties to Resources".
 >   preamble; the TopologySource only turns keys into ERIs. Cost per hourly run: a handful of
 >   cluster reads, six or so per online node plus one per ZFS pool, and the guest-config reads it
 >   already made.
+> - **The cluster vertex's key is `proxmoxve--cluster--<cluster>`** (`pveTopoClusterKey`), no longer
+>   `proxmoxve--<cluster>`: the portal keeps one vertex record per key, which outlives the instances
+>   carrying it and kept the type it was first drawn as. Retyped `HyperVisorCluster`, and with its
+>   instance deleted and rediscovered, the lab's cluster vertex kept its ID and its type `Cluster`
+>   (lab, 2026-10-28); a new key is the only way to a new record.
 > - **Volume groups** report `AllocatedPercent` without a threshold, never `UsedPercent`: the Proxmox
 >   installer allocates nearly all of one by design, so it read 97% and alerted on the lab (user,
 >   2026-10-28). Thin and ZFS pools keep `UsedPercent` and its alert.

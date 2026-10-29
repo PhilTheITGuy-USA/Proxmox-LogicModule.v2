@@ -518,15 +518,15 @@ note('cluster-eri-default', clusterOffAd.keySet() == ['cluster'] as Set,
 note('cluster-eri-default', clusterOff.stdout.startsWith('cluster##pve-cluster##'),
      "the instance is not named after the cluster: ${clusterOff.stdout}")
 // On a cluster the key is there with no topology property set.
-note('cluster-eri-default', clusterOffAd['cluster']?.predef?.get('predef.externalResourceID') == 'proxmoxve--pve-cluster',
+note('cluster-eri-default', clusterOffAd['cluster']?.predef?.get('predef.externalResourceID') == 'proxmoxve--cluster--pve-cluster',
      "no property set but the cluster carried no key: ${clusterOffAd['cluster']}")
 
 def clusterOn = discoverWith(clusterAd, hostProps)
 def clusterOnAd = parseAd(clusterOn.stdout)
 note('cluster-eri-on', clusterOn.exit == 0 && clusterOnAd.keySet() == ['cluster'] as Set,
      "exit ${clusterOn.exit}, instances ${clusterOnAd.keySet()}: ${clusterOn.stderr}")
-// Byte for byte the TopologySource's cluster vertex, pveTopoKey(cluster, null).
-note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceID') == 'proxmoxve--pve-cluster',
+// Byte for byte the TopologySource's cluster vertex, pveTopoClusterKey(cluster).
+note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceID') == 'proxmoxve--cluster--pve-cluster',
      "cluster key was ${clusterOnAd['cluster']?.predef}")
 // HyperVisorCluster, as LogicMonitor's vSphere suite types a cluster (VirtualCluster renders "??").
 note('cluster-eri-on', clusterOnAd['cluster']?.predef?.get('predef.externalResourceType') == 'HyperVisorCluster',
@@ -1915,7 +1915,7 @@ def topoN2 = 'proxmoxve--node--pve2--fd00-0-0-0-0-0-0-12'
 def topoWeb = 'bc:24:11:0e:00:02'
 def topoMedia = 'bc:24:11:0e:00:03'
 [
-    ['Manage', 'proxmoxve--pve-cluster', topoN1], ['Manage', 'proxmoxve--pve-cluster', topoN2],
+    ['Manage', 'proxmoxve--cluster--pve-cluster', topoN1], ['Manage', 'proxmoxve--cluster--pve-cluster', topoN2],
     ['Compute', topoN1, topoWeb], ['Compute', topoN1, topoMedia],
     // A local store per node, a shared or network store once for the cluster.
     ['Storage', topoN1, topoKey('storage', 'pve1', 'local')], ['Storage', topoN1, topoKey('storage', 'ceph-vm')],
