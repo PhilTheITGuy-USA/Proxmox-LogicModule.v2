@@ -55,7 +55,9 @@ try {
                 pve_shared      : store.shared ? 'true' : 'false',
                 pve_storage_kind: kind
             ],
-            cluster && vertex?.carries ? pveEri(vertex.key, 'VMDatastore') : [:]
+            // Experiment (lab, 2026-10-28): VMDatastore vertices took no edges; StorageVolume tests
+            // whether the type is why.
+            cluster && vertex?.carries ? pveEri(vertex.key, 'StorageVolume') : [:]
         )
     }
     return 0

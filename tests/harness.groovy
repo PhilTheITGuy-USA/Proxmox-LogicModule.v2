@@ -1980,11 +1980,11 @@ def expectCarried = { String script, Map props, Map expected, List undrawnTypes 
     got
 }
 def storageCarried = expectCarried('Proxmox_VE_Cluster_StorageCapacity.ad.groovy', hostProps, [
-    'storage-pve1-local'     : [key: topoKey('storage', 'pve1', 'local'), type: 'VMDatastore'],
-    'storage-pve1-local-lvm' : [key: topoKey('storage', 'pve1', 'local-lvm'), type: 'VMDatastore'],
-    'storage-pve1-ceph-vm'   : [key: topoKey('storage', 'ceph-vm'), type: 'VMDatastore'],
+    'storage-pve1-local'     : [key: topoKey('storage', 'pve1', 'local'), type: 'StorageVolume'],
+    'storage-pve1-local-lvm' : [key: topoKey('storage', 'pve1', 'local-lvm'), type: 'StorageVolume'],
+    'storage-pve1-ceph-vm'   : [key: topoKey('storage', 'ceph-vm'), type: 'StorageVolume'],
     // One instance carries a shared store: the first node by name.
-    'storage-pve1-backup-nfs': [key: topoKey('storage', 'backup-nfs'), type: 'VMDatastore'],
+    'storage-pve1-backup-nfs': [key: topoKey('storage', 'backup-nfs'), type: 'StorageVolume'],
     'storage-pve2-backup-nfs': [key: null, type: null],
 ])
 def storageAd = withFixtures(topoFixtures) { runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_StorageCapacity.ad.groovy'), [hostProps: hostProps]) }
