@@ -144,7 +144,7 @@
       "diskwrite": 444,
       "uptime": 3600,
       "template": false,
-      "memhost": 289910292
+      "memhost": 0
     },
     {
       "id": "qemu/999",
@@ -1573,6 +1573,54 @@
       "sdn": "lab",
       "node": "pve2",
       "status": "error"
+    }
+  ],
+  "/nodes/pve1/qemu?full=1": [
+    {
+      "vmid": 101,
+      "name": "web-01",
+      "status": "running",
+      "cpus": 4,
+      "maxmem": 4294967296,
+      "mem": 2147483648,
+      "memhost": 2319282339,
+      "pressurecpusome": 2.45,
+      "pressurecpufull": 1.24,
+      "pressureiosome": 0.37,
+      "pressureiofull": 0.02,
+      "pressurememorysome": 0.02,
+      "pressurememoryfull": 0,
+      "ballooninfo": {
+        "actual": 3221225472,
+        "max_mem": 4294967296,
+        "total_mem": 3100000000,
+        "free_mem": 900000000,
+        "mem_swapped_in": 1000000,
+        "mem_swapped_out": 2000000,
+        "major_page_faults": 500,
+        "minor_page_faults": 90000,
+        "last_update": 1793374591
+      },
+      "blockstat": {
+        "scsi0": {
+          "rd_total_time_ns": 2000000000,
+          "rd_operations": 1000,
+          "wr_total_time_ns": 6000000000,
+          "wr_operations": 2000
+        },
+        "efidisk0": {
+          "rd_total_time_ns": 0,
+          "rd_operations": 0,
+          "wr_total_time_ns": 0,
+          "wr_operations": 0
+        }
+      }
+    },
+    {
+      "vmid": 999,
+      "name": "ubuntu-24.04 template",
+      "status": "stopped",
+      "template": 1
     }
   ]
 }

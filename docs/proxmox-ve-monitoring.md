@@ -359,13 +359,14 @@ always ask their own node.
 ### Units
 
 Each datapoint's name ends in its unit: `Bytes`, `MB`, `GB`, `Percent`, `Ms`, `Seconds`, `Hours`
-or `Days`. MB and GB are decimal (10^6 and 10^9 bytes), as drive and link capacities are
+or `Days`, or, for a count per second, `IOPS` or `Rate`. MB and GB are decimal (10^6 and 10^9 bytes), as drive and link capacities are
 labelled. The units follow the figure's use, so they differ between modules:
 
 | Unit | Modules |
 |---|---|
 | Bytes, as Proxmox or Ceph reports them | Node Detail (memory, swap, root filesystem, KSM), Cluster Status (memory), Ceph and Ceph OSD (raw use) |
-| MB, and MB per second for rates | Guest Performance (memory, network and disk rates) |
+| MB, and MB per second for rates | Guest Performance (memory, balloon, network, disk and guest swap rates) |
+| Milliseconds | Guest Performance (disk latency), Ceph OSD (commit and apply latency) |
 | GB | Storage Capacity, Node Disks, Backups (latest backup size), Guest Performance (disk) |
 
 LogicMonitor prints a byte count of that size in scientific notation, so the capacities that
@@ -536,7 +537,7 @@ so no module replaces another.
 | Proxmox VE Cluster Status | DataSource | Quorum, HA manager health, migrations, nodes online and a cluster health score | — |
 | Proxmox VE Cluster Nodes | DataSource | Each node's online state, seen from the cluster | — |
 | Proxmox VE Cluster Guest Status | DataSource | Power state, lock and HA state of every VM and container | — |
-| Proxmox VE Cluster Guest Performance | DataSource | CPU, memory, network and disk of every VM and container | — |
+| Proxmox VE Cluster Guest Performance | DataSource | CPU, memory, network and disk of every VM and container; CPU/IO/memory pressure; for VMs, ballooning, disk IOPS and disk latency | — |
 | Proxmox VE Cluster Storage Capacity | DataSource | Capacity and availability of every storage, per node | — |
 | Proxmox VE Cluster Ceph | DataSource | Ceph health, placement groups and capacity | — |
 | Proxmox VE Cluster Ceph OSD | DataSource | Each OSD's state, fill level and latency | — |

@@ -1184,6 +1184,88 @@ def parseBatch = { String stdout ->
     data
 }
 
+// ------------------------------- guest pressure, ballooning and disk latency (2026-10-30)
+//
+// None of it is in /cluster/resources: each online node's /nodes/<n>/qemu?full=1 and
+// /nodes/<n>/lxc lists carry it. pve1 is online with qemu/101 running; pve2, which runs
+// lxc/200, is offline, so it is never asked.
+
+def perfCollectFile = new File(scriptsDir, 'Proxmox_VE_Cluster_GuestPerformance.collect.groovy')
+def perfRun = { Map cache = null ->
+    int before = requestLog.size()
+    def run = runScript(perfCollectFile, cache == null ? [hostProps: hostProps] : [hostProps: hostProps, pveTestState: cache])
+    def log = new ArrayList(requestLog)
+    run.requests = log.subList(before, log.size())
+    run.data = parseBatch(run.stdout)
+    run
+}
+def perf = perfRun()
+note('guest-detail', perf.exit == 0, "GuestPerformance exit ${perf.exit}: ${perf.stderr}")
+note('guest-detail', perf.requests.contains('/nodes/pve1/qemu?full=1') &&
+                     !perf.requests.any { it.startsWith('/nodes/pve2/') } &&
+                     !perf.requests.contains('/nodes/pve1/lxc'),
+     "expected the qemu list of online pve1 only (no running container there, pve2 offline): ${perf.requests}")
+def web = perf.data['qemu-101']
+note('guest-pressure', web.PressureCPUSomePercent == 2.45d && web.PressureCPUFullPercent == 1.24d &&
+                       web.PressureIOSomePercent == 0.37d && web.PressureMemoryFullPercent == 0d,
+     "qemu-101 pressure: ${web.findAll { it.key.startsWith('Pressure') }}")
+note('guest-balloon', web.BalloonMB == 1073.74d,
+     "BalloonMB should be max_mem - actual = 1073.74 MB, got ${web.BalloonMB}")
+note('guest-balloon', web.GuestSwapInRateMB == 1d && web.GuestSwapOutRateMB == 2d && web.MajorPageFaultRate == 500d,
+     "guest swap and fault counters: ${web.subMap(['GuestSwapInRateMB', 'GuestSwapOutRateMB', 'MajorPageFaultRate'])}")
+note('guest-iops', web.DiskReadIOPS == 1000d && web.DiskWriteIOPS == 2000d,
+     "IOPS counters summed across disks: ${web.subMap(['DiskReadIOPS', 'DiskWriteIOPS'])}")
+note('guest-latency', !web.containsKey('DiskReadLatencyMs') && !web.containsKey('DiskWriteLatencyMs'),
+     "latency needs a previous poll; without lm.cache it must be withheld: ${web.subMap(['DiskReadLatencyMs', 'DiskWriteLatencyMs'])}")
+def dns = perf.data['lxc-200']
+note('guest-detail-offline', dns.containsKey('CPUUsagePercent') && !dns.keySet().any { it.startsWith('Pressure') },
+     "lxc-200 on offline pve2 keeps its /cluster/resources figures and reports no pressure: ${dns.keySet()}")
+note('memhost-qemu-only', web.containsKey('MemoryHostMB') && !dns.containsKey('MemoryHostMB'),
+     "MemoryHostMB is for VMs only (containers report 0): qemu ${web.MemoryHostMB}, lxc ${dns.MemoryHostMB}")
+
+// Latency is the change in total time over the change in operations since the last poll.
+def latencyState = [:]
+def blockAt = { long rdNs, long rdOps, long wrNs, long wrOps ->
+    def list = fixtures['/nodes/pve1/qemu?full=1'].collect { it.vmid == 101 ?
+        it + [blockstat: [scsi0: [rd_total_time_ns: rdNs, rd_operations: rdOps, wr_total_time_ns: wrNs, wr_operations: wrOps],
+                          efidisk0: [rd_total_time_ns: 0, rd_operations: 0, wr_total_time_ns: 0, wr_operations: 0]]] : it }
+    withFixtures(['/nodes/pve1/qemu?full=1': list]) { perfRun(latencyState).data['qemu-101'] }
+}
+def latFirst = blockAt(2000000000L, 1000L, 6000000000L, 2000L)
+note('guest-latency', !latFirst.containsKey('DiskReadLatencyMs'), "the first poll has no previous totals: ${latFirst.DiskReadLatencyMs}")
+def latSecond = blockAt(2500000000L, 1100L, 7200000000L, 2400L)
+note('guest-latency', latSecond.DiskReadLatencyMs == 5d && latSecond.DiskWriteLatencyMs == 3d,
+     "expected 0.5 s over 100 reads = 5 ms and 1.2 s over 400 writes = 3 ms, got ${latSecond.subMap(['DiskReadLatencyMs', 'DiskWriteLatencyMs'])}")
+def latIdle = blockAt(2500000000L, 1100L, 7300000000L, 2500L)
+note('guest-latency', !latIdle.containsKey('DiskReadLatencyMs') && latIdle.DiskWriteLatencyMs == 1d,
+     "no reads in the interval withholds read latency only: ${latIdle.subMap(['DiskReadLatencyMs', 'DiskWriteLatencyMs'])}")
+def latRestarted = blockAt(100000000L, 50L, 100000000L, 50L)
+note('guest-latency', !latRestarted.containsKey('DiskReadLatencyMs') && !latRestarted.containsKey('DiskWriteLatencyMs'),
+     "counters that went backwards (a restart or migration) withhold latency: ${latRestarted.subMap(['DiskReadLatencyMs', 'DiskWriteLatencyMs'])}")
+
+// Containers: pressure comes as strings ("2.97"); no balloon, no blockstat.
+def ct = withFixtures([
+    '/cluster/resources?type=vm': fixtures['/cluster/resources?type=vm'] + [
+        [id: 'lxc/201', type: 'lxc', vmid: 201, name: 'cache-01', node: 'pve1', status: 'running', cpu: 0.01, maxcpu: 1,
+         mem: 100000000, maxmem: 536870912, disk: 1000000000, maxdisk: 8589934592, netin: 1, netout: 1,
+         diskread: 1, diskwrite: 1, uptime: 60, template: false, memhost: 0]],
+    '/nodes/pve1/lxc': [[vmid: 201, name: 'cache-01', status: 'running', pressurecpusome: '2.97', pressurecpufull: '0.00',
+                         pressureiosome: '3.37', pressureiofull: '2.94', pressurememorysome: '0.00', pressurememoryfull: '0.00']],
+]) { perfRun() }
+def cache01 = ct.data['lxc-201']
+note('guest-pressure-lxc', ct.requests.contains('/nodes/pve1/lxc') && cache01.PressureCPUSomePercent == 2.97d &&
+                           cache01.PressureIOFullPercent == 2.94d,
+     "container pressure from string values: ${cache01.findAll { it.key.startsWith('Pressure') }} / ${ct.requests}")
+note('guest-pressure-lxc', !cache01.keySet().any { it.startsWith('Balloon') || it.startsWith('Disk') && it.endsWith('IOPS') },
+     "a container has no balloon and no blockstat: ${cache01.keySet()}")
+
+// A node whose list cannot be read costs its guests the extra figures, not the run.
+def noList = withFixtures(['/nodes/pve1/qemu?full=1': null]) { perfRun() }
+note('guest-detail-failure', noList.exit == 0 && noList.data['qemu-101'].containsKey('CPUUsagePercent') &&
+                             !noList.data['qemu-101'].keySet().any { it.startsWith('Pressure') } &&
+                             noList.stderr.readLines().count { it.contains('pve1') } == 1,
+     "an unreadable node list: exit ${noList.exit}, keys ${noList.data['qemu-101'].keySet()}, stderr ${noList.stderr}")
+
 def backupAdRun = discoverWith(backupsAd, hostProps)
 def backupInstances = parseAd(backupAdRun.stdout)
 note('backups-ad', backupAdRun.exit == 0 && backupInstances.keySet() ==
@@ -1884,10 +1966,19 @@ note('scale-snapshots', scaleSnap.exit == 0 && scaleSnap.requests.size() <= 1002
 def scaleStatus = atScale('Proxmox_VE_Cluster_Status.collect.groovy')
 note('scale-cluster-status', scaleStatus.exit == 0 && scaleStatus.requests.size() <= 4 + 2 * 16 + 16,
      "Cluster_Status at scale made ${scaleStatus.requests.size()} requests: ${scaleStatus.requests.countBy { it.replaceAll('pve[0-9]+', 'N') }}")
-['Proxmox_VE_Cluster_GuestPerformance.collect.groovy', 'Proxmox_VE_Cluster_StorageCapacity.collect.groovy'].each { f ->
-    def bulk = atScale(f)
-    note('scale-bulk', bulk.exit == 0 && bulk.requests.size() == 1, "${f} made ${bulk.requests.size()} requests at scale")
-}
+def scaleStorage = atScale('Proxmox_VE_Cluster_StorageCapacity.collect.groovy')
+note('scale-bulk', scaleStorage.exit == 0 && scaleStorage.requests.size() == 1,
+     "StorageCapacity made ${scaleStorage.requests.size()} requests at scale")
+// GuestPerformance: /cluster/resources and /cluster/status, then one list per guest type each
+// node runs -- at most 2 per node. The fixture's round-robin gives each node one type.
+def scalePerf = atScale('Proxmox_VE_Cluster_GuestPerformance.collect.groovy')
+def scalePerfData = parseBatch(scalePerf.stdout)
+def scaleLists = scale['/cluster/resources?type=vm'].collect { [it.node, it.type] }.unique().size()
+note('scale-guest-perf', scalePerf.exit == 0 && scalePerf.requests.size() == 2 + scaleLists &&
+                         scalePerf.requests.size() <= 2 + 2 * 16 &&
+                         scalePerfData.size() == 1000 && scalePerfData.values().every { it.containsKey('PressureCPUSomePercent') },
+     "GuestPerformance at scale: exit ${scalePerf.exit}, ${scalePerf.requests.size()} requests, " +
+     "${scalePerfData.count { it.value.containsKey('PressureCPUSomePercent') }} of ${scalePerfData.size()} guests with pressure")
 
 // ------------------------------------------------- topology model (vSphere-style)
 //

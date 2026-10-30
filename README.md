@@ -7,7 +7,8 @@ and, optionally, its guests as separate resources, the way LogicMonitor monitors
   `Cluster - <name>/Nodes` (and `/Guests`), without duplicating devices already in the portal.
 - **Cluster modules** (quorum, health score, capacity, storage, backups, snapshots, guest status
   and performance, topology) run on one active resource with a standby that takes over while the
-  active is down, at a fixed number of API calls per poll whatever the cluster's size.
+  active is down. A poll costs a fixed number of API calls, or a few per node, however many
+  guests the cluster runs.
 - **Node modules** (detail and pressure, disks, services, certificates, replication,
   subscription) run on each node's own resource and ask only that node.
 - **Guests as resources** are opt-in and filtered: every resource is a host unit, while the

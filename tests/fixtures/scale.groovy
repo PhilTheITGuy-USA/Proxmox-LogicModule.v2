@@ -45,5 +45,16 @@ nodes.each { n ->
           pressurecpusome: 1.0, pressureiosome: 0.5, pressureiofull: 0.2, pressurememorysome: 0, pressurememoryfull: 0]]
     fixtures['/nodes/' + n.name + '/tasks?typefilter=qmigrate&limit=100'] = []
     fixtures['/nodes/' + n.name + '/tasks?typefilter=vzmigrate&limit=100'] = []
+    def pressure = [pressurecpusome: 1.5, pressurecpufull: 0.5, pressureiosome: 0.4, pressureiofull: 0.1,
+                    pressurememorysome: 0, pressurememoryfull: 0]
+    def onNode = guests.findAll { it.node == n.name }
+    fixtures['/nodes/' + n.name + '/qemu?full=1'] = onNode.findAll { it.type == 'qemu' }.collect {
+        [vmid: it.vmid, name: it.name, status: 'running'] + pressure +
+        [ballooninfo: [actual: 2147483648, max_mem: 2147483648, mem_swapped_in: 0, mem_swapped_out: 0, major_page_faults: 10],
+         blockstat: [scsi0: [rd_total_time_ns: 1000000, rd_operations: 10, wr_total_time_ns: 2000000, wr_operations: 20]]]
+    }
+    fixtures['/nodes/' + n.name + '/lxc'] = onNode.findAll { it.type == 'lxc' }.collect {
+        [vmid: it.vmid, name: it.name, status: 'running'] + pressure.collectEntries { k, v -> [k, String.format('%.2f', v as double)] }
+    }
 }
 return fixtures

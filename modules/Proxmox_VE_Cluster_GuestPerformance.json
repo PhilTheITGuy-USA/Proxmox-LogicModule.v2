@@ -1,11 +1,11 @@
 {
   "name": "Proxmox_VE_Cluster_GuestPerformance",
   "displayedAs": "Proxmox VE Cluster Guest Performance",
-  "description": "CPU, memory, network and disk throughput for every QEMU virtual machine and LXC container in a Proxmox VE cluster, collected cluster-wide in a single API call.",
+  "description": "CPU, memory, network and disk throughput, pressure stall, ballooning and disk latency for every QEMU virtual machine and LXC container in a Proxmox VE cluster, collected cluster-wide.",
   "group": "Proxmox VE",
   "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
   "searchKeywords": "proxmox,pve,vm,qemu,lxc,container,guest,virtualization,performance",
-  "technicalNotes": "BatchScript: one /cluster/resources?type=vm call per interval, whether the cluster has 10 guests or 5000.\n\nInstance IDs are the Proxmox resource id (qemu/<vmid>, lxc/<vmid>), which is cluster-unique and unchanged by live migration or HA failover, so instances and their history survive a guest moving between nodes.\n\nDataRateRxMB, DataRateTxMB, DiskReadRateMB and DiskWriteRateMB are declared as derive because Proxmox reports these as counters accumulated since guest start; a minimum of 0 discards the negative delta produced when a guest restarts. The counters are scaled to MB before emission, which is monotonic and so leaves the derive rate correct.\n\nDiskUsedGB and DiskUsagePercent are reported for LXC containers only. QEMU exposes no used-disk figure -- real usage inside a VM requires the guest agent, exactly as VMware requires VMware Tools -- so those datapoints are deliberately left as no-data for VMs rather than reported as zero.\n\nTemplates are excluded from discovery: they are never running and would otherwise appear as permanently down instances.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.\n\nRequires VM.Audit on /vms/{vmid}, which the PVEAuditor role includes. /cluster/resources filters guests by privilege rather than erroring, so an under-privileged token sees fewer guests, or none.\n\nUnits: memory in MB, I/O rates in MB per second, disk capacity and use in GB. MB and GB are decimal (10^6 and 10^9 bytes); the product page states the suite's convention.",
+  "technicalNotes": "BatchScript: one /cluster/resources?type=vm call per interval, whether the cluster has 10 guests or 5000, for CPU, memory, network and disk throughput. Pressure, ballooning and disk timings are not in it: they come from each online node's own guest lists, /nodes/{node}/qemu?full=1 and /nodes/{node}/lxc, plus /cluster/status to know which nodes are online -- at most 1 + 2 per node per interval, never one per guest. A node list that cannot be read withholds those figures for its guests, which read No Data; the rest of the run is unaffected, and the node's own modules show why.\n\nThe Pressure datapoints are Linux pressure stall information for the guest's own cgroup: the percent of time some (or, for Full, all) of its tasks waited for CPU, IO or memory, Proxmox's 10-second average at the moment of the poll. CPU pressure is the nearest Proxmox has to VMware's CPU ready. They are recorded without thresholds, as on Proxmox_VE_Node_Detail.\n\nBalloonMB, GuestSwapInRateMB, GuestSwapOutRateMB and MajorPageFaultRate are VMs only, from QEMU's ballooninfo: BalloonMB is the memory the balloon has taken back from the guest (configured memory less what it has now), and the others are the guest's own swap and major page-fault counters, reported only while its balloon driver supplies statistics. A VM whose balloon is disabled reports none of them.\n\nDiskReadIOPS and DiskWriteIOPS are QEMU's per-disk operation counters (blockstat), summed over the VM's disks and declared derive. DiskReadLatencyMs and DiskWriteLatencyMs are the average time per operation since the previous poll: the change in blockstat's total time over the change in operations, computed in the script from the previous totals kept in lm.cache on the Collector. They are withheld on the first poll, after a restart or migration resets the counters, and over an interval with no reads (or writes). Containers have no blockstat; their IO pressure is their IO signal. Proxmox reports no latency per storage outside Ceph (see Proxmox_VE_Cluster_CephOSD). ballooninfo and blockstat are passed through from QEMU and not described in Proxmox's API schema; they were read on Proxmox VE 9.2.3.\n\nInstance IDs are the Proxmox resource id (qemu/<vmid>, lxc/<vmid>), which is cluster-unique and unchanged by live migration or HA failover, so instances and their history survive a guest moving between nodes.\n\nDataRateRxMB, DataRateTxMB, DiskReadRateMB and DiskWriteRateMB are declared as derive because Proxmox reports these as counters accumulated since guest start; a minimum of 0 discards the negative delta produced when a guest restarts. The counters are scaled to MB before emission, which is monotonic and so leaves the derive rate correct.\n\nDiskUsedGB and DiskUsagePercent are reported for LXC containers only. QEMU exposes no used-disk figure -- real usage inside a VM requires the guest agent, exactly as VMware requires VMware Tools -- so those datapoints are deliberately left as no-data for VMs rather than reported as zero.\n\nTemplates are excluded from discovery: they are never running and would otherwise appear as permanently down instances.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice. The suite has no addCategory_* PropertySource: the NetScan sets the categories and pve.cluster.role, and the product page lists them for a resource added by hand.\n\nRequires VM.Audit on /vms/{vmid}, which the PVEAuditor role includes, and Sys.Audit on / for /cluster/status. /cluster/resources and the node guest lists filter guests by privilege rather than erroring, so an under-privileged token sees fewer guests, or none.\n\nUnits: memory in MB, I/O rates in MB per second, disk capacity and use in GB, latency in milliseconds, pressure in percent. MB and GB are decimal (10^6 and 10^9 bytes); the product page states the suite's convention.",
   "collectionMethod": "batchscript",
   "collectionInterval": "5m",
   "multiInstance": true,
@@ -83,7 +83,87 @@
     },
     {
       "name": "MemoryHostMB",
-      "description": "The host's view of the guest's memory footprint, MB (decimal, 10^6 bytes). The gap between this and MemoryUsedMB is the balloon at work. Not reported by older Proxmox.",
+      "description": "VMs only: the host's view of the VM's memory footprint, MB (decimal, 10^6 bytes). Not reported for containers, nor by older Proxmox.",
+      "conditional": true
+    },
+    {
+      "name": "PressureCPUSomePercent",
+      "description": "Percent of time some of the guest's tasks waited for CPU, Proxmox's 10-second average at poll time. The nearest Proxmox has to CPU ready.",
+      "conditional": true
+    },
+    {
+      "name": "PressureCPUFullPercent",
+      "description": "Percent of time all of the guest's tasks waited for CPU, 10-second average at poll time.",
+      "conditional": true
+    },
+    {
+      "name": "PressureIOSomePercent",
+      "description": "Percent of time some of the guest's tasks waited for IO, 10-second average at poll time.",
+      "conditional": true
+    },
+    {
+      "name": "PressureIOFullPercent",
+      "description": "Percent of time all of the guest's tasks waited for IO, 10-second average at poll time.",
+      "conditional": true
+    },
+    {
+      "name": "PressureMemorySomePercent",
+      "description": "Percent of time some of the guest's tasks waited for memory, 10-second average at poll time.",
+      "conditional": true
+    },
+    {
+      "name": "PressureMemoryFullPercent",
+      "description": "Percent of time all of the guest's tasks waited for memory, 10-second average at poll time.",
+      "conditional": true
+    },
+    {
+      "name": "BalloonMB",
+      "description": "VMs only: memory the balloon has taken back from the guest, configured memory less what it has now, MB (decimal, 10^6 bytes).",
+      "conditional": true
+    },
+    {
+      "name": "GuestSwapInRateMB",
+      "description": "VMs only: MB the guest swapped in per second, from its balloon driver's statistics (decimal, 10^6 bytes).",
+      "type": "derive",
+      "min": "0",
+      "conditional": true
+    },
+    {
+      "name": "GuestSwapOutRateMB",
+      "description": "VMs only: MB the guest swapped out per second, from its balloon driver's statistics (decimal, 10^6 bytes).",
+      "type": "derive",
+      "min": "0",
+      "conditional": true
+    },
+    {
+      "name": "MajorPageFaultRate",
+      "description": "VMs only: major page faults per second inside the guest, from its balloon driver's statistics.",
+      "type": "derive",
+      "min": "0",
+      "conditional": true
+    },
+    {
+      "name": "DiskReadIOPS",
+      "description": "VMs only: read operations per second, summed over the VM's disks.",
+      "type": "derive",
+      "min": "0",
+      "conditional": true
+    },
+    {
+      "name": "DiskWriteIOPS",
+      "description": "VMs only: write operations per second, summed over the VM's disks.",
+      "type": "derive",
+      "min": "0",
+      "conditional": true
+    },
+    {
+      "name": "DiskReadLatencyMs",
+      "description": "VMs only: average milliseconds per read since the previous poll, over the VM's disks. Withheld on the first poll, after a counter reset and when nothing was read.",
+      "conditional": true
+    },
+    {
+      "name": "DiskWriteLatencyMs",
+      "description": "VMs only: average milliseconds per write since the previous poll, over the VM's disks. Withheld on the first poll, after a counter reset and when nothing was written.",
       "conditional": true
     }
   ],
@@ -95,6 +175,12 @@
     {"title": "Root Disk", "verticalLabel": "GB", "lines": [{"dp": "DiskUsedGB", "legend": "Used", "color": "blue"}, {"dp": "DiskCapacityGB", "legend": "Size", "color": "black"}]},
     {"title": "Root Disk Usage", "verticalLabel": "%", "max": 100, "lines": [{"dp": "DiskUsagePercent", "legend": "Used", "color": "blue"}]},
     {"title": "Network Throughput", "verticalLabel": "MB/sec", "lines": [{"dp": "DataRateRxMB", "legend": "Received", "color": "blue"}, {"dp": "DataRateTxMB", "legend": "Sent", "color": "green"}]},
-    {"title": "Disk Throughput", "verticalLabel": "MB/sec", "lines": [{"dp": "DiskReadRateMB", "legend": "Read", "color": "blue"}, {"dp": "DiskWriteRateMB", "legend": "Written", "color": "orange"}]}
+    {"title": "Disk Throughput", "verticalLabel": "MB/sec", "lines": [{"dp": "DiskReadRateMB", "legend": "Read", "color": "blue"}, {"dp": "DiskWriteRateMB", "legend": "Written", "color": "orange"}]},
+    {"title": "Pressure Stall", "verticalLabel": "%", "max": 100, "lines": [{"dp": "PressureCPUSomePercent", "legend": "CPU some", "color": "blue"}, {"dp": "PressureCPUFullPercent", "legend": "CPU full", "color": "black"}, {"dp": "PressureIOSomePercent", "legend": "IO some", "color": "orange"}, {"dp": "PressureIOFullPercent", "legend": "IO full", "color": "red"}, {"dp": "PressureMemorySomePercent", "legend": "Memory some", "color": "green"}, {"dp": "PressureMemoryFullPercent", "legend": "Memory full", "color": "fuchsia"}]},
+    {"title": "Balloon", "verticalLabel": "MB", "lines": [{"dp": "BalloonMB", "legend": "Reclaimed", "color": "blue"}]},
+    {"title": "Guest Swap", "verticalLabel": "MB/sec", "lines": [{"dp": "GuestSwapInRateMB", "legend": "Swapped in", "color": "blue"}, {"dp": "GuestSwapOutRateMB", "legend": "Swapped out", "color": "orange"}]},
+    {"title": "Major Page Faults", "verticalLabel": "faults/sec", "lines": [{"dp": "MajorPageFaultRate", "legend": "Major faults", "color": "blue"}]},
+    {"title": "Disk IOPS", "verticalLabel": "ops/sec", "lines": [{"dp": "DiskReadIOPS", "legend": "Read", "color": "blue"}, {"dp": "DiskWriteIOPS", "legend": "Write", "color": "orange"}]},
+    {"title": "Disk Latency", "verticalLabel": "ms", "lines": [{"dp": "DiskReadLatencyMs", "legend": "Read", "color": "blue"}, {"dp": "DiskWriteLatencyMs", "legend": "Write", "color": "orange"}]}
   ]
 }
