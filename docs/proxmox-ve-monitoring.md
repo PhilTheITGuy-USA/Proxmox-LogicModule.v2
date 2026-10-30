@@ -27,7 +27,7 @@ Server & Operations Hardware
 As of October 2026, the Proxmox VE package is known to be compatible with:
 
 - Proxmox VE 9.2.3, two-node cluster (lab-verified)
-- Proxmox VE 9.x standalone hosts (lab-verified)
+- Proxmox VE 9.2.3, standalone host (lab-verified)
 - Proxmox VE 8.x *(not yet verified; see Setup Requirements for the guest-agent privilege)*
 
 Designed for up to 10 clusters of 16 nodes and 1,000 guests each. *(not yet verified at true scale)*
