@@ -386,7 +386,29 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.1.0
+
+v2.1.1 is a fix release. USB devices passed through to a guest no longer draw as a Storage edge
+on the map, and a `403` from Proxmox now names the privilege it refused instead of
+being reported as a rejected token. Module names, datapoints, properties and the dashboards are
+unchanged.
+
+1. Re-import every module, in the order given in [Import LogicModules](#import-logicmodules).
+   Each module carries its own copy of the shared code that changed. Only
+   `Proxmox_VE_Cluster_Topology` changes what is drawn; the others change only an error message.
+2. Let the TopologySource run (saving it triggers a run). A guest's old USB Storage edge drops
+   off the map.
+3. Optionally paste the new NetScan script into each NetScan. It changes only the same error
+   message, so a NetScan left at v2.1.0 keeps working.
+
+USB devices passed through to a guest (a VM's **USB Device**, a container's `/dev/bus/usb`
+device) are not drawn: Proxmox's guest config names only a vendor and product ID, so a Zigbee
+or Z-Wave stick would show as a Storage edge from its node. A disk passed through by path, or a
+host directory bind-mounted into a container, still draws as storage.
+
 ### Upgrading from v2.0.x
+
+Upgrading straight from v2.0.x to v2.1.1 takes the same steps as to v2.1.0.
 
 v2.1.0 draws the topology map the way LogicMonitor's vSphere suite does, with storage and
 network layers under the nodes. Module names, datapoints, properties, the NetScan and the
@@ -410,11 +432,6 @@ The cluster's map vertex has a new key, `proxmoxve--cluster--<cluster name>` in 
 `proxmoxve--<cluster name>`. After the upgrade the map draws the cluster under the new key,
 with its edges to every node, and the vertex under the old key drops off the map.
 
-USB devices passed through to a guest (a VM's **USB Device**, a container's `/dev/bus/usb`
-device) are not drawn: Proxmox's guest config names only a vendor and product ID, so a Zigbee
-or Z-Wave stick would show as a Storage edge from its node. A disk passed through by path, or a
-host directory bind-mounted into a container, still draws as storage.
-
 ## Troubleshooting
 
 - **No data on any module:** check the token from the Collector's host. On Linux:
@@ -432,6 +449,10 @@ host directory bind-mounted into a container, still draws as storage.
 
   Keep the single quotes: the token string holds a `!`, which Bash expands inside double quotes.
   - A `401` means the token ID or secret is wrong.
+  - A `403` means the token is valid but lacks a privilege. Proxmox names it, for example
+    `403 Permission check failed (/, Sys.Audit)`, and the module's error carries that text. Give
+    the token's user the `PVEAuditor` role on `/`; with `--privsep 1` the token needs that ACL
+    entry itself.
   - An empty `data` array means the token authenticates but has no permissions: with
     `--privsep 1` it needs its own ACL.
 - **A node's modules do not apply:** its `pve.netscan.reachable` is `false`, and
