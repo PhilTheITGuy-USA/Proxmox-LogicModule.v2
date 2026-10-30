@@ -413,7 +413,7 @@ with its edges to every node, and the vertex under the old key drops off the map
 USB devices passed through to a guest (a VM's **USB Device**, a container's `/dev/bus/usb`
 device) are not drawn: Proxmox's guest config names only a vendor and product ID, so a Zigbee
 or Z-Wave stick would show as a Storage edge from its node. A disk passed through by path, or a
-host directory bind-mounted into a container, still draws as storage. *(not yet verified)*
+host directory bind-mounted into a container, still draws as storage.
 
 ## Troubleshooting
 
