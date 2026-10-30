@@ -38,6 +38,10 @@ def serve = { exchange, List log ->
     if (exchange.requestHeaders.getFirst('Authorization') != 'PVEAPIToken=' + TOKEN) {
         status = 401
         body = JsonOutput.toJson([data: null, errors: [auth: 'invalid token']])
+    } else if (key == '/forbidden') {
+        // A valid token without the privilege: Proxmox names it in the status line
+        status = 403
+        body = JsonOutput.toJson([data: null])
     } else if (fixtures.containsKey(key)) {
         status = 200
         body = JsonOutput.toJson([data: fixtures[key]])
@@ -625,6 +629,12 @@ note('hosturl-url', asUrls.exit == ['https://10.0.0.5:8006', 'https://[fd00::12]
 // M7: a rejected token names the property that holds it.
 note('auth-names-property', fo401.stderr.contains('pve.token.credential'),
      "the 401 message does not name pve.token.credential: ${fo401.stderr.take(300)}")
+// A 403 is a valid token short of a privilege (S9: hardware/usb wants Sys.Modify): the
+// message carries Proxmox's own reason and does not send the user to check the secret.
+def forbidden = runSource(preamble + "\nreturn pveGet('/forbidden')", [hostProps: hostProps])
+note('auth-403-reason', forbidden.thrown?.message?.startsWith('HTTP 403 ') &&
+                        forbidden.thrown.message.contains('(Forbidden)') && !forbidden.thrown.message.contains('secret'),
+     "the 403 message was ${forbidden.thrown?.message}")
 
 // ------------------------------------------------------- the cluster role (A§3.1)
 

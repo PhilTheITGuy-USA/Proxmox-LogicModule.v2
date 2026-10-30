@@ -70,7 +70,7 @@ docker compose -f tests/docker-compose.yml run --rm tests > "$TMP/harness.txt" 2
   checked by `check_script_lengths`. A preamble closure must be defined before the closures that
   use it (a Groovy closure can't see a later script variable), and the shaker finds references
   by name, so don't call a closure through a dynamic name.
-- **The NetScan is 30,249 bytes against LogicMonitor's recommended 32 KB.** Its output also has
+- **The NetScan is 30,442 bytes against LogicMonitor's recommended 32 KB.** Its output also has
   its indentation halved (`compact_indent`, which refuses text holding `'''`, `"""` or `/$`,
   the marks of a multi-line string). The harness's `netscan-size` fails above 31 KB, keeping a
   kilobyte free; past that, trim the NetScan rather than raise the limit.

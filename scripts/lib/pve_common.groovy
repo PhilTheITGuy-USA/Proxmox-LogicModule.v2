@@ -138,11 +138,16 @@ def pveGetAt = { String base, String path ->
     connection.setRequestProperty('Accept', 'application/json')
 
     int status = connection.responseCode
-    if (status == 401 || status == 403) {
-        throw new IOException('HTTP ' + status + ' for ' + path +
+    if (status == 401) {
+        throw new IOException('HTTP 401 for ' + path +
             ' - the API token in pve.token.credential was rejected. Check its secret, and that it has a' +
             ' PVEAuditor ACL. A token with privilege separation enabled needs its own ACL entry,' +
             ' not just the one on its user.')
+    }
+    // A 403 is a valid token short of a privilege; Proxmox names it in the status line
+    if (status == 403) {
+        throw new IOException('HTTP 403 for ' + path + ' (' + connection.responseMessage + ')' +
+            ' - the token in pve.token.credential lacks that privilege. The suite needs PVEAuditor on /.')
     }
     if (status < 200 || status >= 300) {
         throw new IOException('HTTP ' + status + ' for ' + path)
