@@ -2057,7 +2057,8 @@ return [
     volumes: pveGuestVolumes([scsi0: 'local-lvm:vm-101-disk-0,size=32G', ide2: 'local:iso/debian.iso,media=cdrom',
                               ide0: 'none,media=cdrom', efidisk0: 'local-lvm:vm-101-disk-1,size=4M',
                               unused0: 'local-lvm:vm-101-disk-9', mp0: '/mnt/media,mp=/media', scsi1: '/dev/disk/by-id/ata-X,size=1T',
-                              usb0: 'host=1234:5678', usb1: 'spice', virtio1: 'nas:101/vm-101-disk-0.qcow2', net0: 'virtio=AA:BB:CC:DD:EE:FF',
+                              usb0: 'host=1234:5678', usb1: 'spice', dev0: '/dev/bus/usb/001/004,uid=0', dev1: '/dev/sdc',
+                              virtio1: 'nas:101/vm-101-disk-0.qcow2', net0: 'virtio=AA:BB:CC:DD:EE:FF',
                               tpmstate0: 'local-lvm:vm-101-disk-2,size=4M,version=v2.0']),
     disks  : [pveDiskOf('/dev/sdb3', [[devpath: '/dev/sdb']]), pveDiskOf('nvme0n1p2', [[devpath: '/dev/nvme0n1']]),
               pveDiskOf('ata-Disk_SER123-part1', [[devpath: '/dev/sdz', serial: 'SER123']]), pveDiskOf('sdq', [[devpath: '/dev/sda']]),
@@ -2074,10 +2075,10 @@ def topoParsed = topoParsing.exit ?: [:]
 note('topo-storage-kinds', topoParsed.kinds == ['network', 'shared', 'network', 'shared', 'local', 'local', 'network', 'local'],
      "storage kinds were ${topoParsed.kinds}")
 def volumeSlots = (topoParsed.volumes ?: []).collectEntries { [(it.slot): it] }
-note('topo-volumes', volumeSlots.keySet() == ['scsi0', 'efidisk0', 'mp0', 'scsi1', 'usb0', 'virtio1', 'tpmstate0'] as Set,
-     "volumes read were ${volumeSlots.keySet()} (CD-ROM media, unused volumes, SPICE USB and NICs must be skipped)")
+note('topo-volumes', volumeSlots.keySet() == ['scsi0', 'efidisk0', 'mp0', 'scsi1', 'dev1', 'virtio1', 'tpmstate0'] as Set,
+     "volumes read were ${volumeSlots.keySet()} (CD-ROM media, unused volumes, USB passthrough and NICs must be skipped)")
 note('topo-volumes', volumeSlots.scsi0?.storage == 'local-lvm' && volumeSlots.virtio1?.storage == 'nas' &&
-                     volumeSlots.mp0?.path == '/mnt/media' && volumeSlots.scsi1?.device && volumeSlots.usb0?.device,
+                     volumeSlots.mp0?.path == '/mnt/media' && volumeSlots.scsi1?.device && volumeSlots.dev1?.device == '/dev/sdc',
      "volumes topoParsed as ${topoParsed.volumes}")
 note('topo-disks', topoParsed.disks == ['sdb', 'nvme0n1', 'sdz', null, 'sdy', null], "disks resolved as ${topoParsed.disks}")
 note('topo-paths', topoParsed.paths == ['nas', null, 'usb', null], "bind paths matched ${topoParsed.paths}")

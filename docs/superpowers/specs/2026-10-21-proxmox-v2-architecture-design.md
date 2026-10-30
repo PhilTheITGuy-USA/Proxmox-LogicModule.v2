@@ -315,7 +315,10 @@ documents "Manually Assigning Properties to Resources".
 > - **Edges.** Manage: cluster → node. Compute: node → guest. Storage: node → store; guest → store
 >   (from `rootfs`, `mpN`, `scsiN`, `virtioN`, `sataN`, `ideN`, `efidiskN`, `tpmstateN`; a bind
 >   mount joins the store whose directory holds it); node → guest for a host path or passed-through
->   device no store covers; store → ZFS pool, LVM thin pool, volume group, Ceph pool or (a directory
+>   disk no store covers (USB passthrough, a VM's `usbN` or a container's `devN` under
+>   `/dev/bus/usb`, is not drawn: amended 2026-10-29, user, after spike S9 -- the config names only
+>   a vendor and product ID and the device list needs `Sys.Modify`, so a Zigbee stick drew as a
+>   Storage edge); store → ZFS pool, LVM thin pool, volume group, Ceph pool or (a directory
 >   store on a Proxmox-made mount) disk; thin pool → volume group → disk; ZFS pool → disk; node →
 >   Ceph OSD → disk. Network: SDN only, node → zone → VNet → guest. Bridges, ports, bonds and VLAN
 >   interfaces are kept off the map (user, 2026-10-28): a bridge repeats what the Compute edge says, a

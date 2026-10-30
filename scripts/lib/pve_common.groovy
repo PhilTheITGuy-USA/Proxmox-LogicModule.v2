@@ -1064,19 +1064,22 @@ def pveSdn = { ->
  * The storage a guest's disks and mount points use, from its config: every rootfs, mpN,
  * scsiN, virtioN, sataN, ideN, efidiskN and tpmstateN entry. Each is [storage: name] for a
  * volume on a Proxmox store, [path: ...] for a host directory bind-mounted into a container,
- * or [device: ...] for a disk or USB device passed straight through. CD-ROM media and unused
- * volumes are not counted: neither is storage the guest runs on.
+ * or [device: ...] for a disk passed straight through. CD-ROM media and unused volumes are not
+ * counted: neither is storage the guest runs on. Nor is USB passthrough (a VM's usbN, a
+ * container's devN under /dev/bus/usb): the config names no more than a vendor and product
+ * ID, so a Zigbee stick would draw as storage (spike S9, lab 2026-10-29).
  */
 def pveGuestVolumes = { Map config ->
     def found = []
     (config ?: [:]).each { key, value ->
         def slot = key.toString()
         def text = value?.toString() ?: ''
-        if (slot ==~ /usb\d+/) {
-            if (text.contains('host=')) { found << [slot: slot, device: text] }
+        if (slot ==~ /usb\d+/) { return }
+        if (slot ==~ /dev\d+/) {
+            def path = text.tokenize(',')[0]
+            if (!path?.startsWith('/dev/bus/usb/')) { found << [slot: slot, device: path] }
             return
         }
-        if (slot ==~ /dev\d+/) { found << [slot: slot, device: text.tokenize(',')[0]]; return }
         if (!(slot ==~ /(rootfs|mp\d+|scsi\d+|virtio\d+|sata\d+|ide\d+|efidisk\d+|tpmstate\d+)/)) { return }
         if (text.contains('media=cdrom')) { return }
         def volume = text.tokenize(',').find { !it.contains('=') || it.startsWith('volume=') }
