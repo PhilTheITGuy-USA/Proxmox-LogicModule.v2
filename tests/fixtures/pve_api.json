@@ -1559,22 +1559,6 @@
       "type": "vnet"
     }
   ],
-  "/cluster/resources?type=sdn": [
-    {
-      "id": "sdn/pve1/lab",
-      "type": "sdn",
-      "sdn": "lab",
-      "node": "pve1",
-      "status": "ok"
-    },
-    {
-      "id": "sdn/pve2/lab",
-      "type": "sdn",
-      "sdn": "lab",
-      "node": "pve2",
-      "status": "error"
-    }
-  ],
   "/nodes/pve1/qemu?full=1": [
     {
       "vmid": 101,

@@ -1184,6 +1184,40 @@ def parseBatch = { String stdout ->
     data
 }
 
+// ------------------------------------------------- SDN zone state, Proxmox 8 and 9 (2026-10-30)
+//
+// Proxmox 8 lists a zone in /cluster/resources as type sdn; Proxmox 9 as type network,
+// network-type zone, and answers ?type=sdn with nothing (lab, PVE 9.2.3). Zone "lab" (VNet
+// "labnet") is ok on pve1 and in error on pve2, in either shape; PVE 9's own localnetwork
+// zone, which is no SDN zone the cluster defines, is not an instance.
+
+def sdnCollectFile = new File(scriptsDir, 'Proxmox_VE_Cluster_SDN.collect.groovy')
+def sdnRun = { List rows ->
+    withFixtures(['/cluster/resources': fixtures['/cluster/resources'] + rows, '/cluster/resources?type=sdn': []]) {
+        def run = runScript(sdnCollectFile, [hostProps: hostProps])
+        run.data = parseBatch(run.stdout)
+        run
+    }
+}
+def sdnExpected = [
+    'zone-lab'   : [NodesTotal: 2d, NodesOK: 1d, Healthy: 0d],
+    'vnet-labnet': [NodesTotal: 2d, NodesOK: 1d, Healthy: 0d],
+]
+def sdnPve8 = sdnRun([
+    [id: 'sdn/pve1/lab', type: 'sdn', sdn: 'lab', node: 'pve1', status: 'ok'],
+    [id: 'sdn/pve2/lab', type: 'sdn', sdn: 'lab', node: 'pve2', status: 'error'],
+])
+note('sdn-pve8', sdnPve8.exit == 0 && sdnPve8.data == sdnExpected, "SDN on PVE 8: exit ${sdnPve8.exit}, ${sdnPve8.data} ${sdnPve8.stderr}")
+def sdnPve9 = sdnRun([
+    [id: 'network/pve1/zone/lab', type: 'network', 'network-type': 'zone', network: 'lab', 'zone-type': 'vlan', node: 'pve1', status: 'available'],
+    [id: 'network/pve2/zone/lab', type: 'network', 'network-type': 'zone', network: 'lab', 'zone-type': 'vlan', node: 'pve2', status: 'error'],
+    [id: 'network/pve1/zone/localnetwork', type: 'network', 'network-type': 'zone', network: 'localnetwork', node: 'pve1', status: 'ok'],
+])
+note('sdn-pve9', sdnPve9.exit == 0 && sdnPve9.data == sdnExpected, "SDN on PVE 9: exit ${sdnPve9.exit}, ${sdnPve9.data} ${sdnPve9.stderr}")
+def sdnUnapplied = sdnRun([])
+note('sdn-unapplied', sdnUnapplied.exit == 0 && sdnUnapplied.data['zone-lab'] == [NodesTotal: 0d, NodesOK: 0d],
+     "SDN zone not applied: ${sdnUnapplied.data}")
+
 // ------------------------------- guest pressure, ballooning and disk latency (2026-10-30)
 //
 // None of it is in /cluster/resources: each online node's /nodes/<n>/qemu?full=1 and
