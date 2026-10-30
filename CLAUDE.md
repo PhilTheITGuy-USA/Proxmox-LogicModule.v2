@@ -22,7 +22,10 @@ never collide in a portal.
   their `collectScript` / `discoveryScript` name files in `scripts/`. `scripts/*.groovy` -- those
   scripts; the build prepends the shared preamble `scripts/lib/pve_common.groovy` to each. ERI
   and topology scripts land in `dist/scripts/collector-only/` (they need `lm.topo`), which the
-  compile job and the harness never reach.
+  compile job and the harness never reach. Script names end `.ad.groovy` (Active Discovery),
+  `.collect.groovy` or `.topo.groovy`; a discovery script can serve more than one module, so its
+  name need not match a module (`Proxmox_VE_Cluster_Guests.ad.groovy`,
+  `Proxmox_VE_Cluster_Storage.ad.groovy`) -- the module JSON is what names its scripts.
 - `scripts/Proxmox_VE_NetScan.groovy` -- the NetScan body: the Collector-only reads (Proxmox, the
   `lm.api` portal lookup) and the emit. Its decisions live in `scripts/lib/pve_netscan.groovy`'s
   pure `pveNetscanPlan(input)`, so the harness tests them without a Collector.
@@ -70,10 +73,11 @@ docker compose -f tests/docker-compose.yml run --rm tests > "$TMP/harness.txt" 2
   checked by `check_script_lengths`. A preamble closure must be defined before the closures that
   use it (a Groovy closure can't see a later script variable), and the shaker finds references
   by name, so don't call a closure through a dynamic name.
-- **The NetScan is 30,442 bytes against LogicMonitor's recommended 32 KB.** Its output also has
-  its indentation halved (`compact_indent`, which refuses text holding `'''`, `"""` or `/$`,
-  the marks of a multi-line string). The harness's `netscan-size` fails above 31 KB, keeping a
-  kilobyte free; past that, trim the NetScan rather than raise the limit.
+- **The NetScan sits close to LogicMonitor's recommended 32 KB** (about 30 KB at v2.1.1; the
+  size of `dist/netscan/Proxmox_VE_NetScan.groovy` is the current figure). Its output has its
+  indentation halved (`compact_indent`, which refuses text holding `'''`, `"""` or `/$`, the
+  marks of a multi-line string). The harness's `netscan-size` is the limit that counts: it fails
+  above 31 KB, keeping a kilobyte free; past that, trim the NetScan rather than raise the limit.
 - Collector objects are not Java collections: `hostProps` and `netscanProps` are
   `com.santaba.common.util.ParamMap` (`get` / `set`, no `put`, not a `Map`). Never type a
   parameter that receives them as `Map`.
@@ -145,7 +149,13 @@ what the lab has not yet shown. When a layer changes, add a row there, not here.
 - `docs/research/` -- what LogicMonitor's own vSphere (and Nutanix) suites do. Claims are tagged
   **[doc]**, **[script]** or **[inferred]**; keep that tagging. The vSphere NetScan the user
   supplied is LogicMonitor's code: summarise it, never copy it in.
+- `docs/reviews/` -- the LM Exchange readiness review (2026-10-26), whose numbered gaps the
+  scrub and later fixes refer to ("Exchange review gap 1").
 - `docs/v1/` -- v1's own documentation, as copied; "v1 DESIGN §7" and the like point there.
+
+**Releases** are `v2.x.y` git tags on `main`, with no CHANGELOG: a release's notes are the
+product page's "Upgrading from v2.x.y" section (what changed, then the steps), and spec §5 gets
+a row for what was verified.
 
 Spec edits are dated and attributed to their evidence (a portal check, a live target, the user's
 stated position, a LogicMonitor doc URL, a review); commit messages follow the same style, e.g.
