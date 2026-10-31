@@ -361,6 +361,9 @@ documents "Manually Assigning Properties to Resources".
 >   `datasourceinstanceProps` [unverified: LogicMonitor's recipes, not yet seen in this suite], so
 >   its per-poll cost stays one `/network` call. Bridge → VLAN joins two instances and is expected
 >   on the bridge's own map, not the cluster-wide one.
+>   A VLAN no guest on the node uses any more keeps its instance, as every module in the suite
+>   keeps what it no longer discovers (user, 2026-10-30): it drops off the map, since the plan draws
+>   nothing to it, still reports its bridge's state, and is deleted by hand.
 > - **Where it is decided.** `pveTopoInput` (the reads) and `pveTopoPlan` (the edges) in the
 >   preamble; the TopologySource only turns keys into ERIs. Cost per hourly run: a handful of
 >   cluster reads, seven or so per online node (with /network, 2026-10-30) plus one per ZFS pool, and the guest-config reads it
