@@ -56,6 +56,23 @@ def pveInstanceProp = { String key ->
     return null
 }
 
+/*
+ * A BatchScript's discovered instances, from the datasourceinstanceProps binding LogicMonitor's
+ * recipes describe (instance -> its properties): [wildvalue, prop], where prop(key) reads a
+ * property with or without its auto. prefix. Empty where the binding is absent.
+ */
+def pveBatchInstances = { ->
+    def instances = binding.hasVariable('datasourceinstanceProps') ? datasourceinstanceProps : null
+    if (!(instances instanceof Map)) { return [] }
+    instances.collect { name, props ->
+        def prop = { String key ->
+            def value = props?.get(key) ?: props?.get('auto.' + key)
+            value == null || value.toString().trim().isEmpty() ? null : value.toString().trim()
+        }
+        [wildvalue: prop('wildvalue'), prop: prop]
+    }
+}
+
 // ---------------------------------------------------------------- connection
 
 def pveBaseUrl = pveHostProp('pve.api.url')

@@ -1218,6 +1218,37 @@ def sdnUnapplied = sdnRun([])
 note('sdn-unapplied', sdnUnapplied.exit == 0 && sdnUnapplied.data['zone-lab'] == [NodesTotal: 0d, NodesOK: 0d],
      "SDN zone not applied: ${sdnUnapplied.data}")
 
+// ------------------------------------------- Node_Network VLAN instances (2026-10-30)
+//
+// A VLAN reports its bridge's Active and Healthy (A§3.4, amended 2026-10-30). Collection
+// learns the VLAN instances from datasourceinstanceProps, whose shape LogicMonitor documents
+// only in its recipes: properties with or without auto., with or without a wildvalue entry,
+// or no binding at all, which leaves the VLANs empty and the bridges reporting.
+
+def netCollectFile = new File(scriptsDir, 'Proxmox_VE_Node_Network.collect.groovy')
+def netCollect = { Map instances ->
+    def run = runScript(netCollectFile, instances == null ? [hostProps: nodeHostProps] :
+                                        [hostProps: nodeHostProps, datasourceinstanceProps: instances])
+    run.data = parseBatch(run.stdout)
+    run
+}
+def vlanInstance = [wildvalue: 'vmbr0-vlan10', 'auto.pve_iface': 'vmbr0', 'auto.pve_iface_type': 'vlan', 'auto.pve_vlan': '10']
+def goneBridgeVlan = ['auto.pve_iface': 'vmbr7', 'auto.pve_iface_type': 'vlan', 'auto.pve_vlan': '3']
+[
+    'auto-prefixed': ['vmbr0 VLAN 10': vlanInstance, 'vmbr7 VLAN 3': goneBridgeVlan,
+                      'vmbr0 (bridge)': [wildvalue: 'vmbr0', 'auto.pve_iface': 'vmbr0', 'auto.pve_iface_type': 'bridge']],
+    'bare'         : ['vmbr0 VLAN 10': vlanInstance.collectEntries { k, v -> [k.replaceFirst('^auto\\.', ''), v] }],
+    'no-wildvalue' : ['vmbr0 VLAN 10': vlanInstance.findAll { k, v -> k != 'wildvalue' }],
+].each { shape, instances ->
+    def run = netCollect(instances)
+    note('net-vlan-collect', run.exit == 0 && run.data['vmbr0-vlan10'] == [Active: run.data['vmbr0'].Active, Healthy: run.data['vmbr0'].Healthy] &&
+                             run.data['vmbr0'].Ports != null && !run.data.containsKey('vmbr7-vlan3'),
+         "VLAN collection, ${shape}: exit ${run.exit}, ${run.data} ${run.stderr}")
+}
+def netNoBinding = netCollect(null)
+note('net-vlan-collect', netNoBinding.exit == 0 && netNoBinding.data.keySet() == ['vmbr0', 'vmbr1'] as Set && !netNoBinding.stderr.trim(),
+     "VLAN collection without datasourceinstanceProps: exit ${netNoBinding.exit}, ${netNoBinding.data} ${netNoBinding.stderr}")
+
 // ------------------------------- guest pressure, ballooning and disk latency (2026-10-30)
 //
 // None of it is in /cluster/resources: each online node's /nodes/<n>/qemu?full=1 and
