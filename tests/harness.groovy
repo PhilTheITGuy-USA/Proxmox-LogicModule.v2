@@ -2033,13 +2033,52 @@ def topoFixtures = [
     ],
     '/cluster/resources?type=vm': fixtures['/cluster/resources?type=vm'] + [
         [id: 'lxc/103', type: 'lxc', vmid: 103, name: 'media', node: 'pve1', template: false],
+        [id: 'lxc/201', type: 'lxc', vmid: 201, name: 'tagged', node: 'pve2', status: 'running', template: false],
+        [id: 'qemu/202', type: 'qemu', vmid: 202, name: 'parked', node: 'pve2', status: 'stopped', template: false],
+        [id: 'qemu/203', type: 'qemu', vmid: 203, name: 'golden', node: 'pve2', status: 'stopped', template: 1],
     ],
+    // Guest NICs (A§3.4, amended 2026-10-30): web has two untagged NICs on vmbr0 (one edge)
+    // and two tagged ones, its keys in any order; media has a tagged NIC on the VNet (the VNet
+    // only) and a trunk on vmbr1 (vmbr1 -> guest, no VLAN).
+    '/nodes/pve1/qemu/101/config': fixtures['/nodes/pve1/qemu/101/config'] + [
+        net1: 'virtio=BC:24:11:0E:00:12,bridge=vmbr0,firewall=1',
+        net2: 'virtio=BC:24:11:0E:00:22,bridge=vmbr0,tag=10',
+        net3: 'virtio=BC:24:11:0E:00:32,firewall=1,tag=20,bridge=vmbr0'],
     '/nodes/pve1/lxc/103/config': [hostname: 'media',
         net0: 'name=eth0,bridge=labnet,hwaddr=BC:24:11:0E:00:03,type=veth',
+        net1: 'name=eth1,bridge=labnet,tag=5,type=veth',
+        net2: 'name=eth2,bridge=vmbr1,hwaddr=BC:24:11:0E:00:13,trunks=10;20,type=veth',
         rootfs: 'local-lvm:subvol-103-disk-0,size=8G',
         mp0: '/mnt/pve/usb-media/library,mp=/media',
         mp1: '/srv/scratch,mp=/scratch',
         mp2: 'local-lvm:subvol-103-disk-1,mp=/data,size=4G'],
+    // pve2 online, with a plain bridge and an Open vSwitch one. VLAN 10 on its vmbr0 is not
+    // pve1's VLAN 10; a NIC on a bridge pve2 lacks, or with no bridge, draws nothing; a stopped
+    // guest is drawn, a template is not.
+    '/cluster/status': fixtures['/cluster/status'].collect { it.name == 'pve2' ? it + [online: 1] : it },
+    '/cluster/resources?type=node': fixtures['/cluster/resources?type=node'].collect { it.node == 'pve2' ? it + [status: 'online'] : it },
+    '/nodes/pve2/network': [
+        [iface: 'eno1', type: 'eth', active: 1],
+        [iface: 'vmbr0', type: 'bridge', bridge_ports: 'eno1', active: 1, autostart: 1],
+        [iface: 'ovs0', type: 'OVSBridge', ovs_ports: 'eno2', active: 1, autostart: 1],
+    ],
+    '/nodes/pve2/disks/list?include-partitions=1&skipsmart=1': [],
+    '/nodes/pve2/disks/directory': [],
+    '/nodes/pve2/disks/lvm': [leaf: 0, children: []],
+    '/nodes/pve2/disks/lvmthin': [],
+    '/nodes/pve2/disks/zfs': [],
+    '/nodes/pve2/lxc/200/config': [hostname: 'ct200', net0: 'name=eth0,bridge=vmbr0,hwaddr=BC:24:11:0E:00:07,type=veth'],
+    '/nodes/pve2/qemu/102/config': [name: 'vm102'],
+    '/nodes/pve2/lxc/201/config': [hostname: 'tagged',
+        net0: 'name=eth0,bridge=vmbr0,hwaddr=BC:24:11:0E:00:04,tag=10,type=veth',
+        net1: 'name=eth1,bridge=ovs0,hwaddr=BC:24:11:0E:00:14,tag=30,type=veth',
+        net2: 'name=eth2,bridge=vmbr9,hwaddr=BC:24:11:0E:00:24,type=veth',
+        net3: 'name=eth3,tag=40,type=veth'],
+    '/nodes/pve2/qemu/202/config': [name: 'parked', net0: 'virtio=BC:24:11:0E:00:05,bridge=vmbr0,tag=10'],
+    '/nodes/pve2/qemu/203/config': [name: 'golden', net0: 'virtio=BC:24:11:0E:00:06,bridge=vmbr0,tag=99'],
+    // A second zone, on pve2 only.
+    '/cluster/sdn/zones': fixtures['/cluster/sdn/zones'] + [[zone: 'solo', type: 'simple', nodes: 'pve2']],
+    '/cluster/sdn/vnets': fixtures['/cluster/sdn/vnets'] + [[vnet: 'solonet', zone: 'solo', type: 'vnet']],
 ]
 def topoRun = withFixtures(topoFixtures) { runSource(preamble + '\nreturn pveTopoPlan(pveTopoInput())', [hostProps: hostProps]) }
 note('topo-plan', topoRun.thrown == null, "pveTopoPlan(pveTopoInput()) threw ${topoRun.thrown}: ${topoRun.stderr}")
@@ -2070,16 +2109,27 @@ def topoMedia = 'bc:24:11:0e:00:03'
     ['Storage', topoKey('storage', 'ceph-vm'), topoKey('cephpool', 'ceph-vm')],
     ['Storage', topoKey('storage', 'usb-media'), topoKey('disk', 'pve1', 'sda')],
     ['Storage', topoN1, topoKey('osd', '0')], ['Storage', topoN2, topoKey('osd', '2')], ['Storage', topoKey('osd', '0'), topoKey('disk', 'pve1', 'sdc')],
-    // Network: SDN only -- node -> zone -> VNet -> guest.
+    // Network (A§3.4, amended 2026-10-30): node -> bridge -> guest, node -> bridge -> VLAN ->
+    // guest, node -> SDN zone -> VNet -> guest.
     ['Network', topoN1, topoKey('sdn', 'lab')], ['Network', topoN2, topoKey('sdn', 'lab')],
     ['Network', topoKey('sdn', 'lab'), topoKey('sdn', 'lab', 'labnet')], ['Network', topoKey('sdn', 'lab', 'labnet'), topoMedia],
+    ['Network', topoN2, topoKey('sdn', 'solo')], ['Network', topoKey('sdn', 'solo'), topoKey('sdn', 'solo', 'solonet')],
+    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr0')], ['Network', topoN1, topoKey('net', 'pve1', 'vmbr1')],
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoWeb],
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'vmbr0', 'vlan10')], ['Network', topoKey('net', 'pve1', 'vmbr0', 'vlan10'), topoWeb],
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'vmbr0', 'vlan20')], ['Network', topoKey('net', 'pve1', 'vmbr0', 'vlan20'), topoWeb],
+    ['Network', topoKey('net', 'pve1', 'vmbr1'), topoMedia],
+    ['Network', topoN2, topoKey('net', 'pve2', 'vmbr0')], ['Network', topoN2, topoKey('net', 'pve2', 'ovs0')],
+    ['Network', topoKey('net', 'pve2', 'vmbr0'), topoKey('net', 'pve2', 'vmbr0', 'vlan10')],
+    ['Network', topoKey('net', 'pve2', 'vmbr0', 'vlan10'), 'bc:24:11:0e:00:04'], ['Network', topoKey('net', 'pve2', 'vmbr0', 'vlan10'), 'bc:24:11:0e:00:05'],
+    ['Network', topoKey('net', 'pve2', 'ovs0'), topoKey('net', 'pve2', 'ovs0', 'vlan30')], ['Network', topoKey('net', 'pve2', 'ovs0', 'vlan30'), 'bc:24:11:0e:00:04'],
 ].each { expected ->
     note('topo-plan-edges', expected in topoPlanSet, "missing edge ${expected}")
 }
 [
-    // Bridges, ports, bonds and VLAN interfaces are kept off the map (user, 2026-10-28).
-    ['Network', topoN1, topoKey('net', 'pve1', 'vmbr0')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoWeb],
-    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('sdn', 'lab')],
+    // Ports, bonds and host VLAN interfaces are kept off the map (user, 2026-10-28); a zone
+    // hangs off the node, never the bridge; a zone is drawn only under the nodes it spans.
+    ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('sdn', 'lab')], ['Network', topoN1, topoKey('sdn', 'solo')],
     ['Network', topoN1, topoKey('net', 'pve1', 'bond0')], ['Network', topoN1, topoKey('net', 'pve1', 'eno1')],
     ['Network', topoN1, topoKey('net', 'pve1', 'eno3')], ['Network', topoKey('net', 'pve1', 'vmbr0'), topoKey('net', 'pve1', 'bond0')],
     ['Network', topoKey('net', 'pve1', 'bond0'), topoKey('net', 'pve1', 'eno1')],
@@ -2090,6 +2140,30 @@ def topoMedia = 'bc:24:11:0e:00:03'
     note('topo-plan-edges', !(unexpected in topoPlanSet), "unexpected edge ${unexpected}")
 }
 note('topo-plan-edges', topoPlan.size() == topoPlanSet.size(), 'the topoPlan repeats an edge')
+// No vertex for a bridge the node lacks, a template's VLAN, a VNet NIC's tag, a NIC with no
+// bridge, or a trunk's VLANs; one bridge -> guest edge however many untagged NICs share it.
+def topoKeysDrawn = topoPlan.collectMany { [it[1], it[2]] } as Set
+['vmbr9', 'vlan99', 'vlan40', 'vlan5', 'pve1--vmbr1--vlan', 'labnet--vlan'].each { fragment ->
+    note('topo-net-not-drawn', !topoKeysDrawn.any { it.contains(fragment) }, "a vertex containing ${fragment} was drawn")
+}
+note('topo-net-not-drawn', topoPlan.count { it == ['Network', topoKey('net', 'pve1', 'vmbr0'), topoWeb] } == 1,
+     'web -> vmbr0 drawn more than once')
+// A VNet Proxmox also lists among the node's bridges is drawn as the VNet, never as a bridge.
+def vnetAsBridge = withFixtures(topoFixtures + ['/nodes/pve1/network': fixtures['/nodes/pve1/network'] +
+                                                [[iface: 'labnet', type: 'bridge', active: 1, autostart: 1]]]) {
+    runSource(preamble + '\nreturn pveTopoPlan(pveTopoInput())', [hostProps: hostProps]).exit ?: []
+}
+note('topo-net-vnet-not-bridge', !vnetAsBridge.any { it.contains(topoKey('net', 'pve1', 'labnet')) } &&
+                                 vnetAsBridge.any { it as List == ['Network', topoKey('sdn', 'lab', 'labnet'), topoMedia] },
+     "a VNet listed in /network was drawn as a bridge: ${vnetAsBridge.findAll { it.toString().contains('labnet') }}")
+// Each netN with a bridge, in slot order; a tag outside 1-4094 is no tag.
+def guestNics = runSource(preamble + '''
+return pveGuestNics([net0: 'virtio=AA,bridge=vmbr0,tag=30,firewall=1', net1: 'name=eth1,bridge=vmbr1,hwaddr=BB,type=veth',
+                     net2: 'name=eth2,tag=7,type=veth', net10: 'virtio=CC,bridge=vmbr0,tag=4095', scsi0: 'local:1'])
+''', [hostProps: hostProps])
+note('guest-nics', guestNics.exit == [[slot: 'net0', bridge: 'vmbr0', tag: 30], [slot: 'net1', bridge: 'vmbr1', tag: null],
+                                      [slot: 'net10', bridge: 'vmbr0', tag: null]],
+     "pveGuestNics gave ${guestNics.exit} ${guestNics.thrown ?: ''}")
 note('topo-plan-edges', topoPlan.every { it[0] in ['Manage', 'Compute', 'Storage', 'Network'] },
      "an edge type outside vSphere's: ${topoPlan.collect { it[0] }.unique()}")
 note('topo-plan-requests', !topoRun.stderr.contains('not read'), "a topology read failed: ${topoRun.stderr}")

@@ -5,7 +5,8 @@
  *   Compute   node -> guest
  *   Storage   node -> store, guest -> store, store -> pool -> disk, node -> Ceph OSD -> disk,
  *             and node -> guest for a host path or device no store covers
- *   Network   node -> SDN zone -> VNet -> guest (bridges, ports and bonds kept off the map)
+ *   Network   node -> bridge [-> VLAN] -> guest, node -> SDN zone -> VNet -> guest
+ *             (ports and bonds kept off the map)
  *
  * THIS SCRIPT CANNOT BE COMPILED OR RUN OUTSIDE A COLLECTOR. Every LogicMonitor
  * TopologySource works through com.logicmonitor.mod.Snippets: lmTopo.eriPreProcessor normalises
@@ -26,6 +27,8 @@
  *             Proxmox_VE_Cluster_CephPools, StorageAggregate
  *   OSD       Proxmox_VE_Cluster_CephOSD, StorageNode; disk  Proxmox_VE_Node_Disks, PhysicalDisk
  *   SDN       Proxmox_VE_Cluster_SDN, VirtualSwitch
+ *   bridge    Proxmox_VE_Node_Network's bridge instances, VirtualSwitch
+ *   VLAN      Proxmox_VE_Node_Network's VLAN instances (the VLANs guest NICs use), VirtualSwitch
  */
 import com.logicmonitor.mod.Snippets
 import com.santaba.agent.groovy.utils.GroovyScriptHelper as GSH
