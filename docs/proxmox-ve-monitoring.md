@@ -545,7 +545,7 @@ so no module replaces another.
 | Proxmox VE Cluster SDN | DataSource | State of each SDN zone and VNet across the nodes | — |
 | Proxmox VE Cluster Backups | DataSource | Backup jobs, each guest's last backup, unprotected guests | — |
 | Proxmox VE Cluster Snapshots | DataSource | Snapshot count and age per guest, hourly | — |
-| `Proxmox_VE_Cluster_Topology` | TopologySource | The map, modelled on vSphere's: cluster, nodes and guests; storage (stores, pools, disks, Ceph); networking (bridges, guest VLANs, SDN zones and VNets, all Network edges the map's Connections filter can hide); storage, SDN and the cluster tree seen on a lab cluster, bridges and VLANs *(not yet verified)* | — |
+| `Proxmox_VE_Cluster_Topology` | TopologySource | The map, modelled on vSphere's: cluster, nodes and guests; storage (stores, pools, disks, Ceph); networking (bridges, guest VLANs, SDN zones and VNets, all Network edges the map's Connections filter can hide); storage, networking and the cluster tree seen on a lab cluster | — |
 
 **Proxmox VE Node modules** (apply on `ProxmoxVE_Node`)
 
@@ -558,7 +558,7 @@ so no module replaces another.
 | Proxmox VE Node Subscription | DataSource | Subscription status and renewal date | — |
 | Proxmox VE Node Replication | DataSource | Replication job failures, staleness and duration | — |
 | Proxmox VE Node Storage Pools | DataSource | Size, use and health of ZFS pools, LVM volume groups and thin pools | — |
-| Proxmox VE Node Network | DataSource | State of the bridges guests attach to, and of the VLANs guests use on them *(VLANs not yet verified)* | — |
+| Proxmox VE Node Network | DataSource | State of the bridges guests attach to, and of the VLANs guests use on them | — |
 
 **Proxmox VE PropertySources and NetScan**
 
