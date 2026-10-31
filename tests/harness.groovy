@@ -2013,6 +2013,18 @@ note('scale-guest-perf', scalePerf.exit == 0 && scalePerf.requests.size() == 2 +
                          scalePerfData.size() == 1000 && scalePerfData.values().every { it.containsKey('PressureCPUSomePercent') },
      "GuestPerformance at scale: exit ${scalePerf.exit}, ${scalePerf.requests.size()} requests, " +
      "${scalePerfData.count { it.value.containsKey('PressureCPUSomePercent') }} of ${scalePerfData.size()} guests with pressure")
+// Node_Network's discovery asks only its own node: a few fixed reads and one config per guest
+// on it, and finds exactly the VLANs those guests use.
+def scaleNet = atScale('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps + ['pve.node': 'pve01'])
+def scaleNetGuests = scale['/cluster/resources?type=vm'].findAll { it.node == 'pve01' }
+def scaleNetVlans = scaleNetGuests.collect { scale['/nodes/pve01/' + it.type + '/' + it.vmid + '/config'].net0 }
+    .findAll { it.contains('tag=') }.collect { 'vmbr0-vlan' + (it =~ /tag=(\d+)/)[0][1] } as Set
+def scaleNetIds = parseAd(scaleNet.stdout).keySet()
+note('scale-node-network', scaleNet.exit == 0 && scaleNet.requests.every { it.startsWith('/nodes/pve01/') || it.startsWith('/cluster/') } &&
+                           scaleNet.requests.size() <= 5 + scaleNetGuests.size() && scaleNetVlans &&
+                           scaleNetIds == (['vmbr0'] as Set) + scaleNetVlans,
+     "Node_Network discovery at scale: exit ${scaleNet.exit}, ${scaleNet.requests.size()} requests for ${scaleNetGuests.size()} guests, " +
+     "instances ${scaleNetIds}, expected VLANs ${scaleNetVlans} / ${scaleNet.stderr.take(200)}")
 
 // ------------------------------------------------- topology model (vSphere-style)
 //
@@ -2052,6 +2064,10 @@ def topoFixtures = [
         mp0: '/mnt/pve/usb-media/library,mp=/media',
         mp1: '/srv/scratch,mp=/scratch',
         mp2: 'local-lvm:subvol-103-disk-1,mp=/data,size=4G'],
+    // pve1's own guest list, for Node_Network's discovery, and its bridges with the VNet labnet
+    // among them, as Proxmox may list an applied VNet: a VNet is never a bridge vertex.
+    '/nodes/pve1/lxc': [[vmid: 103, name: 'media', status: 'running']],
+    '/nodes/pve1/network': fixtures['/nodes/pve1/network'] + [[iface: 'labnet', type: 'bridge', active: 1, autostart: 1]],
     // pve2 online, with a plain bridge and an Open vSwitch one. VLAN 10 on its vmbr0 is not
     // pve1's VLAN 10; a NIC on a bridge pve2 lacks, or with no bridge, draws nothing; a stopped
     // guest is drawn, a template is not.
@@ -2211,14 +2227,34 @@ expectCarried('Proxmox_VE_Node_Disks.ad.groovy', nodeHostProps, [
     'pve1-sda'    : [key: topoKey('disk', 'pve1', 'sda'), type: 'PhysicalDisk'],
     'pve1-nvme0n1': [key: topoKey('disk', 'pve1', 'nvme0n1'), type: 'PhysicalDisk'],
 ])
-// Bridges are monitored, not mapped: no keys. Only bridges: the node's SNMP monitoring covers
-// its ports (user, 2026-10-28).
+// Bridges and the VLANs this node's guest NICs use carry their vertices (A§3.4, amended
+// 2026-10-30); ports and bonds are left to the node's SNMP monitoring (user, 2026-10-28), and
+// the VNet labnet, though /network lists it, is no bridge.
 expectCarried('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps, [
-    'vmbr0': [key: null, type: null],
-    'vmbr1': [key: null, type: null],
+    'vmbr0'       : [key: topoKey('net', 'pve1', 'vmbr0'), type: 'VirtualSwitch'],
+    'vmbr1'       : [key: topoKey('net', 'pve1', 'vmbr1'), type: 'VirtualSwitch'],
+    'vmbr0-vlan10': [key: topoKey('net', 'pve1', 'vmbr0', 'vlan10'), type: 'VirtualSwitch'],
+    'vmbr0-vlan20': [key: topoKey('net', 'pve1', 'vmbr0', 'vlan20'), type: 'VirtualSwitch'],
 ])
 def bridgeIds = carrierKeys('Proxmox_VE_Node_Network.ad.groovy', nodeHostProps).keySet()
-note('topo-carriers', bridgeIds == ['vmbr0', 'vmbr1'] as Set, "Node_Network discovered ${bridgeIds}, expected only the bridges")
+note('topo-carriers', bridgeIds == ['vmbr0', 'vmbr1', 'vmbr0-vlan10', 'vmbr0-vlan20'] as Set,
+     "Node_Network discovered ${bridgeIds}, expected the bridges and the VLANs guests use")
+// The plan and the carrier agree on which VLANs pve1 has.
+note('topo-carriers', topoKeysDrawn.findAll { it.contains('--net--pve1--') && it.contains('--vlan') } ==
+                      [topoKey('net', 'pve1', 'vmbr0', 'vlan10'), topoKey('net', 'pve1', 'vmbr0', 'vlan20')] as Set,
+     "the plan's pve1 VLANs differ from Node_Network's: ${topoKeysDrawn.findAll { it.contains('--vlan') }}")
+def netAd = withFixtures(topoFixtures) { runScript(new File(scriptsDir, 'Proxmox_VE_Node_Network.ad.groovy'), [hostProps: nodeHostProps]) }
+def vlanLine = netAd.stdout.readLines().find { it.startsWith('vmbr0-vlan10##') } ?: ''
+note('net-vlan-props', ['auto.pve_iface_type=vlan', 'auto.pve_iface=vmbr0', 'auto.pve_vlan=10', 'auto.pve_node=pve1'].every { vlanLine.contains(it) },
+     "the VLAN instance line was: ${vlanLine}")
+// One guest's config unreadable: its VLANs are skipped with one line, the rest discovered.
+def netAdFailure = withFixtures(topoFixtures + ['/nodes/pve1/qemu/101/config': null]) {
+    runScript(new File(scriptsDir, 'Proxmox_VE_Node_Network.ad.groovy'), [hostProps: nodeHostProps])
+}
+def failureIds = parseAd(netAdFailure.stdout).keySet()
+note('net-vlan-config-failure', netAdFailure.exit == 0 && failureIds == ['vmbr0', 'vmbr1'] as Set &&
+                                netAdFailure.stderr.readLines().count { it.contains('qemu/101') } == 1,
+     "with qemu/101's config unreadable: exit ${netAdFailure.exit}, ${failureIds}, stderr ${netAdFailure.stderr}")
 
 // A volume group is nearly all allocated by design: it reports AllocatedPercent, which carries
 // no alert, and never UsedPercent; the pools on it keep UsedPercent.
@@ -2251,7 +2287,7 @@ withFixtures(['/cluster/status': statusWith([:], [:], 1)]) {
     }
 }
 // topo.namespace rewrites the TopologySource's keys, so the carriers step aside.
-['Proxmox_VE_Node_StoragePools.ad.groovy', 'Proxmox_VE_Node_Disks.ad.groovy'].each { script ->
+['Proxmox_VE_Node_StoragePools.ad.groovy', 'Proxmox_VE_Node_Disks.ad.groovy', 'Proxmox_VE_Node_Network.ad.groovy'].each { script ->
     def run = runScript(new File(scriptsDir, script), [hostProps: nodeHostProps + ['topo.namespace': 'x']])
     note('topo-carrier-namespace', run.exit == 0 && !run.stdout.contains('predef.') && run.stderr.contains('topo.namespace'),
          "${script} with topo.namespace: exit ${run.exit}, stderr ${run.stderr}")

@@ -993,6 +993,41 @@ def pveVlanKey = { String cluster, String node, String bridge, int tag ->
     pveTopoVertexKey(cluster, ['net', node, bridge, 'vlan' + tag])
 }
 
+/*
+ * The VLANs this node's guest NICs use on its own bridges, [bridge, tag], for
+ * Proxmox_VE_Node_Network's discovery: the node's guest lists and each guest's config, asked
+ * of the node itself, templates left out as the topology leaves them out. A list or config
+ * that cannot be read costs that guest's VLANs, said once on stderr, never the run.
+ */
+def pveNodeVlans = { String node, Set bridgeNames, Collection vnetNames ->
+    def deadline = System.currentTimeMillis() + (pveHostProp('pve.api.budget.ms', '45000') as long)
+    def found = [] as Set
+    def skipped = 0
+    ['qemu', 'lxc'].each { type ->
+        def guests
+        try {
+            guests = pveNodeGet('/nodes/' + node + '/' + type) ?: []
+        } catch (Exception failure) {
+            System.err.println('VLANs: no ' + type + ' list from ' + node + ': ' + failure.message)
+            return
+        }
+        guests.findAll { it.vmid != null && !(it.template?.toString() in ['1', 'true']) }.each { guest ->
+            if (System.currentTimeMillis() > deadline) { skipped++; return }
+            try {
+                pveGuestNics(pveNodeGet('/nodes/' + node + '/' + type + '/' + guest.vmid + '/config') as Map).each { nic ->
+                    if (nic.tag != null && nic.bridge in bridgeNames && !((vnetNames ?: []).contains(nic.bridge))) {
+                        found << [bridge: nic.bridge, tag: nic.tag]
+                    }
+                }
+            } catch (Exception failure) {
+                System.err.println('VLANs: ' + type + '/' + guest.vmid + ' config not read: ' + failure.message)
+            }
+        }
+    }
+    if (skipped) { System.err.println('VLANs: time budget reached (pve.api.budget.ms): ' + skipped + ' guest configs not read') }
+    found.sort { a, b -> a.bridge <=> b.bridge ?: a.tag <=> b.tag }
+}
+
 def pveSdnKey = { String cluster, String zone, String vnet ->
     pveTopoVertexKey(cluster, vnet ? ['sdn', zone, vnet] : ['sdn', zone])
 }

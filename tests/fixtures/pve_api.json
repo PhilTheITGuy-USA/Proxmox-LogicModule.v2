@@ -1606,5 +1606,19 @@
       "status": "stopped",
       "template": 1
     }
-  ]
+  ],
+  "/nodes/pve1/qemu": [
+    {
+      "vmid": 101,
+      "name": "web-01",
+      "status": "running"
+    },
+    {
+      "vmid": 999,
+      "name": "template",
+      "status": "stopped",
+      "template": 1
+    }
+  ],
+  "/nodes/pve1/lxc": []
 }

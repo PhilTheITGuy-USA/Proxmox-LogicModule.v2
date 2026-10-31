@@ -34,9 +34,11 @@ fixtures['/cluster/resources'] = nodeResources + guests
 guests.each { g ->
     def mac = String.format('BC:24:11:%02X:%02X:%02X', (g.vmid >> 16) & 0xff, (g.vmid >> 8) & 0xff, g.vmid & 0xff)
     def base = '/nodes/' + g.node + '/' + g.type + '/' + g.vmid
+    // Every third guest's NIC is tagged, VLAN 10-13, so Node_Network discovers VLANs at scale.
+    def tag = (g.vmid - 1000) % 3 == 0 ? ',tag=' + (10 + (g.vmid - 1000) % 4) : ''
     fixtures[base + '/config'] = g.type == 'qemu' ?
-        [name: g.name, net0: 'virtio=' + mac + ',bridge=vmbr0'] :
-        [hostname: g.name, net0: 'name=eth0,bridge=vmbr0,hwaddr=' + mac + ',type=veth']
+        [name: g.name, net0: 'virtio=' + mac + ',bridge=vmbr0' + tag] :
+        [hostname: g.name, net0: 'name=eth0,bridge=vmbr0,hwaddr=' + mac + tag + ',type=veth']
     fixtures[base + '/snapshot'] = [[name: 'current', description: 'You are here!']]
 }
 nodes.each { n ->
@@ -56,5 +58,7 @@ nodes.each { n ->
     fixtures['/nodes/' + n.name + '/lxc'] = onNode.findAll { it.type == 'lxc' }.collect {
         [vmid: it.vmid, name: it.name, status: 'running'] + pressure.collectEntries { k, v -> [k, String.format('%.2f', v as double)] }
     }
+    fixtures['/nodes/' + n.name + '/qemu'] = onNode.findAll { it.type == 'qemu' }.collect { [vmid: it.vmid, name: it.name, status: 'running'] }
+    fixtures['/nodes/' + n.name + '/network'] = [[iface: 'vmbr0', type: 'bridge', bridge_ports: 'eno1', active: 1, autostart: 1]]
 }
 return fixtures
