@@ -120,7 +120,7 @@
 - Test: `tests/harness.groovy` (beside the Node_Network collect checks, or after the SDN block)
 
 **Interfaces:**
-- Produces: `pveBatchInstances() -> List<Map>`: `[wildvalue: String, props: Map]` for each entry of the `datasourceinstanceProps` binding; each `props` lookup goes through a closure that tries `key` then `'auto.' + key`. Empty list when the binding is absent or null.
+- Produces: `pveBatchInstances() -> List<Map>`: `[wildvalue: String, prop: Closure]` for each entry of the `datasourceinstanceProps` binding whose properties are a map, where `prop(String key)` returns that property, trying `key` then `'auto.' + key`, or null when it is blank or absent; `wildvalue` is `prop('wildvalue')`. Empty list when the binding is absent, null or not a map. (Corrected 2026-10-31 to match the code: the plan first said `props: Map`.)
 
 - [ ] **Step 1: Write the failing tests** `net-vlan-collect`: run the collect script with `nodeHostProps` and `datasourceinstanceProps` set to each of three shapes:
   - `['vmbr0 VLAN 10': [wildvalue: 'vmbr0-vlan10', 'auto.pve_iface': 'vmbr0', 'auto.pve_iface_type': 'vlan', 'auto.pve_vlan': '10']]`
