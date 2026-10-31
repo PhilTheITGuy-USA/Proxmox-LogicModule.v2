@@ -387,7 +387,45 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.1.1
+
+v2.2.0 adds guest pressure, ballooning and disk latency, draws bridges and guest VLANs on the
+map, fixes SDN state on Proxmox VE 9, and stops child instances repeating their parent's alert.
+Module names, properties, the NetScan and the dashboards are unchanged; four modules change.
+
+- **Proxmox VE Cluster Guest Performance** gains, for every running guest, CPU, I/O and memory
+  pressure (Proxmox's 10-second average); for VMs, the memory the balloon has reclaimed, guest
+  swap rates and major page faults, and disk IOPS and read and write latency. None alerts.
+  `MemoryHostMB` is now reported for VMs only: Proxmox sends 0 for every container, so a
+  container's history for it stops rather than continuing at a false 0. The new figures cost one
+  guest list per guest type per online node each poll.
+- **Proxmox VE Cluster SDN** reads zone state in Proxmox VE 9's form as well as 8's. On 9 it
+  reported no nodes and no `Healthy` before. A VNet now reports its zone's `NodesTotal` and
+  `NodesOK` but no `Healthy`: only the zone alerts, once, when it fails on a node.
+- **Proxmox VE Node Network** discovers, beside each bridge, the VLANs the node's guests use on it
+  (`vmbr0 VLAN 30`, in the instance group `vlan`), which needs `VM.Audit` (part of `PVEAuditor`).
+  A VLAN reports its bridge's `Active` and alerts on nothing: a bridge that goes down raises one
+  alert. The **Ports** graph is now **Bridge Ports**; it and the Healthy line stay empty on a VLAN.
+- **Proxmox VE Cluster Topology** draws node → bridge → guest, and node → bridge → VLAN → guest
+  for a tagged NIC, beside node → SDN zone → VNet → guest. The map's **Connections** filter hides
+  every Network edge at once; the bridge, VLAN, zone and VNet vertices stay on the map.
+
+1. If a VNet has an open `Healthy` alert, wait for its zone to recover first. A VNet no longer
+   reports `Healthy`, and LogicMonitor clears an alert only on a value back inside its threshold,
+   never on No Data, so an alert open at the upgrade would stay open.
+2. Re-import `Proxmox_VE_Cluster_GuestPerformance`, `Proxmox_VE_Cluster_SDN`,
+   `Proxmox_VE_Node_Network` and `Proxmox_VE_Cluster_Topology`. The other modules, the NetScan
+   and the dashboards are byte-for-byte as in v2.1.1.
+3. Run Active Discovery for **Proxmox VE Node Network** on each node resource, **then** let the
+   TopologySource run (saving it triggers a run), so the bridge and VLAN instances carry their
+   vertex keys before the first run that draws them.
+4. A VLAN no guest uses any more keeps its instance, as everything the suite discovers does:
+   delete it by hand once you no longer need its history.
+
 ### Upgrading from v2.1.0
+
+From v2.1.0 to v2.2.0: take step 1 under [Upgrading from v2.1.1](#upgrading-from-v211), then
+the steps below with v2.2.0's modules, then steps 3 and 4 there.
 
 v2.1.1 is a fix release. USB devices passed through to a guest no longer draw as a Storage edge
 on the map, and a `403` from Proxmox now names the privilege it refused instead of
@@ -409,7 +447,9 @@ host directory bind-mounted into a container, still draws as storage.
 
 ### Upgrading from v2.0.x
 
-Upgrading straight from v2.0.x to v2.1.1 takes the same steps as to v2.1.0.
+From v2.0.x to v2.2.0: take step 1 under [Upgrading from v2.1.1](#upgrading-from-v211), then
+the steps below with v2.2.0's modules (they include its Active Discovery and topology run), then
+step 4 there.
 
 v2.1.0 draws the topology map the way LogicMonitor's vSphere suite does, with storage and
 network layers under the nodes. Module names, datapoints, properties, the NetScan and the
