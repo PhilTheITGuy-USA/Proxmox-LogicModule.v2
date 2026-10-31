@@ -320,10 +320,10 @@ documents "Manually Assigning Properties to Resources".
 >   a vendor and product ID and the device list needs `Sys.Modify`, so a Zigbee stick drew as a
 >   Storage edge); store → ZFS pool, LVM thin pool, volume group, Ceph pool or (a directory
 >   store on a Proxmox-made mount) disk; thin pool → volume group → disk; ZFS pool → disk; node →
->   Ceph OSD → disk. Network: SDN only, node → zone → VNet → guest. Bridges, ports, bonds and VLAN
->   interfaces are kept off the map (user, 2026-10-28): a bridge repeats what the Compute edge says, a
->   switch joins at the node by the MACs on its resource, and the node's SNMP interface monitoring
->   covers its ports. `Node_Network` monitors bridges only and carries no keys. Not drawn: node uplink → physical switch (Proxmox gives no interface MAC or LLDP),
+>   Ceph OSD → disk. Network (amended 2026-10-30, below): node → bridge → guest, node → bridge →
+>   VLAN → guest, and node → SDN zone → VNet → guest. Ports, bonds and host VLAN interfaces are
+>   kept off the map (user, 2026-10-28): a switch joins at the node by the MACs on its resource, and
+>   the node's SNMP interface monitoring covers its ports. Not drawn: node uplink → physical switch (Proxmox gives no interface MAC or LLDP),
 >   guest disks as vertices, backup targets.
 > - **Vertices and carriers** (`pveTopoVertexKey`, `proxmoxve--<cluster>--…`): stores on
 >   `Cluster_StorageCapacity` (`StorageVolume`, not vSphere's `VMDatastore`: on the lab, 2026-10-28,
@@ -332,12 +332,38 @@ documents "Manually Assigning Properties to Resources".
 >   shared store's key on one instance only, the first
 >   node's by name); pools on the new `Node_StoragePools` and `Cluster_CephPools`
 >   (`StorageAggregate`); OSDs on `Cluster_CephOSD` (`StorageNode`); disks on `Node_Disks`
->   (`PhysicalDisk`); SDN zones and VNets on the new `Cluster_SDN` (`VirtualSwitch`). Cluster modules
+>   (`PhysicalDisk`); SDN zones and VNets on the new `Cluster_SDN` (`VirtualSwitch`); bridges and
+>   guest VLANs on `Node_Network` (`VirtualSwitch`, amended 2026-10-30). Cluster modules
 >   stamp keys only where they collect; node modules read the cluster name from their own node.
 >   With `topo.namespace` or `topo.blacklist` set, carriers stamp nothing, as before.
+> - **Bridges and VLANs back on the map (amended 2026-10-30, user, closing the "Network → VM"
+>   target LogicMonitor named for its own Proxmox research).** Bridges came off on 2026-10-28
+>   because on a plain-bridge cluster a bridge doubled the line into every guest; they return, with
+>   the guest's VLAN, because the map's **Connections** filter hides every Network edge at once and
+>   gives that map back. Edges, all `Network`: node → each Linux or Open vSwitch bridge on it
+>   (`/nodes/<n>/network`, read again by the topology, one call per online node); bridge → guest for
+>   an untagged NIC (`netN` with `bridge=`, no `tag=`); bridge → VLAN → guest for a NIC with
+>   `tag=N` (on a bridge that is not VLAN-aware Proxmox builds a `vmbr0v<N>` bridge for the tag, and
+>   `/network` does not list it: lab, 2026-10-30, a NIC tagged 30 on Node-B's `vmbr0`, so it draws no
+>   second bridge). A VLAN vertex is per node, bridge and tag (`proxmoxve--<cluster>--net--<node>--<bridge>--vlan<N>`;
+>   Proxmox cannot say that VLAN 30 on two nodes is one segment), and only VLANs a guest NIC uses are
+>   drawn; `trunks=` is not drawn per VLAN, the guest hangs off the bridge. A NIC on a VNet joins the
+>   VNet, as before; a NIC on a bridge the node's `/network` does not list draws nothing. An SDN
+>   zone stays under the node, never under the bridge a VLAN zone rides on: a bridge → zone edge
+>   joins two instance vertices, which the cluster-wide map does not draw (lab, 2026-10-30, §5).
+>   Carriers, both on `Node_Network`, typed `VirtualSwitch` (LogicMonitor's External Resource Types
+>   list has no VLAN type; `VirtualSwitch` drew the SDN vertices on the lab): each bridge instance
+>   stamps `proxmoxve--<cluster>--net--<node>--<bridge>`, and new VLAN instances (wildvalue
+>   `<bridge>-vlan<N>`, instance group `vlan`) stamp the VLAN key. Discovery finds the VLANs from the
+>   guest configs on its own node (one guest list per type and one config read per guest there,
+>   hourly, inside `pve.api.budget.ms`). A VLAN takes its bridge's `Active` and `Healthy`, as a VNet
+>   takes its zone's, and no `Ports`; collection learns the VLAN instances from
+>   `datasourceinstanceProps` [unverified: LogicMonitor's recipes, not yet seen in this suite], so
+>   its per-poll cost stays one `/network` call. Bridge → VLAN joins two instances and is expected
+>   on the bridge's own map, not the cluster-wide one.
 > - **Where it is decided.** `pveTopoInput` (the reads) and `pveTopoPlan` (the edges) in the
 >   preamble; the TopologySource only turns keys into ERIs. Cost per hourly run: a handful of
->   cluster reads, six or so per online node plus one per ZFS pool, and the guest-config reads it
+>   cluster reads, seven or so per online node (with /network, 2026-10-30) plus one per ZFS pool, and the guest-config reads it
 >   already made.
 > - **The cluster vertex's key is `proxmoxve--cluster--<cluster>`** (`pveTopoClusterKey`), no longer
 >   `proxmoxve--<cluster>`: the portal keeps one vertex record per key, which outlives the instances
