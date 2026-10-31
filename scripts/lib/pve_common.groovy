@@ -59,12 +59,13 @@ def pveInstanceProp = { String key ->
 /*
  * A BatchScript's discovered instances, from the datasourceinstanceProps binding LogicMonitor's
  * recipes describe (instance -> its properties): [wildvalue, prop], where prop(key) reads a
- * property with or without its auto. prefix. Empty where the binding is absent.
+ * property with or without its auto. prefix. Empty where the binding is absent; an entry
+ * whose properties are not a map is skipped, so a shape no recipe describes costs only it.
  */
 def pveBatchInstances = { ->
     def instances = binding.hasVariable('datasourceinstanceProps') ? datasourceinstanceProps : null
     if (!(instances instanceof Map)) { return [] }
-    instances.collect { name, props ->
+    instances.findAll { name, props -> props instanceof Map }.collect { name, props ->
         def prop = { String key ->
             def value = props?.get(key) ?: props?.get('auto.' + key)
             value == null || value.toString().trim().isEmpty() ? null : value.toString().trim()

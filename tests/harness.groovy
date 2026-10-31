@@ -1245,6 +1245,19 @@ def goneBridgeVlan = ['auto.pve_iface': 'vmbr7', 'auto.pve_iface_type': 'vlan', 
                              run.data['vmbr0'].Ports != null && !run.data.containsKey('vmbr7-vlan3'),
          "VLAN collection, ${shape}: exit ${run.exit}, ${run.data} ${run.stderr}")
 }
+// A binding shape no recipe describes costs the VLANs it cannot read, never the bridges: an
+// entry whose properties are not a map is skipped, and a binding that is no map at all is no
+// instances.
+[
+    'list-entry'  : ['odd': ['vmbr0', 'vlan'], 'vmbr0 VLAN 10': vlanInstance],
+    'list-binding': [vlanInstance],
+].each { shape, instances ->
+    def run = runScript(netCollectFile, [hostProps: nodeHostProps, datasourceinstanceProps: instances])
+    def data = parseBatch(run.stdout)
+    note('net-vlan-collect-shape', run.exit == 0 && data['vmbr0']?.Active != null && data['vmbr1']?.Active != null &&
+                                   (shape != 'list-entry' || data['vmbr0-vlan10'] == [Active: data['vmbr0'].Active, Healthy: data['vmbr0'].Healthy]),
+         "VLAN collection, ${shape}: exit ${run.exit}, ${data} ${run.stderr}")
+}
 def netNoBinding = netCollect(null)
 note('net-vlan-collect', netNoBinding.exit == 0 && netNoBinding.data.keySet() == ['vmbr0', 'vmbr1'] as Set && !netNoBinding.stderr.trim(),
      "VLAN collection without datasourceinstanceProps: exit ${netNoBinding.exit}, ${netNoBinding.data} ${netNoBinding.stderr}")
@@ -2274,6 +2287,26 @@ note('topo-carriers', bridgeIds == ['vmbr0', 'vmbr1', 'vmbr0-vlan10', 'vmbr0-vla
 note('topo-carriers', topoKeysDrawn.findAll { it.contains('--net--pve1--') && it.contains('--vlan') } ==
                       [topoKey('net', 'pve1', 'vmbr0', 'vlan10'), topoKey('net', 'pve1', 'vmbr0', 'vlan20')] as Set,
      "the plan's pve1 VLANs differ from Node_Network's: ${topoKeysDrawn.findAll { it.contains('--vlan') }}")
+// pve2, with a stopped tagged guest, a tagged template and an OVS bridge: the carrier's VLANs
+// are exactly the plan's. pve1's template is tagged too, and drawn by neither.
+def pve2Carrier = [
+    '/nodes/pve2/qemu': [[vmid: 102, status: 'stopped'], [vmid: 202, status: 'stopped'], [vmid: 203, status: 'stopped', template: 1]],
+    '/nodes/pve2/lxc' : [[vmid: 200, status: 'running'], [vmid: 201, status: 'running']],
+    '/nodes/pve1/qemu/999/config': [name: 'template', net0: 'virtio=BC:24:11:0E:00:09,bridge=vmbr0,tag=77'],
+]
+def pve2Keys = withFixtures(topoFixtures + pve2Carrier) {
+    def run = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Network.ad.groovy'), [hostProps: nodeHostProps + ['pve.node': 'pve2']])
+    note('topo-carriers-pve2', run.exit == 0, "Node_Network on pve2: exit ${run.exit}: ${run.stderr}")
+    parseAd(run.stdout).collectEntries { id, p -> [(id): p.predef['predef.externalResourceID']] }
+}
+def pve2PlanVlans = topoKeysDrawn.findAll { it.contains('--net--pve2--') && it.contains('--vlan') }
+note('topo-carriers-pve2', pve2Keys.keySet() == ['vmbr0', 'ovs0', 'vmbr0-vlan10', 'ovs0-vlan30'] as Set &&
+                           pve2Keys.findAll { id, key -> id.contains('-vlan') }.values() as Set == pve2PlanVlans,
+     "Node_Network on pve2 discovered ${pve2Keys}; the plan's pve2 VLANs are ${pve2PlanVlans}")
+def pve1WithTemplate = withFixtures(topoFixtures + pve2Carrier) {
+    parseAd(runScript(new File(scriptsDir, 'Proxmox_VE_Node_Network.ad.groovy'), [hostProps: nodeHostProps]).stdout).keySet()
+}
+note('topo-carriers-pve2', !pve1WithTemplate.any { it.contains('vlan77') }, "a template's VLAN was discovered: ${pve1WithTemplate}")
 def netAd = withFixtures(topoFixtures) { runScript(new File(scriptsDir, 'Proxmox_VE_Node_Network.ad.groovy'), [hostProps: nodeHostProps]) }
 def vlanLine = netAd.stdout.readLines().find { it.startsWith('vmbr0-vlan10##') } ?: ''
 note('net-vlan-props', ['auto.pve_iface_type=vlan', 'auto.pve_iface=vmbr0', 'auto.pve_vlan=10', 'auto.pve_node=pve1'].every { vlanLine.contains(it) },
