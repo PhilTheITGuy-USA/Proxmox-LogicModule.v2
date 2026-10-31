@@ -1241,7 +1241,7 @@ def goneBridgeVlan = ['auto.pve_iface': 'vmbr7', 'auto.pve_iface_type': 'vlan', 
     'no-wildvalue' : ['vmbr0 VLAN 10': vlanInstance.findAll { k, v -> k != 'wildvalue' }],
 ].each { shape, instances ->
     def run = netCollect(instances)
-    note('net-vlan-collect', run.exit == 0 && run.data['vmbr0-vlan10'] == [Active: run.data['vmbr0'].Active, Healthy: run.data['vmbr0'].Healthy] &&
+    note('net-vlan-collect', run.exit == 0 && run.data['vmbr0-vlan10'] == [Active: run.data['vmbr0'].Active] &&
                              run.data['vmbr0'].Ports != null && !run.data.containsKey('vmbr7-vlan3'),
          "VLAN collection, ${shape}: exit ${run.exit}, ${run.data} ${run.stderr}")
 }
@@ -1255,9 +1255,14 @@ def goneBridgeVlan = ['auto.pve_iface': 'vmbr7', 'auto.pve_iface_type': 'vlan', 
     def run = runScript(netCollectFile, [hostProps: nodeHostProps, datasourceinstanceProps: instances])
     def data = parseBatch(run.stdout)
     note('net-vlan-collect-shape', run.exit == 0 && data['vmbr0']?.Active != null && data['vmbr1']?.Active != null &&
-                                   (shape != 'list-entry' || data['vmbr0-vlan10'] == [Active: data['vmbr0'].Active, Healthy: data['vmbr0'].Healthy]),
+                                   (shape != 'list-entry' || data['vmbr0-vlan10'] == [Active: data['vmbr0'].Active]),
          "VLAN collection, ${shape}: exit ${run.exit}, ${data} ${run.stderr}")
 }
+// Only the bridge alerts (user, 2026-10-31): a VLAN on vmbr1, which is set to start at boot
+// and is down, reads Active 0 and carries no Healthy, while vmbr1's own Healthy is 0.
+def netDownBridge = netCollect(['vmbr1 VLAN 5': ['auto.pve_iface': 'vmbr1', 'auto.pve_iface_type': 'vlan', 'auto.pve_vlan': '5']])
+note('net-vlan-no-alert', netDownBridge.data['vmbr1'].Healthy == 0d && netDownBridge.data['vmbr1-vlan5'] == [Active: 0d],
+     "a VLAN on a down bridge: ${netDownBridge.data}")
 def netNoBinding = netCollect(null)
 note('net-vlan-collect', netNoBinding.exit == 0 && netNoBinding.data.keySet() == ['vmbr0', 'vmbr1'] as Set && !netNoBinding.stderr.trim(),
      "VLAN collection without datasourceinstanceProps: exit ${netNoBinding.exit}, ${netNoBinding.data} ${netNoBinding.stderr}")
