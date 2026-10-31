@@ -25,18 +25,20 @@ try {
         }
         null
     }.findAll()
-    def emitState = { String id, String zone ->
+    def emitState = { String id, String zone, boolean alerts ->
         def zoneRows = rows.findAll { it.zone == zone }
         def ok = zoneRows.count { it.status?.toString() in ['ok', 'available'] }
         pveEmit(id, 'NodesTotal', zoneRows.size())
         pveEmit(id, 'NodesOK', ok)
         // No rows: the zone is defined but not applied yet, which says nothing about its health.
-        if (zoneRows) {
+        if (zoneRows && alerts) {
             pveEmit(id, 'Healthy', ok == zoneRows.size() ? 1 : 0)
         }
     }
-    sdn.zones.each { zone -> emitState('zone/' + zone.zone, zone.zone.toString()) }
-    sdn.vnets.each { vnet -> emitState('vnet/' + vnet.vnet, vnet.zone.toString()) }
+    // Only the zone reports Healthy, the datapoint that alerts: a VNet's figures are its zone's,
+    // so a zone failing on a node raises one alert, not one more per VNet in it (user, 2026-10-31).
+    sdn.zones.each { zone -> emitState('zone/' + zone.zone, zone.zone.toString(), true) }
+    sdn.vnets.each { vnet -> emitState('vnet/' + vnet.vnet, vnet.zone.toString(), false) }
     return 0
 } catch (Exception exception) {
     System.err.println('Proxmox SDN collection failed: ' + exception.message)

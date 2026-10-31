@@ -357,14 +357,25 @@ documents "Manually Assigning Properties to Resources".
 >   stamps `proxmoxve--<cluster>--net--<node>--<bridge>`, and new VLAN instances (wildvalue
 >   `<bridge>-vlan<N>`, instance group `vlan`) stamp the VLAN key. Discovery finds the VLANs from the
 >   guest configs on its own node (one guest list per type and one config read per guest there,
->   hourly, inside `pve.api.budget.ms`). A VLAN takes its bridge's `Active` and `Healthy`, as a VNet
->   takes its zone's, and no `Ports`; collection learns the VLAN instances from
+>   hourly, inside `pve.api.budget.ms`). A VLAN takes its bridge's `Active`, and neither `Healthy`
+>   nor `Ports` (amended 2026-10-31, below); collection learns the VLAN instances from
 >   `datasourceinstanceProps` (LogicMonitor's recipes; seen on the lab, 2026-10-30, §5), so
 >   its per-poll cost stays one `/network` call. Bridge → VLAN joins two instances and is expected
 >   on the bridge's own map, not the cluster-wide one.
 >   A VLAN no guest on the node uses any more keeps its instance, as every module in the suite
 >   keeps what it no longer discovers (user, 2026-10-30): it drops off the map, since the plan draws
 >   nothing to it, still reports its bridge's state, and is deleted by hand.
+> - **A child that only copies its parent's state never alerts (amended 2026-10-31, user: "like a
+>   dependency alert -- the main thing alerts, not all the children").** A VLAN reports its bridge's
+>   `Active` and no `Healthy`; an SDN VNet reports its zone's `NodesTotal` and `NodesOK` and no
+>   `Healthy`. Neither has a state of its own in what the suite reads (Proxmox gives a guest-only VLAN
+>   none; the VNet figures are the zone's), so their copies of the parent's alerting datapoint fired
+>   only with it: one bridge or zone outage raised one more alert per VLAN or VNet. LogicMonitor's
+>   Dependent Alert Mapping would not fold them together: it works on resources, not instances, and
+>   only on Ping and Host Status reachability (https://www.logicmonitor.com/support/dependent-alert-mapping).
+>   The child still shows the outage (`Active` 0, `NodesOK` below `NodesTotal`) without notifying.
+>   Proxmox does report a VNet's own `status` per node (`/nodes/<n>/sdn/zones/<zone>/content`, seen on
+>   the lab); a VNet read from there would have a state of its own, and an alert of its own with it.
 > - **Where it is decided.** `pveTopoInput` (the reads) and `pveTopoPlan` (the edges) in the
 >   preamble; the TopologySource only turns keys into ERIs. Cost per hourly run: a handful of
 >   cluster reads, seven or so per online node (with /network, 2026-10-30) plus one per ZFS pool, and the guest-config reads it

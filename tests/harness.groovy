@@ -1201,7 +1201,8 @@ def sdnRun = { List rows ->
 }
 def sdnExpected = [
     'zone-lab'   : [NodesTotal: 2d, NodesOK: 1d, Healthy: 0d],
-    'vnet-labnet': [NodesTotal: 2d, NodesOK: 1d, Healthy: 0d],
+    // Only the zone alerts (user, 2026-10-31): a VNet copies its zone's counts and no Healthy.
+    'vnet-labnet': [NodesTotal: 2d, NodesOK: 1d],
 ]
 def sdnPve8 = sdnRun([
     [id: 'sdn/pve1/lab', type: 'sdn', sdn: 'lab', node: 'pve1', status: 'ok'],
