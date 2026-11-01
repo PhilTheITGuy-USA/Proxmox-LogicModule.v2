@@ -387,6 +387,16 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.2.0
+
+v2.3.0 adds one module, **Proxmox VE Troubleshooter**, which checks what the other modules need
+to collect and reports each problem as an instance named with its fix (see Troubleshooting).
+No other module, property, the NetScan or the dashboards change.
+
+1. Import `Proxmox_VE_Troubleshooter`. It applies to every cluster and node resource by category;
+   nothing needs to be set.
+2. A resource with no problems shows no troubleshooter instances. That is the healthy state.
+
 ### Upgrading from v2.1.1
 
 v2.2.0 adds guest pressure, ballooning and disk latency, draws bridges and guest VLANs on the
@@ -474,6 +484,30 @@ The cluster's map vertex has a new key, `proxmoxve--cluster--<cluster name>` in 
 with its edges to every node, and the vertex under the old key drops off the map.
 
 ## Troubleshooting
+
+### The Troubleshooter Module
+
+**Proxmox VE Troubleshooter** runs on every cluster and node resource. Every 15 minutes it checks,
+in order, what the suite's modules need to collect, and stops at the first check that fails,
+because the ones after it depend on it. Each problem it finds is an instance under the resource,
+named with its fix, and raises an error alert that carries the full finding. **A resource with no
+troubleshooter instances has no problems.** The alert clears within five minutes of the fix; the
+instance leaves the tree at the next check, and is deleted after 30 days.
+
+| Instance | A problem when | The fix |
+|---|---|---|
+| `settings` | `pve.token.credential` is missing or is not the whole token string `user@realm!tokenid=secret` (a password does not work), or no API URL can be built | Set the property as the finding says |
+| `address` | The resource's hostname does not resolve, or refuses or drops `pve.api.port` (8006) | Fix DNS or the hostname; open the port from the Collector |
+| `ping` | The resource does not answer ping. LogicMonitor then treats it as dead and holds back its alerts | Allow ICMP from the Collector |
+| `certificate` | The Collector does not trust the API's certificate, or it does not name the address. Not checked with `pve.api.insecure=true` | Install a certificate that names the address, or set `pve.api.insecure=true` |
+| `token` | The API rejects the token (401) | Give the token a new secret and set it in `pve.token.credential` |
+| `permissions` | The token lacks `Sys.Audit`, `VM.Audit`, `Datastore.Audit` or `SDN.Audit` on `/`, or holds them without propagation, or sees an empty cluster | Give the token `PVEAuditor` on `/`, propagated; with privilege separation, as the token's own ACL entry |
+| `node` | On a node: `pve.node` names another node, corosync is not running, or the NetScan marked the node unreachable although the Collector reaches it | Set `pve.node`, start corosync, or run the NetScan |
+| `failover-<address>` | On a resource with a cluster role: an address in `pve.api.hosts` does not answer | Bring the node back, or remove the address from `pve.api.hosts` |
+
+Whether the alert shows the finding (through `##DSIDESCRIPTION##`) and the shape of Proxmox's
+`/access/permissions` reply are *(not yet verified)* on a live portal; the instance's description
+and its `auto.pve_finding` property always carry the finding.
 
 - **No data on any module:** check the token from the Collector's host. On Linux:
 
@@ -599,6 +633,12 @@ so no module replaces another.
 | Proxmox VE Node Replication | DataSource | Replication job failures, staleness and duration | — |
 | Proxmox VE Node Storage Pools | DataSource | Size, use and health of ZFS pools, LVM volume groups and thin pools | — |
 | Proxmox VE Node Network | DataSource | State of the bridges guests attach to, and of the VLANs guests use on them | — |
+
+**Proxmox VE Troubleshooter** (applies on `ProxmoxVE_Cluster` and `ProxmoxVE_Node`, whatever the cluster role)
+
+| Display Name | Type | Description | Replaces |
+|---|---|---|---|
+| Proxmox VE Troubleshooter | DataSource | What stops collection -- settings, address, ping, certificate, token, permissions, node identity, failover addresses -- one instance per problem, named with its fix | — |
 
 **Proxmox VE PropertySources and NetScan**
 

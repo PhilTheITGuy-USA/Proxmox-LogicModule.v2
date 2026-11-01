@@ -62,7 +62,8 @@ their values, so alerts read "Offline (0)" rather than "0".
 
 **Verified.** Imported into a LogicMonitor portal and run against a two-node Proxmox VE 9.2.3
 cluster, including failover and hand-back of the cluster role. Ceph, replication and a cluster
-address are designed for but not yet seen on a live cluster.
+address are designed for but not yet seen on a live cluster, and the troubleshooter is not yet
+imported.
 
 ## Modules
 
@@ -88,12 +89,13 @@ address are designed for but not yet seen on a live cluster.
 | `Proxmox_VE_Node_Disks` | DataSource | 240 min |
 | `Proxmox_VE_Node_Certificates` | DataSource | 240 min |
 | `Proxmox_VE_Node_Subscription` | DataSource | 720 min |
+| `Proxmox_VE_Troubleshooter` | DataSource | 5 min (checks every 15 min) |
 | `Proxmox_VE_Info` | PropertySource | -- |
 | `addERI_Proxmox_VE_Node` | PropertySource (ERI) | 30 min |
 | `addERI_Proxmox_VE_GuestResource` | PropertySource (ERI) | 30 min |
 
 Keywords: proxmox, pve, proxmox ve, hypervisor, virtualization, cluster, node, qemu, lxc, vm,
-container, ceph, storage, backup, snapshot, replication, topology, quorum, ha.
+container, ceph, storage, backup, snapshot, replication, topology, quorum, ha, troubleshooter.
 
 ## Before submitting
 

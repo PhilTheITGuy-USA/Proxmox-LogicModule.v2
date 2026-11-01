@@ -11,6 +11,8 @@ and, optionally, its guests as separate resources, the way LogicMonitor monitors
   guests the cluster runs.
 - **Node modules** (detail and pressure, disks, services, certificates, replication,
   subscription) run on each node's own resource and ask only that node.
+- **A troubleshooter** checks what collection needs on every cluster and node resource and
+  reports each problem as an instance named with its fix; a healthy resource shows none.
 - **Guests as resources** are opt-in and filtered: every resource is a host unit, while the
   guest instances on the cluster resource are free.
 
