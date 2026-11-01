@@ -229,6 +229,7 @@ of a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 | `Proxmox_VE_Node_Certificates` | Node | `Proxmox_VE_Certificates` | Fan-out removed | O(1) per node |
 | `Proxmox_VE_Node_Subscription` | Node | `Proxmox_VE_Subscription` | Fan-out removed | O(1) per node |
 | `Proxmox_VE_Node_Replication` | Node | `Proxmox_VE_Replication` | Fan-out removed. Node-scoped: its endpoint is `/nodes/{node}/replication` | O(1) per node |
+| `Proxmox_VE_Troubleshooter` | Cluster, Node | — (new, user 2026-11-01) | Checks what collection depends on and reports each problem as an instance named with its fix; no instances while healthy (below) | up to 5 calls, one TCP connect and one ping per resource every 15 minutes, plus 2 per `pve.api.hosts` address on a role resource; collection runs only while a problem is open |
 | `Proxmox_VE_Info` (PropertySource) | Cluster, Node | `addCategory_Proxmox_VE` | Keeps the `auto.pve.version` / `release` / `clustered` reads; **sets no category** (§3.1) | — |
 | `addERI_Proxmox_VE_Node` (ERI) | Node | `addERI_Proxmox_VE` | AppliesTo `hasCategory("ProxmoxVE_Node")`, replacing the `-pve` kernel and `pve.topology.node` selectors | — |
 | `addERI_Proxmox_VE_GuestResource` (ERI) | Guest | `addERI_Proxmox_VE_Guest` | New name, so v2's import leaves v1's alone (standalone, user 2026-10-25). Extended to read `pve.guest.mac` (§3.6); where both are installed, both stamp the same MAC key, which merges | — |
@@ -282,6 +283,65 @@ keeps a guest's history.
 
 **Dashboards** carry over from v1's Tier 1 and Tier 2 with the module names replaced. The node
 widgets are rebuilt to legend on `##HOSTNAME##`, since each node is now its own resource.
+
+**The troubleshooter** (user, 2026-11-01; added to scope 2026-10-31, §6; research
+`2026-10-21-lm-vsphere-architecture.md` §1 and `2026-11-01-lm-troubleshooters.md`). `Proxmox_VE_Troubleshooter` checks, from the Collector, everything the other modules
+need to collect, and says what to fix. LogicMonitor's own troubleshooters (`VMware_LM_Troubleshooter`,
+Cohesity's, SQL Server's, Oracle's) are DataSources with Active Discovery whose instances are
+problems, named with the fix, and which have no instances while all is well; this one follows them.
+
+- **Applies to** `hasCategory("ProxmoxVE_Cluster") || hasCategory("ProxmoxVE_Node")`. Unlike the
+  node modules it does not exclude `pve.netscan.reachable == "false"`, and it makes no role check
+  (§3.1): an unreachable node and a silent standby are cases it explains.
+- **Discovery, every 15 minutes, is the check.** It runs the checks below in order and prints one
+  instance per problem, and nothing when there is none. A check that fails stops the chain: the
+  ones after it depend on it and are not run, so one cause is one instance (the parent-only rule,
+  §3.4). The wildvalue names the problem (`settings`, `address`, `ping`, `certificate`, `token`,
+  `permissions`, `node`, and `failover-<address>` per address), so a problem keeps its instance
+  while it lasts; the display name is the problem and its fix, the description the full finding
+  (for example Proxmox's 403 text naming the privilege), also set as `auto.pve.finding`.
+- **Collection, every 5 minutes, clears.** A BatchScript reruns the checks and prints, for each
+  discovered instance, `Problem` 1 while that problem persists and 0 once it is gone, with status
+  names `{"0": "Resolved", "1": "Problem"}`; an instance whose check the chain did not reach prints
+  nothing (No Data). `Problem` alerts at error (`> 0 0`); the alert body carries the finding
+  (`##DSIDESCRIPTION##`) and the fix. The alert clears on the value, so it never depends on what
+  LogicMonitor does to an open alert when an instance is deleted, which it does not document. A
+  BatchScript is not run on a resource without instances, so a healthy resource costs discovery
+  alone.
+- **Instances are auto-deleted after 30 days, never immediately** (user, 2026-11-01).
+  `autoDeleteInstances` on, `deleteInactiveInstances` off: a fixed problem leaves the Resources
+  tree at the next discovery, its history kept 30 days and re-associated if it returns
+  ([Active Discovery](https://www.logicmonitor.com/support/active-discovery)). The suite's other
+  modules keep auto-delete off: for them a missing instance can be a successful, wrong answer (an
+  empty list to an unprivileged token, a down node's services), and a deleted instance cannot
+  alert. Here a missing instance means a fixed problem, since a check that cannot run is itself a
+  finding. The skill's lint allows this for `*_Troubleshooter` modules only (lessons, below).
+
+| # | Check | On | A problem when | Its fix |
+|---|---|---|---|---|
+| 1 | `settings` | every resource | no API URL can be built, `pve.token.credential` is missing, or it is not of the form `user@realm!tokenid=secret` (a password pasted for a token) | the property, and the form expected |
+| 2 | `address` | every resource | the resource's own address does not resolve, refuses the port, or times out | which of the three, with the address and port |
+| 3 | `ping` | every resource | the address does not answer `isReachable` | allow ICMP from the Collector: without ping the resource is dead and its alerts are held back (§3.1) |
+| 4 | `certificate` | every resource, unless `pve.api.insecure` is true | the TLS handshake fails: an untrusted issuer or a name the certificate does not carry | install a certificate that names the address, or set `pve.api.insecure=true` |
+| 5 | `token` | every resource | `/version` answers 401 | the secret is wrong or the token has expired |
+| 6 | `permissions` | every resource | `/access/permissions?path=/` lacks `Sys.Audit`, `VM.Audit`, `Datastore.Audit` or `SDN.Audit` on `/` with propagation, or `/cluster/resources` is empty | the privileges missing, by name; with privilege separation, the token's own ACL. The NetScan-only guest-agent privilege is not checked |
+| 7 | `node` | `ProxmoxVE_Node` resources | `pve.node` is not the `local` row of the node's own `/cluster/status`; a clustered node's corosync is not running (its cluster modules are silent, §3.1); or the NetScan marked it unreachable (`pve.netscan.reachable`) though the Collector reaches it | the mismatch, corosync, or the next NetScan run |
+| 8 | `failover-<address>` | resources whose `pve.cluster.role` is `active` or `standby` | an address in `pve.api.hosts` refuses or times out, or does not answer `/version` | that address, and what failover loses without it |
+
+Checks 1-6 are asked of the resource's own address (`system.hostname`, on `pve.api.port`), the
+address LogicMonitor pings, so the chain explains a dead resource; check 8 asks the others, and,
+last in the chain, runs only once the token and its permissions have passed. Cost per resource:
+at most five API calls (`/version`, `/access/permissions`, `/cluster/resources`, and on a node
+`/cluster/status` and its services), one TCP connect and one ping, every 15 minutes, plus a
+connect and a `/version` per `pve.api.hosts` address on a role resource. `/access/permissions` answers any authenticated token for its own rights (API schema);
+its shape and `##DSIDESCRIPTION##` in an alert body are **[unverified]** until the lab runs them.
+
+**Lessons for the skill** (workspace rule): its "never auto-delete" rule gives the wrong reason
+-- a discovery that exits non-zero keeps its instances; the danger is a successful, incomplete
+answer and a deleted instance that can no longer alert -- and has no room for a module whose
+instances are findings. The skill's rule and lint change to allow `autoDeleteInstances` with
+`deleteInactiveInstances` off for `*_Troubleshooter` modules, keep both refused everywhere else,
+and keep immediate deletion refused everywhere, with mutation cases for all three.
 
 **Scale** (Q6: 10 clusters of 16 nodes and 1,000 guests) changes how the per-guest and per-node
 loops are written, not where the modules go: §3.9.
