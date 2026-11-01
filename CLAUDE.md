@@ -84,6 +84,10 @@ docker compose -f tests/docker-compose.yml run --rm tests > "$TMP/harness.txt" 2
 - **Module counts in prose are checked** (`check_doc_counts`): in `README.md` and this file, a
   number before "modules", "DataSources", "PropertySources" or "TopologySources" (digits or a
   word up to twenty) must match `modules/`, or the build fails.
+- **Instances are never auto-deleted, except by a `*_Troubleshooter`**: the build refuses
+  `autoDeleteInstances` on any other module and always emits `deleteInactiveInstances: false`,
+  since elsewhere a missing instance can be a wrong answer rather than a fixed problem. The
+  skill's lint carries the same exception (spec A§3.2).
 - Most sources are CRLF. When a Bash heredoc or `sed` must write a backslash, use the Edit tool instead:
   the Bash tool collapses doubled backslashes.
 
@@ -127,6 +131,13 @@ the authority; this is the map.
 - **Guest vertices** are keyed by the bare MAC of the first NIC, which GuestStatus
   instances and `addERI_Proxmox_VE_GuestResource` also carry; node keys are synthesised from name
   and corosync address and stamped by `addERI_Proxmox_VE_Node`.
+- **The troubleshooter** (`Proxmox_VE_Troubleshooter`, A§3.2, user 2026-11-01) applies to every
+  cluster and node resource with no role check. Its discovery runs a chain of checks (settings,
+  address, ping, certificate, token, permissions, node, failover) and stops at the first failure.
+  Each problem becomes an instance whose wildvalue names the check and whose name gives the fix,
+  so a healthy resource has no instances and pays for discovery alone. Collection clears a
+  problem by value (`Problem` 0) and prints nothing for a check the chain didn't reach. The
+  harness's `trouble-*` cases cover it.
 
 ## Verification -- the one record
 
