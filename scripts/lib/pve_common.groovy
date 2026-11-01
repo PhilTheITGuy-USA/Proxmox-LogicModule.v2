@@ -828,14 +828,27 @@ def pveTroubleProbes = { -> [
         new Socket().withCloseable { it.connect(new InetSocketAddress(host, port), pveTimeout) }
     },
     ping   : { String host -> InetAddress.getByName(host).isReachable(pveTimeout) },
+    // Its own trust and a strict name check: pve.api.insecure on any resource replaces the
+    // JVM-wide defaults for every script on the Collector, which would pass any certificate.
     tls    : { String base ->
         def connection = new URL(base + '/api2/json/version').openConnection()
+        if (connection instanceof HttpsURLConnection) {
+            connection.setSSLSocketFactory(SSLContext.getDefault().getSocketFactory())
+            connection.setHostnameVerifier({ String name, SSLSession session -> false } as HostnameVerifier)
+        }
         connection.setConnectTimeout(pveTimeout)
         connection.setReadTimeout(pveTimeout)
         try { connection.connect() } finally { connection.disconnect() }
     },
     read   : { String base, String path -> pveGetAt(base, path) },
 ] + (binding.hasVariable('pveTestProbes') ? pveTestProbes : [:]) }
+
+// A base URL's host (IPv6 brackets stripped) and port, the scheme's default where it names none.
+// java.net.URL, not URI: URI has no host for a name with an underscore.
+def pveTroubleTarget = { String base ->
+    def url = new URL(base)
+    [url.host.replaceAll(/^\[|\]$/, ''), url.port > 0 ? url.port : url.defaultPort]
+}
 
 /*
  * The troubleshooter's chain of checks (spec A§3.2). Returns [findings, reached]: one finding
@@ -870,9 +883,7 @@ def pveTroubleshoot = { Map probes ->
         }
         pass('settings')
 
-        def uri = new URI(base)
-        def host = uri.host.replaceAll(/^\[|\]$/, '')
-        def port = uri.port
+        def (host, port) = pveTroubleTarget(base)
         try {
             probes.resolve(host)
             probes.connect(host, port)
@@ -897,11 +908,13 @@ def pveTroubleshoot = { Map probes ->
             return fail('ping', 'Ping: allow ICMP from the Collector to ' + host,
                         host + ' does not answer ping from the Collector. LogicMonitor treats a resource that does ' +
                         'not answer ping as dead and holds back its alerts, however well its modules collect. ' +
-                        'Allow ICMP echo from the Collector.')
+                        'Allow ICMP echo from the Collector. Where the Collector does not run with the ' +
+                        'privilege to send ICMP, its ping is a TCP connection to port 7 (echo) instead, ' +
+                        'so a host firewall that drops port 7 reads as no ping too.')
         }
         pass('ping')
 
-        if (uri.scheme == 'https' && !pveHostProp('pve.api.insecure', 'false').toBoolean()) {
+        if (base.startsWith('https:') && !pveHostProp('pve.api.insecure', 'false').toBoolean()) {
             try {
                 probes.tls(base)
             } catch (IOException handshake) {
@@ -1002,12 +1015,13 @@ def pveTroubleshoot = { Map probes ->
                 def other = pveHostUrl(address)
                 if (!other || !seen.add(other)) { return }
                 def id = 'failover-' + pveWildValue(address)
-                def otherUri = new URI(other)
+                // Any failure, a malformed entry included, is that address's finding, never the run's.
                 try {
-                    probes.connect(otherUri.host.replaceAll(/^\[|\]$/, ''), otherUri.port)
+                    def (otherHost, otherPort) = pveTroubleTarget(other)
+                    probes.connect(otherHost, otherPort)
                     probes.read(other, '/version')
                     pass(id)
-                } catch (IOException dead) {
+                } catch (Exception dead) {
                     fail(id, 'Failover: ' + address + ' does not answer',
                          address + ', listed in pve.api.hosts, does not answer (' + dead.message + '). If the ' +
                          'addresses ahead of it fail, cluster collection has one fewer node to fall back on. Bring ' +

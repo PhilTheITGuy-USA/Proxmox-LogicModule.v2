@@ -2458,7 +2458,14 @@ trouble(troubleNode + ['system.hostname': '[fd00::1]:8006'],
 note('trouble-address-ipv6', connected == [['fd00::1', 8006]], "IPv6 address connected as ${connected}")
 
 def tPing = trouble(troubleNode, [ping: { String h -> false }])
-note('trouble-ping', troubleIds(tPing) == ['ping'] && troubleText(tPing).contains('ICMP'), "no ping: ${tPing}")
+note('trouble-ping', troubleIds(tPing) == ['ping'] && troubleText(tPing).contains('ICMP') && troubleText(tPing).contains('port 7'),
+     "no ping: ${tPing}")
+// A hostname URI cannot parse (an underscore) is still checked, not a crash (final review I1).
+def tUnderscore = troubleRun(troubleNode + ['system.hostname': 'pve_1.example.invalid'],
+                             [resolve: { String h -> throw new UnknownHostException(h) }])
+note('trouble-address-underscore', tUnderscore.thrown == null && troubleIds(tUnderscore.exit) == ['address'] &&
+                                   troubleText(tUnderscore.exit).contains('pve_1.example.invalid'),
+     "underscore hostname: ${tUnderscore.exit} / ${tUnderscore.thrown}")
 
 def tlsProps = troubleNode + ['pve.api.url': 'https://127.0.0.1:1']
 def tlsFails = [connect: { String h, int p -> }, tls: { String b -> throw new javax.net.ssl.SSLHandshakeException('PKIX path building failed') }]
@@ -2517,6 +2524,42 @@ note('trouble-failover-dedupe', tDedupe?.findings == [] && server2Versions == 1 
      "${server2Versions} /version reads at server2, reached ${tDedupe?.reached}")
 def tGated = trouble(hostProps + ['pve.token.credential': wrongToken, 'pve.api.hosts': '127.0.0.1:1'])
 note('trouble-failover-gated', troubleIds(tGated) == ['token'], "rejected token with failover hosts: ${tGated}")
+// A URL without a port behind a proxy means 443, and a bad entry is that entry's finding (final review I1).
+def failoverConnects = []
+def tNoPort = troubleRun(hostProps + ['pve.api.hosts': 'https://pve2.example.invalid,pve_3.example.invalid'],
+                         [connect: { String h, int p ->
+                             if (h == '127.0.0.1') { return }
+                             failoverConnects << [h, p]; throw new ConnectException('Connection refused') }])
+note('trouble-failover-noport', tNoPort.thrown == null && failoverConnects.contains(['pve2.example.invalid', 443]) &&
+                                troubleIds(tNoPort.exit) == ['failover-https---pve2-example-invalid', 'failover-pve_3-example-invalid'],
+     "URL without a port: ${tNoPort.exit} / ${tNoPort.thrown} / ${failoverConnects}")
+
+// The certificate check keeps its own trust: another resource's pve.api.insecure=true installs a
+// JVM-wide trust-all, which must not let an untrusted certificate pass here (final review I3).
+def tlsStore = File.createTempFile('pve-tls', '.p12'); tlsStore.delete()
+def keytool = new File(System.getProperty('java.home'), 'bin/keytool').path
+[keytool, '-genkeypair', '-alias', 'pve', '-keyalg', 'RSA', '-keysize', '2048', '-dname', 'CN=localhost', '-validity', '2',
+ '-storetype', 'PKCS12', '-keystore', tlsStore.path, '-storepass', 'changeit', '-keypass', 'changeit'].execute().waitFor()
+def tlsKeys = java.security.KeyStore.getInstance('PKCS12')
+tlsStore.withInputStream { tlsKeys.load(it, 'changeit'.toCharArray()) }
+def tlsKmf = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.defaultAlgorithm)
+tlsKmf.init(tlsKeys, 'changeit'.toCharArray())
+def tlsContext = javax.net.ssl.SSLContext.getInstance('TLS')
+tlsContext.init(tlsKmf.keyManagers, null, null)
+def httpsServer = com.sun.net.httpserver.HttpsServer.create(new InetSocketAddress('127.0.0.1', 0), 0)
+httpsServer.httpsConfigurator = new com.sun.net.httpserver.HttpsConfigurator(tlsContext)
+httpsServer.createContext('/api2/json') { exchange ->
+    byte[] reply = '{"data":{}}'.getBytes('UTF-8')
+    exchange.sendResponseHeaders(200, reply.length)
+    exchange.responseBody.withStream { it.write(reply) }
+}
+httpsServer.start()
+runSource(preamble + '\nreturn 0', [hostProps: hostProps + ['pve.api.insecure': 'true']])
+def httpsAddress = '127.0.0.1:' + httpsServer.address.port
+def tSelfSigned = trouble(troubleNode + ['pve.api.url': 'https://' + httpsAddress, 'system.hostname': httpsAddress])
+httpsServer.stop(0)
+note('trouble-cert-own-trust', 'certificate' in troubleIds(tSelfSigned),
+     "a self-signed certificate after another resource's insecure run: ${tSelfSigned}")
 
 // The module: discovery prints the findings, collection clears them by value.
 def troubleAd = new File(scriptsDir, 'Proxmox_VE_Troubleshooter.ad.groovy')
