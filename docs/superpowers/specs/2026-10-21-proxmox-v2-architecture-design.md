@@ -688,6 +688,7 @@ exclusion.
 
 - Per-guest Proxmox API modules on guest resources. Phase 1 is guests as resources for
   organisation and in-guest monitoring.
-- LogSources, ConfigSources and the troubleshooter module. They are good later additions; VMware
-  ships all three.
+- LogSources and ConfigSources. They are good later additions; VMware ships both.
+- ~~The troubleshooter module~~ **added to scope** (user, 2026-10-31), after VMware's
+  `VMware_LM_Troubleshooter`; its design goes in §3.2.
 - Deleting resources from the NetScan.
