@@ -687,7 +687,8 @@ exclusion.
 ## 6. Not in scope
 
 - Per-guest Proxmox API modules on guest resources. Phase 1 is guests as resources for
-  organisation and in-guest monitoring.
+  organisation and in-guest monitoring. No LogicMonitor hypervisor suite whose module placement
+  is published does otherwise (research `2026-10-31-lm-guest-hypervisor-modules.md`, 2026-10-31).
 - LogSources and ConfigSources. They are good later additions; VMware ships both.
 - ~~The troubleshooter module~~ **added to scope** (user, 2026-10-31), after VMware's
   `VMware_LM_Troubleshooter`; its design goes in §3.2.
