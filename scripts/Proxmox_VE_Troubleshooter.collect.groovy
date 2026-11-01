@@ -11,8 +11,8 @@ try {
     pveBatchInstances().each { instance ->
         def id = instance.wildvalue
         if (!id) { return }
-        def checked = id in result.reached || (id.startsWith('failover-') && 'failover' in result.reached)
-        if (!checked) { return }
+        // A failover-<address> problem is checked whenever the failover stage ran.
+        if (!((id.startsWith('failover-') ? 'failover' : id) in result.reached)) { return }
         pveEmit(id, 'Problem', open.contains(id) ? 1 : 0)
     }
     return 0

@@ -865,12 +865,11 @@ def pveTroubleshoot = { Map probes ->
     def fail = { String id, String name, String finding ->
         reached << id
         findings << [id: id, name: name, finding: finding]
-        false
     }
-    def pass = { String id -> reached << id; true }
+    def pass = { String id -> reached << id }
 
     def chain = {
-        def base = pveHostUrl(pveHostProp('system.hostname'))
+        def base = pveSelfBase
         if (pveConfigError || !base) {
             def token = !pveToken && pveBaseUrl
             return fail('settings', token ? 'Settings: set pve.token.credential' : 'Settings: set pve.api.url',
@@ -903,7 +902,7 @@ def pveTroubleshoot = { Map probes ->
         pass('address')
 
         def answers = false
-        try { answers = probes.ping(host) } catch (IOException unreachable) { answers = false }
+        try { answers = probes.ping(host) } catch (IOException unreachable) { }
         if (!answers) {
             return fail('ping', 'Ping: allow ICMP from the Collector to ' + host,
                         host + ' does not answer ping from the Collector. LogicMonitor treats a resource that does ' +
@@ -952,9 +951,10 @@ def pveTroubleshoot = { Map probes ->
                 problems << 'The token holds ' + local.join(', ') + ' on / without propagation, so it does not reach ' +
                             'the nodes, guests and storage below.'
             }
-            if (!(probes.read(base, '/cluster/resources') ?: [])) {
-                problems << '/cluster/resources is empty: a token with privilege separation needs an ACL entry of ' +
-                            "its own, not only its user's."
+            // The node rows alone: a token without an ACL of its own sees none, as it sees no guests.
+            if (!(probes.read(base, '/cluster/resources?type=node') ?: [])) {
+                problems << '/cluster/resources lists no nodes: a token with privilege separation needs an ACL ' +
+                            "entry of its own, not only its user's."
             }
         } catch (IOException unreadable) {
             problems << 'Its permissions could not be read: ' + unreadable.message
@@ -969,47 +969,45 @@ def pveTroubleshoot = { Map probes ->
         def categories = (pveHostProp('system.categories') ?: '').tokenize(',')*.trim()
         if ('ProxmoxVE_Node' in categories) {
             def named = pveHostProp('pve.node')
-            def nodeProblem = null
+            def status
             try {
-                def status = probes.read(base, '/cluster/status') ?: []
-                def local = status.find { it.type?.toString() == 'node' && it.local }?.name?.toString()
-                def self = local ?: named
-                if (named && local && named != local) {
-                    nodeProblem = ['Node: set pve.node to ' + local,
-                                   'pve.node is ' + named + ', but the node at ' + host + ' is ' + local + ', so its ' +
-                                   'node modules ask for the wrong node. Set pve.node to ' + local + ', or rerun the NetScan.']
-                } else if (status.any { it.type?.toString() == 'cluster' } && self) {
-                    def corosync = null
-                    try {
-                        corosync = (probes.read(base, '/nodes/' + self + '/services') ?: [])
-                            .find { (it.name ?: it.service)?.toString() == 'corosync' }
-                    } catch (IOException servicesUnreadable) {
-                        corosync = null
-                    }
-                    def state = corosync?.get('active-state')?.toString()
-                    if (corosync != null && state != 'active') {
-                        nodeProblem = ['Node: start corosync on ' + self,
-                                       'corosync is ' + state + ' on ' + self + ': while it is down this node keeps a ' +
-                                       "frozen view of the cluster and its cluster modules stay silent. Start it " +
-                                       '(systemctl start corosync) and check the cluster network.']
-                    }
-                }
+                status = probes.read(base, '/cluster/status') ?: []
             } catch (IOException statusUnreadable) {
-                nodeProblem = ['Node: /cluster/status cannot be read',
-                               'The node at ' + host + ' did not answer /cluster/status: ' + statusUnreadable.message]
+                return fail('node', 'Node: /cluster/status cannot be read',
+                            'The node at ' + host + ' did not answer /cluster/status: ' + statusUnreadable.message)
             }
-            if (nodeProblem == null && pveHostProp('pve.netscan.reachable') == 'false') {
-                nodeProblem = ['Node: run the NetScan to turn its node modules back on',
-                               'The NetScan marked this node unreachable (pve.netscan.reachable=false), so its node ' +
-                               'modules are off, but the Collector reaches it now. The next NetScan run clears the ' +
-                               'flag; run it now to restore them.']
+            def local = status.find { it.type?.toString() == 'node' && it.local }?.name?.toString()
+            def self = local ?: named
+            if (named && local && named != local) {
+                return fail('node', 'Node: set pve.node to ' + local,
+                            'pve.node is ' + named + ', but the node at ' + host + ' is ' + local + ', so its ' +
+                            'node modules ask for the wrong node. Set pve.node to ' + local + ', or rerun the NetScan.')
             }
-            if (nodeProblem) { return fail('node', nodeProblem[0], nodeProblem[1]) }
+            if (status.any { it.type?.toString() == 'cluster' } && self) {
+                def corosync = null
+                try {
+                    corosync = (probes.read(base, '/nodes/' + self + '/services') ?: [])
+                        .find { (it.name ?: it.service)?.toString() == 'corosync' }
+                } catch (IOException servicesUnreadable) { }
+                def state = corosync?.get('active-state')?.toString()
+                if (corosync != null && state != 'active') {
+                    return fail('node', 'Node: start corosync on ' + self,
+                                'corosync is ' + state + ' on ' + self + ': while it is down this node keeps a ' +
+                                "frozen view of the cluster and its cluster modules stay silent. Start it " +
+                                '(systemctl start corosync) and check the cluster network.')
+                }
+            }
+            if (pveHostProp('pve.netscan.reachable') == 'false') {
+                return fail('node', 'Node: run the NetScan to turn its node modules back on',
+                            'The NetScan marked this node unreachable (pve.netscan.reachable=false), so its node ' +
+                            'modules are off, but the Collector reaches it now. The next NetScan run clears the ' +
+                            'flag; run it now to restore them.')
+            }
             pass('node')
         }
 
         if (pveHostProp('pve.cluster.role') in ['active', 'standby']) {
-            reached << 'failover'
+            pass('failover')
             def seen = [base] as Set
             pveHostProp('pve.api.hosts', '').tokenize(',')*.trim().findAll { it }.each { address ->
                 def other = pveHostUrl(address)

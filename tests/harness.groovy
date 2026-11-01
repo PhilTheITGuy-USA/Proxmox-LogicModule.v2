@@ -164,9 +164,10 @@ modulesDir.listFiles({ f -> f.name.endsWith('.json') } as FileFilter).sort { it.
      * dist/scripts/. Its Proxmox-side logic lives in the preamble helpers instead, and
      * those are asserted further down like anything else.
      */
-    // A healthy resource gives the troubleshooter no instances, so "discovered no instances"
-    // and "produced no output" do not apply to it: its cases are under "troubleshooter".
-    if (defn.moduleType in ['topologysource', 'propertysource'] || name == 'Proxmox_VE_Troubleshooter') {
+    // A module whose instances are findings (the only kind that auto-deletes) has none while
+    // healthy, so "discovered no instances" and "produced no output" do not apply: its cases
+    // are under "troubleshooter".
+    if (defn.moduleType in ['topologysource', 'propertysource'] || defn.autoDeleteInstances) {
         return
     }
 
@@ -2416,13 +2417,12 @@ note('topo-partial', topoPartial.thrown == null && ['Compute', topoN1, topoWeb] 
 
 // One closure, not the script body: the harness's run() is at the JVM's 64 KB method limit.
 def troubleshooterCases = { ->
+def fakePing = [ping: { String h -> true }]
 def troubleRun = { Map props, Map probes = [:] ->
-    runSource(preamble + '\nreturn pveTroubleshoot(pveTroubleProbes())',
-              [hostProps: props, pveTestProbes: [ping: { String h -> true }] + probes])
+    runSource(preamble + '\nreturn pveTroubleshoot(pveTroubleProbes())', [hostProps: props, pveTestProbes: fakePing + probes])
 }
 def trouble = { Map props, Map probes = [:] -> troubleRun(props, probes).exit }
 def troubleIds = { Map result -> result?.findings*.id }
-def pveWildValueOf = { String v -> v.replaceAll('[^A-Za-z0-9_-]', '-') }
 def troubleText = { Map result -> (result?.findings ?: []).collect { it.name + ' | ' + it.finding }.join(' // ') }
 def corosyncUp = (fixtures['/nodes/pve1/services'] as List).collect {
     it.name == 'corosync' ? it + ['active-state': 'active', state: 'running'] : it
@@ -2492,7 +2492,7 @@ def tNoRoot = withHealthyNode { withFixtures(perms(['/vms': ['VM.Audit': 1]])) {
 note('trouble-permissions-no-root', troubleIds(tNoRoot) == ['permissions'] &&
                                     ['Sys.Audit', 'VM.Audit', 'Datastore.Audit', 'SDN.Audit'].every { troubleText(tNoRoot).contains(it) },
      "no ACL on /: ${tNoRoot}")
-def tEmpty = withHealthyNode { withFixtures(['/cluster/resources': []]) { trouble(troubleNode) } }
+def tEmpty = withHealthyNode { withFixtures(['/cluster/resources?type=node': []]) { trouble(troubleNode) } }
 note('trouble-permissions-empty', troubleIds(tEmpty) == ['permissions'] && troubleText(tEmpty).contains('privilege separation'),
      "empty /cluster/resources: ${tEmpty}")
 
@@ -2511,7 +2511,7 @@ note('trouble-node-off', tOff?.findings == [] && !('node' in tOff?.reached), "cl
 def server2Address = '127.0.0.1:' + server2.address.port
 def tFail = trouble(hostProps + ['pve.api.hosts': '127.0.0.1:1,' + server2Address])
 note('trouble-failover', troubleIds(tFail) == ['failover-127-0-0-1-1'] && troubleText(tFail).contains('127.0.0.1:1') &&
-                         'failover-' + pveWildValueOf(server2Address) in tFail?.reached, "a dead failover address: ${tFail}")
+                         'failover-127-0-0-1-' + server2.address.port in tFail?.reached, "a dead failover address: ${tFail}")
 def tNoRole = trouble(hostProps + ['pve.cluster.role': 'none', 'pve.api.hosts': '127.0.0.1:1'])
 note('trouble-failover-role', tNoRole?.findings == [] && !tNoRole?.reached?.any { it.startsWith('failover-') },
      "no cluster role: ${tNoRole}")
@@ -2565,7 +2565,7 @@ note('trouble-cert-own-trust', 'certificate' in troubleIds(tSelfSigned),
 def troubleAd = new File(scriptsDir, 'Proxmox_VE_Troubleshooter.ad.groovy')
 def troubleCollect = new File(scriptsDir, 'Proxmox_VE_Troubleshooter.collect.groovy')
 def troubleScript = { File file, Map props, Map extra = [:] ->
-    runScript(file, [hostProps: props, pveTestProbes: [ping: { String h -> true }]] + extra)
+    runScript(file, [hostProps: props, pveTestProbes: fakePing] + extra)
 }
 def adToken = troubleScript(troubleAd, troubleNode + ['pve.token.credential': wrongToken])
 def adTokenLines = adToken.stdout.readLines().findAll { it.trim() }
@@ -2579,7 +2579,7 @@ note('trouble-ad-healthy', adHealthy.exit == 0 && adHealthy.stdout.trim().isEmpt
 def adNoToken = troubleScript(troubleAd, troubleNode.findAll { k, v -> k != 'pve.token.credential' })
 note('trouble-ad-settings', adNoToken.exit == 0 && adNoToken.stdout.startsWith('settings##'),
      "no token is a finding, not a failure: exit ${adNoToken.exit}, ${adNoToken.stdout}")
-def broken = [pveTestProbes: [ping: { String h -> true }, read: { String b, String p -> throw new RuntimeException('malformed reply') }]]
+def broken = [pveTestProbes: fakePing + [read: { String b, String p -> throw new RuntimeException('malformed reply') }]]
 def adThrows = troubleScript(troubleAd, troubleNode, broken)
 def collectThrows = troubleScript(troubleCollect, troubleNode, broken + [datasourceinstanceProps: ['token': [wildvalue: 'token']]])
 note('trouble-ad-throws', adThrows.exit == 2 && adThrows.stdout.trim().isEmpty() && collectThrows.exit == 2,
