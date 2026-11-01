@@ -4,6 +4,15 @@
     "release": "8.2",
     "repoid": "a1b2c3d4"
   },
+  "/access/permissions?path=/": {
+    "/": {
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "Datastore.Audit": 1,
+      "SDN.Audit": 1,
+      "Pool.Audit": 1
+    }
+  },
   "/cluster/status": [
     {
       "type": "cluster",

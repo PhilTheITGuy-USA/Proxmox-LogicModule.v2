@@ -2407,6 +2407,113 @@ note('topo-partial', topoPartial.thrown == null && ['Compute', topoN1, topoWeb] 
                      !topoPartialSet.any { it[1] == topoKey('pool', 'pve1', 'zfs', 'rpool') } && topoPartial.stderr.contains('/disks/zfs'),
      "with /disks/zfs failing: ${topoPartial.thrown} / ${topoPartial.stderr.take(200)}")
 
+// ---------------------------------------------------------------- troubleshooter
+//
+// pveTroubleshoot runs the chain of checks over probes the harness replaces one by one; ping
+// is faked throughout, since ICMP inside the container proves nothing about a Collector's.
+
+def troubleRun = { Map props, Map probes = [:] ->
+    runSource(preamble + '\nreturn pveTroubleshoot(pveTroubleProbes)',
+              [hostProps: props, pveTestProbes: [ping: { String h -> true }] + probes])
+}
+def trouble = { Map props, Map probes = [:] -> troubleRun(props, probes).exit }
+def troubleIds = { Map result -> result?.findings*.id }
+def pveWildValueOf = { String v -> v.replaceAll('[^A-Za-z0-9_-]', '-') }
+def troubleText = { Map result -> (result?.findings ?: []).collect { it.name + ' | ' + it.finding }.join(' // ') }
+def corosyncUp = (fixtures['/nodes/pve1/services'] as List).collect {
+    it.name == 'corosync' ? it + ['active-state': 'active', state: 'running'] : it
+}
+def troubleNode = nodeHostProps + ['system.categories': 'ProxmoxVE_Node']
+def withHealthyNode = { Closure healthyCase -> withFixtures(['/nodes/pve1/services': corosyncUp], healthyCase) }
+def CHAIN = ['settings', 'address', 'ping', 'certificate', 'token', 'permissions', 'node']
+
+def tHealthy = withHealthyNode { trouble(troubleNode) }
+// pve.cluster.role is active, so the failover stage ran too, over no pve.api.hosts.
+note('trouble-healthy', tHealthy?.findings == [] && tHealthy?.reached == (CHAIN + 'failover') as Set,
+     "healthy node: ${tHealthy}")
+
+def tMissing = trouble(troubleNode.findAll { k, v -> k != 'pve.token.credential' })
+note('trouble-settings-missing', troubleIds(tMissing) == ['settings'] && tMissing?.reached == ['settings'] as Set &&
+                                 troubleText(tMissing).contains('pve.token.credential'), "no token: ${tMissing}")
+def tForm = trouble(troubleNode + ['pve.token.credential': 'hunter2'])
+note('trouble-settings-form', troubleIds(tForm) == ['settings'] && troubleText(tForm).contains('user@realm!tokenid=secret'),
+     "a password for a token: ${tForm}")
+
+def tDns = trouble(troubleNode, [resolve: { String h -> throw new UnknownHostException(h) }])
+note('trouble-address-dns', troubleIds(tDns) == ['address'] && troubleText(tDns).contains('does not resolve') &&
+                            !('ping' in tDns?.reached), "DNS failure: ${tDns}")
+def tRefused = trouble(troubleNode, [connect: { String h, int p -> throw new ConnectException('Connection refused') }])
+note('trouble-address-refused', troubleIds(tRefused) == ['address'] && troubleText(tRefused).contains('refused') &&
+                                troubleText(tRefused).contains(server.address.port.toString()), "refused: ${tRefused}")
+def tTimeout = trouble(troubleNode, [connect: { String h, int p -> throw new SocketTimeoutException('connect timed out') }])
+note('trouble-address-timeout', troubleIds(tTimeout) == ['address'] && troubleText(tTimeout).contains('timed out'),
+     "timeout: ${tTimeout}")
+def connected = []
+trouble(troubleNode + ['system.hostname': '[fd00::1]:8006'],
+        [connect: { String h, int p -> connected << [h, p]; throw new ConnectException('Connection refused') }])
+note('trouble-address-ipv6', connected == [['fd00::1', 8006]], "IPv6 address connected as ${connected}")
+
+def tPing = trouble(troubleNode, [ping: { String h -> false }])
+note('trouble-ping', troubleIds(tPing) == ['ping'] && troubleText(tPing).contains('ICMP'), "no ping: ${tPing}")
+
+def tlsProps = troubleNode + ['pve.api.url': 'https://127.0.0.1:1']
+def tlsFails = [connect: { String h, int p -> }, tls: { String b -> throw new javax.net.ssl.SSLHandshakeException('PKIX path building failed') }]
+def tCert = trouble(tlsProps, tlsFails)
+note('trouble-cert', troubleIds(tCert) == ['certificate'] && troubleText(tCert).contains('pve.api.insecure') &&
+                     troubleText(tCert).contains('PKIX'), "untrusted certificate: ${tCert}")
+def tCertOff = trouble(tlsProps + ['pve.api.insecure': 'true'], tlsFails + [read: { String b, String p -> throw new IOException('HTTP 401 for ' + p) }])
+note('trouble-cert-insecure', 'certificate' in tCertOff?.reached && !('certificate' in troubleIds(tCertOff)),
+     "certificate check with pve.api.insecure=true: ${tCertOff}")
+
+def wrongToken = 'monitor@pam!logicmonitor=11111111-1111-1111-1111-111111111111'
+def tToken = trouble(troubleNode + ['pve.token.credential': wrongToken])
+note('trouble-token', troubleIds(tToken) == ['token'] && troubleText(tToken).contains('expired'), "rejected token: ${tToken}")
+
+def perms = { Map root -> ['/access/permissions?path=/': root] }
+def tPartial = withHealthyNode { withFixtures(perms(['/': ['Sys.Audit': 1, 'VM.Audit': 1]])) { trouble(troubleNode) } }
+note('trouble-permissions-missing', troubleIds(tPartial) == ['permissions'] && troubleText(tPartial).contains('Datastore.Audit') &&
+                                    troubleText(tPartial).contains('SDN.Audit') && !troubleText(tPartial).contains('Sys.Audit'),
+     "two privileges missing: ${tPartial}")
+def tUnprop = withHealthyNode { withFixtures(perms(['/': ['Sys.Audit': 1, 'VM.Audit': 1, 'Datastore.Audit': 0, 'SDN.Audit': 1]])) { trouble(troubleNode) } }
+note('trouble-permissions-propagate', troubleIds(tUnprop) == ['permissions'] && troubleText(tUnprop).contains('propagat'),
+     "a privilege not propagated: ${tUnprop}")
+def tNoRoot = withHealthyNode { withFixtures(perms(['/vms': ['VM.Audit': 1]])) { trouble(troubleNode) } }
+note('trouble-permissions-no-root', troubleIds(tNoRoot) == ['permissions'] &&
+                                    ['Sys.Audit', 'VM.Audit', 'Datastore.Audit', 'SDN.Audit'].every { troubleText(tNoRoot).contains(it) },
+     "no ACL on /: ${tNoRoot}")
+def tEmpty = withHealthyNode { withFixtures(['/cluster/resources': []]) { trouble(troubleNode) } }
+note('trouble-permissions-empty', troubleIds(tEmpty) == ['permissions'] && troubleText(tEmpty).contains('privilege separation'),
+     "empty /cluster/resources: ${tEmpty}")
+
+def tWrongNode = withHealthyNode { trouble(troubleNode + ['pve.node': 'pve9']) }
+note('trouble-node-mismatch', troubleIds(tWrongNode) == ['node'] && troubleText(tWrongNode).contains('pve1'), "pve.node pve9: ${tWrongNode}")
+def tCorosync = trouble(troubleNode)
+note('trouble-node-corosync', troubleIds(tCorosync) == ['node'] && troubleText(tCorosync).contains('corosync'), "corosync failed: ${tCorosync}")
+def tFlagged = withHealthyNode { trouble(troubleNode + ['pve.netscan.reachable': 'false']) }
+note('trouble-node-netscan', troubleIds(tFlagged) == ['node'] && troubleText(tFlagged).contains('NetScan'), "marked unreachable: ${tFlagged}")
+def standalone = (fixtures['/cluster/status'] as List).findAll { it.type != 'cluster' }
+def tStandalone = withFixtures(['/cluster/status': standalone, '/nodes/pve1/services': null]) { trouble(troubleNode) }
+note('trouble-node-standalone', tStandalone?.findings == [], "standalone host: ${tStandalone}")
+def tOff = trouble(hostProps)
+note('trouble-node-off', tOff?.findings == [] && !('node' in tOff?.reached), "cluster resource: ${tOff}")
+
+def server2Address = '127.0.0.1:' + server2.address.port
+def tFail = trouble(hostProps + ['pve.api.hosts': '127.0.0.1:1,' + server2Address])
+note('trouble-failover', troubleIds(tFail) == ['failover-127-0-0-1-1'] && troubleText(tFail).contains('127.0.0.1:1') &&
+                         'failover-' + pveWildValueOf(server2Address) in tFail?.reached, "a dead failover address: ${tFail}")
+def tNoRole = trouble(hostProps + ['pve.cluster.role': 'none', 'pve.api.hosts': '127.0.0.1:1'])
+note('trouble-failover-role', tNoRole?.findings == [] && !tNoRole?.reached?.any { it.startsWith('failover-') },
+     "no cluster role: ${tNoRole}")
+def before2 = server2Requests.size()
+def tDedupe = trouble(hostProps + ['pve.api.hosts': '127.0.0.1:' + server.address.port + ',' + server2Address + ',' +
+                                   server2Address + ',http://' + server2Address])
+def server2Versions = server2Requests.drop(before2).count { it == '/version' }
+note('trouble-failover-dedupe', tDedupe?.findings == [] && server2Versions == 1 &&
+                                tDedupe?.reached?.count { it.startsWith('failover-') } == 1,
+     "${server2Versions} /version reads at server2, reached ${tDedupe?.reached}")
+def tGated = trouble(hostProps + ['pve.token.credential': wrongToken, 'pve.api.hosts': '127.0.0.1:1'])
+note('trouble-failover-gated', troubleIds(tGated) == ['token'], "rejected token with failover hosts: ${tGated}")
+
 server.stop(0)
 server2.stop(0)
 

@@ -815,6 +815,212 @@ def pveRole = { String label = null ->
     return pveRoleResult
 }
 
+// ------------------------------------------------------------- troubleshooter
+
+/*
+ * What the troubleshooter's checks touch: name resolution, a TCP connect, ping, a TLS
+ * handshake and an API read (read, not get: Map.get(key, default) would shadow it). Closures, so the harness can replace them one by one
+ * (pveTestProbes).
+ */
+def pveTroubleProbes = [
+    resolve: { String host -> InetAddress.getByName(host) },
+    connect: { String host, int port ->
+        new Socket().withCloseable { it.connect(new InetSocketAddress(host, port), pveTimeout) }
+    },
+    ping   : { String host -> InetAddress.getByName(host).isReachable(pveTimeout) },
+    tls    : { String base ->
+        def connection = new URL(base + '/api2/json/version').openConnection()
+        connection.setConnectTimeout(pveTimeout)
+        connection.setReadTimeout(pveTimeout)
+        try { connection.connect() } finally { connection.disconnect() }
+    },
+    read   : { String base, String path -> pveGetAt(base, path) },
+] + (binding.hasVariable('pveTestProbes') ? pveTestProbes : [:])
+
+/*
+ * The troubleshooter's chain of checks (spec A§3.2). Returns [findings, reached]: one finding
+ * [id, name, finding] per problem, and the id of every check run to a verdict. The first check
+ * that fails ends the chain, since the ones after it depend on it, so one cause is one finding.
+ * A check that does not apply to this kind of resource (node, failover) is not reached; one
+ * turned off by a setting (certificate with pve.api.insecure) passes, so its open alert clears.
+ * "failover" in reached means the failover stage ran: a failover-<address> instance not listed
+ * any more is resolved.
+ */
+def pveTroubleshoot = { Map probes ->
+    def findings = []
+    def reached = [] as Set
+    def fail = { String id, String name, String finding ->
+        reached << id
+        findings << [id: id, name: name, finding: finding]
+        false
+    }
+    def pass = { String id -> reached << id; true }
+
+    def chain = {
+        def base = pveHostUrl(pveHostProp('system.hostname'))
+        if (pveConfigError || !base) {
+            def token = !pveToken && pveBaseUrl
+            return fail('settings', token ? 'Settings: set pve.token.credential' : 'Settings: set pve.api.url',
+                        pveConfigError ?: 'system.hostname is empty, so there is no address to check.')
+        }
+        if (!(pveToken ==~ /[^@\s]+@[^!\s]+![^=\s]+=\S+/)) {
+            return fail('settings', 'Settings: pve.token.credential needs the full token string',
+                        'pve.token.credential is not an API token string. It must be the whole token, ' +
+                        'user@realm!tokenid=secret, such as monitor@pve!logicmonitor=<secret>; a password does not work.')
+        }
+        pass('settings')
+
+        def uri = new URI(base)
+        def host = uri.host.replaceAll(/^\[|\]$/, '')
+        def port = uri.port
+        try {
+            probes.resolve(host)
+            probes.connect(host, port)
+        } catch (UnknownHostException unresolved) {
+            return fail('address', 'Address: ' + host + ' does not resolve',
+                        host + ' does not resolve from the Collector, so nothing can reach this resource. ' +
+                        "Fix its DNS record, or set the resource's hostname to its IP address.")
+        } catch (SocketTimeoutException slow) {
+            return fail('address', 'Address: open port ' + port + ' to ' + host,
+                        'Connecting to ' + host + ' on port ' + port + ' timed out after ' + pveTimeout + ' ms: ' +
+                        'a firewall between the Collector and the resource is likely dropping the port.')
+        } catch (IOException refused) {
+            return fail('address', 'Address: ' + host + ' refuses port ' + port,
+                        host + ' refused a connection on port ' + port + ' (' + refused.message + '): pveproxy is ' +
+                        'not listening there, or a firewall rejects it. The Proxmox API listens on 8006 (pve.api.port).')
+        }
+        pass('address')
+
+        def answers = false
+        try { answers = probes.ping(host) } catch (IOException unreachable) { answers = false }
+        if (!answers) {
+            return fail('ping', 'Ping: allow ICMP from the Collector to ' + host,
+                        host + ' does not answer ping from the Collector. LogicMonitor treats a resource that does ' +
+                        'not answer ping as dead and holds back its alerts, however well its modules collect. ' +
+                        'Allow ICMP echo from the Collector.')
+        }
+        pass('ping')
+
+        if (uri.scheme == 'https' && !pveHostProp('pve.api.insecure', 'false').toBoolean()) {
+            try {
+                probes.tls(base)
+            } catch (IOException handshake) {
+                return fail('certificate', 'Certificate: install one that names ' + host + ', or set pve.api.insecure=true',
+                            'The TLS handshake with ' + base + ' failed: ' + handshake.message + '. The Collector does ' +
+                            'not trust the certificate, or it does not name ' + host + '. Proxmox signs its own ' +
+                            'certificates, for the node rather than a VIP or proxy address. Install one the Collector ' +
+                            'trusts that names ' + host + ', or set pve.api.insecure=true to accept it unverified.')
+            }
+        }
+        pass('certificate')
+
+        try {
+            probes.read(base, '/version')
+        } catch (IOException rejected) {
+            if (pveFailureStatus(rejected) == 401) {
+                return fail('token', 'Token: replace the secret in pve.token.credential',
+                            'The API at ' + base + ' rejected the token (HTTP 401): its secret is wrong, or the ' +
+                            'token was deleted or has expired. Give it a new secret and set it in pve.token.credential.')
+            }
+            return fail('token', 'Token: the API at ' + host + ' does not answer',
+                        'The API at ' + base + ' did not answer /version: ' + rejected.message)
+        }
+        pass('token')
+
+        def required = ['Sys.Audit', 'VM.Audit', 'Datastore.Audit', 'SDN.Audit']
+        def problems = []
+        try {
+            def rights = probes.read(base, '/access/permissions?path=/')
+            def root = (rights instanceof Map ? rights['/'] : null) ?: [:]
+            def missing = required.findAll { root[it] == null }
+            def local = required.findAll { root[it] != null && root[it].toString() != '1' }
+            if (missing) { problems << 'The token lacks ' + missing.join(', ') + ' on /.' }
+            if (local) {
+                problems << 'The token holds ' + local.join(', ') + ' on / without propagation, so it does not reach ' +
+                            'the nodes, guests and storage below.'
+            }
+            if (!(probes.read(base, '/cluster/resources') ?: [])) {
+                problems << '/cluster/resources is empty: a token with privilege separation needs an ACL entry of ' +
+                            "its own, not only its user's."
+            }
+        } catch (IOException unreadable) {
+            problems << 'Its permissions could not be read: ' + unreadable.message
+        }
+        if (problems) {
+            return fail('permissions', 'Permissions: give the token PVEAuditor on /, propagated',
+                        problems.join(' ') + ' Give the token the PVEAuditor role on /, propagated; with privilege ' +
+                        'separation the token needs that ACL entry itself.')
+        }
+        pass('permissions')
+
+        def categories = (pveHostProp('system.categories') ?: '').tokenize(',')*.trim()
+        if ('ProxmoxVE_Node' in categories) {
+            def named = pveHostProp('pve.node')
+            def nodeProblem = null
+            try {
+                def status = probes.read(base, '/cluster/status') ?: []
+                def local = status.find { it.type?.toString() == 'node' && it.local }?.name?.toString()
+                def self = local ?: named
+                if (named && local && named != local) {
+                    nodeProblem = ['Node: set pve.node to ' + local,
+                                   'pve.node is ' + named + ', but the node at ' + host + ' is ' + local + ', so its ' +
+                                   'node modules ask for the wrong node. Set pve.node to ' + local + ', or rerun the NetScan.']
+                } else if (status.any { it.type?.toString() == 'cluster' } && self) {
+                    def corosync = null
+                    try {
+                        corosync = (probes.read(base, '/nodes/' + self + '/services') ?: [])
+                            .find { (it.name ?: it.service)?.toString() == 'corosync' }
+                    } catch (IOException servicesUnreadable) {
+                        corosync = null
+                    }
+                    def state = corosync?.get('active-state')?.toString()
+                    if (corosync != null && state != 'active') {
+                        nodeProblem = ['Node: start corosync on ' + self,
+                                       'corosync is ' + state + ' on ' + self + ': while it is down this node keeps a ' +
+                                       "frozen view of the cluster and its cluster modules stay silent. Start it " +
+                                       '(systemctl start corosync) and check the cluster network.']
+                    }
+                }
+            } catch (IOException statusUnreadable) {
+                nodeProblem = ['Node: /cluster/status cannot be read',
+                               'The node at ' + host + ' did not answer /cluster/status: ' + statusUnreadable.message]
+            }
+            if (nodeProblem == null && pveHostProp('pve.netscan.reachable') == 'false') {
+                nodeProblem = ['Node: run the NetScan to turn its node modules back on',
+                               'The NetScan marked this node unreachable (pve.netscan.reachable=false), so its node ' +
+                               'modules are off, but the Collector reaches it now. The next NetScan run clears the ' +
+                               'flag; run it now to restore them.']
+            }
+            if (nodeProblem) { return fail('node', nodeProblem[0], nodeProblem[1]) }
+            pass('node')
+        }
+
+        if (pveHostProp('pve.cluster.role') in ['active', 'standby']) {
+            reached << 'failover'
+            def seen = [base] as Set
+            pveHostProp('pve.api.hosts', '').tokenize(',')*.trim().findAll { it }.each { address ->
+                def other = pveHostUrl(address)
+                if (!other || !seen.add(other)) { return }
+                def id = 'failover-' + pveWildValue(address)
+                def otherUri = new URI(other)
+                try {
+                    probes.connect(otherUri.host.replaceAll(/^\[|\]$/, ''), otherUri.port)
+                    probes.read(other, '/version')
+                    pass(id)
+                } catch (IOException dead) {
+                    fail(id, 'Failover: ' + address + ' does not answer',
+                         address + ', listed in pve.api.hosts, does not answer (' + dead.message + '). If the ' +
+                         'addresses ahead of it fail, cluster collection has one fewer node to fall back on. Bring ' +
+                         'it back, or remove it from pve.api.hosts.')
+                }
+            }
+        }
+        return true
+    }
+    chain()
+    [findings: findings, reached: reached]
+}
+
 // ------------------------------------------------------------ per-guest loops
 
 // Each node's own API, from /cluster/status: node name -> base URL for its address.
