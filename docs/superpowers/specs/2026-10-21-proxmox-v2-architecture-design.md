@@ -689,7 +689,7 @@ exclusion.
 - Per-guest Proxmox API modules on guest resources. Phase 1 is guests as resources for
   organisation and in-guest monitoring. No LogicMonitor hypervisor suite whose module placement
   is published does otherwise (research `2026-10-31-lm-guest-hypervisor-modules.md`, 2026-10-31).
-- LogSources and ConfigSources. They are good later additions; VMware ships both.
-- ~~The troubleshooter module~~ **added to scope** (user, 2026-10-31), after VMware's
-  `VMware_LM_Troubleshooter`; its design goes in §3.2.
+- ~~LogSources, ConfigSources and the troubleshooter module~~ **added to scope** (user,
+  2026-10-31); VMware ships all three, the troubleshooter as `VMware_LM_Troubleshooter`. Their
+  designs go in §3.2, the troubleshooter's first.
 - Deleting resources from the NetScan.
