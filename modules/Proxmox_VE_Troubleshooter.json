@@ -1,0 +1,29 @@
+{
+  "name": "Proxmox_VE_Troubleshooter",
+  "displayedAs": "Proxmox VE Troubleshooter",
+  "description": "Checks what this resource's Proxmox VE modules need to collect -- settings, address, ping, certificate, token, permissions, node identity and failover addresses -- and reports each problem as an instance named with its fix. A resource without problems has no instances.",
+  "group": "Proxmox VE",
+  "appliesTo": "hasCategory(\"ProxmoxVE_Cluster\") || hasCategory(\"ProxmoxVE_Node\")",
+  "searchKeywords": "proxmox,pve,troubleshooter,token,permissions,certificate,setup",
+  "technicalNotes": "Applies to every cluster and node resource, including a node the NetScan marked unreachable and a standby that is not collecting: those are cases it explains. It makes no cluster role check.\n\nDiscovery, every 15 minutes, runs the checks in order and stops at the first that fails, since the later ones depend on it: settings (pve.token.credential present and of the form user@realm!tokenid=secret, an API URL), address (the resource's own hostname resolves and accepts pve.api.port), ping (LogicMonitor treats a resource that does not answer ping as dead and holds back its alerts), certificate (unless pve.api.insecure is true), token (/version), permissions (/access/permissions: Sys.Audit, VM.Audit, Datastore.Audit and SDN.Audit on /, propagated, and a non-empty /cluster/resources), node (on node resources: pve.node matches the node's own local row of /cluster/status, its corosync runs, and pve.netscan.reachable is not false while the Collector reaches it), and, on resources with a cluster role, failover (each pve.api.hosts address answers). Each problem is an instance whose wildvalue names the check (failover-<address> per address), whose name gives the fix, and whose description and auto.pve_finding give the full finding.\n\nCollection, every 5 minutes, reruns the checks: Problem is 1 while a discovered problem persists and 0 once it is gone, so its alert clears on the value. A problem whose check the chain did not reach this time prints nothing. LogicMonitor runs no collection on a resource without instances, so a healthy resource costs discovery alone: up to five API calls, one TCP connect and one ping, plus a connect and a /version per pve.api.hosts address on a resource with a cluster role.\n\nUnlike the suite's other modules, its instances are auto-deleted after 30 days (never immediately): an instance discovery leaves out is a problem fixed, since a check that cannot run is itself a finding. Elsewhere a missing instance can be a wrong answer, so they keep theirs.\n\nRequires only what the other modules require; /access/permissions answers any token for its own rights.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "5m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Troubleshooter.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Troubleshooter.ad.groovy",
+  "discoveryInterval": "15m",
+  "autoDeleteInstances": true,
+  "datapoints": [
+    {
+      "name": "Problem",
+      "description": "1 while this problem persists, 0 once it is resolved.",
+      "threshold": "> 0 0",
+      "alertBody": "The Proxmox VE troubleshooter found a problem that stops collection on ##HOSTNAME##: ##INSTANCE##.\n\n##DSIDESCRIPTION##\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago. It clears within five minutes of the fix.",
+      "statusNames": {"0": "Resolved", "1": "Problem"}
+    }
+  ],
+  "graphs": [
+    {"title": "Problem", "verticalLabel": "1 = problem", "max": 1, "lines": [{"dp": "Problem", "legend": "Problem", "color": "red"}]}
+  ]
+}

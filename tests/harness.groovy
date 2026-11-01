@@ -164,7 +164,9 @@ modulesDir.listFiles({ f -> f.name.endsWith('.json') } as FileFilter).sort { it.
      * dist/scripts/. Its Proxmox-side logic lives in the preamble helpers instead, and
      * those are asserted further down like anything else.
      */
-    if (defn.moduleType in ['topologysource', 'propertysource']) {
+    // A healthy resource gives the troubleshooter no instances, so "discovered no instances"
+    // and "produced no output" do not apply to it: its cases are under "troubleshooter".
+    if (defn.moduleType in ['topologysource', 'propertysource'] || name == 'Proxmox_VE_Troubleshooter') {
         return
     }
 
@@ -2412,8 +2414,10 @@ note('topo-partial', topoPartial.thrown == null && ['Compute', topoN1, topoWeb] 
 // pveTroubleshoot runs the chain of checks over probes the harness replaces one by one; ping
 // is faked throughout, since ICMP inside the container proves nothing about a Collector's.
 
+// One closure, not the script body: the harness's run() is at the JVM's 64 KB method limit.
+def troubleshooterCases = { ->
 def troubleRun = { Map props, Map probes = [:] ->
-    runSource(preamble + '\nreturn pveTroubleshoot(pveTroubleProbes)',
+    runSource(preamble + '\nreturn pveTroubleshoot(pveTroubleProbes())',
               [hostProps: props, pveTestProbes: [ping: { String h -> true }] + probes])
 }
 def trouble = { Map props, Map probes = [:] -> troubleRun(props, probes).exit }
@@ -2513,6 +2517,52 @@ note('trouble-failover-dedupe', tDedupe?.findings == [] && server2Versions == 1 
      "${server2Versions} /version reads at server2, reached ${tDedupe?.reached}")
 def tGated = trouble(hostProps + ['pve.token.credential': wrongToken, 'pve.api.hosts': '127.0.0.1:1'])
 note('trouble-failover-gated', troubleIds(tGated) == ['token'], "rejected token with failover hosts: ${tGated}")
+
+// The module: discovery prints the findings, collection clears them by value.
+def troubleAd = new File(scriptsDir, 'Proxmox_VE_Troubleshooter.ad.groovy')
+def troubleCollect = new File(scriptsDir, 'Proxmox_VE_Troubleshooter.collect.groovy')
+def troubleScript = { File file, Map props, Map extra = [:] ->
+    runScript(file, [hostProps: props, pveTestProbes: [ping: { String h -> true }]] + extra)
+}
+def adToken = troubleScript(troubleAd, troubleNode + ['pve.token.credential': wrongToken])
+def adTokenLines = adToken.stdout.readLines().findAll { it.trim() }
+def adTokenMatch = adTokenLines.size() == 1 ? AD_LINE.matcher(adTokenLines[0]) : null
+note('trouble-ad', adToken.exit == 0 && adTokenMatch?.matches() && adTokenMatch.group(1) == 'token' &&
+                   adTokenMatch.group(3).contains('HTTP 401') && adTokenMatch.group(4).contains('auto.pve_finding='),
+     "rejected token: exit ${adToken.exit}, ${adToken.stdout} / ${adToken.stderr}")
+def adHealthy = withHealthyNode { troubleScript(troubleAd, troubleNode) }
+note('trouble-ad-healthy', adHealthy.exit == 0 && adHealthy.stdout.trim().isEmpty(),
+     "healthy node: exit ${adHealthy.exit}, ${adHealthy.stdout} / ${adHealthy.stderr}")
+def adNoToken = troubleScript(troubleAd, troubleNode.findAll { k, v -> k != 'pve.token.credential' })
+note('trouble-ad-settings', adNoToken.exit == 0 && adNoToken.stdout.startsWith('settings##'),
+     "no token is a finding, not a failure: exit ${adNoToken.exit}, ${adNoToken.stdout}")
+def broken = [pveTestProbes: [ping: { String h -> true }, read: { String b, String p -> throw new RuntimeException('malformed reply') }]]
+def adThrows = troubleScript(troubleAd, troubleNode, broken)
+def collectThrows = troubleScript(troubleCollect, troubleNode, broken + [datasourceinstanceProps: ['token': [wildvalue: 'token']]])
+note('trouble-ad-throws', adThrows.exit == 2 && adThrows.stdout.trim().isEmpty() && collectThrows.exit == 2,
+     "a probe that throws: ad ${adThrows.exit} ${adThrows.stdout}, collect ${collectThrows.exit}")
+def troubleInstances = { List ids -> ids.collectEntries { [(it): [wildvalue: it]] } }
+def colToken = troubleScript(troubleCollect, hostProps + ['pve.token.credential': wrongToken],
+                             [datasourceinstanceProps: troubleInstances(['token', 'ping', 'failover-x'])])
+note('trouble-collect', colToken.exit == 0 && colToken.stdout.readLines().findAll { it.trim() } as Set == ['token.Problem=1', 'ping.Problem=0'] as Set,
+     "rejected token: exit ${colToken.exit}, ${colToken.stdout} / ${colToken.stderr}")
+// A dead address taken out of pve.api.hosts is resolved, not left at No Data with its alert open.
+def colGone = troubleScript(troubleCollect, hostProps, [datasourceinstanceProps: troubleInstances(['failover-127-0-0-1-1'])])
+note('trouble-collect-failover-gone', colGone.exit == 0 && colGone.stdout.trim() == 'failover-127-0-0-1-1.Problem=0',
+     "a failover address no longer listed: exit ${colGone.exit}, ${colGone.stdout} / ${colGone.stderr}")
+def builtTrouble = new File(ROOT, 'dist/Proxmox_VE_Troubleshooter.json')
+def builtTroubleJson = builtTrouble.exists() ? new JsonSlurper().parse(builtTrouble) : null
+note('trouble-built', builtTroubleJson?.activeDiscovery?.autoDeleteInstances == true &&
+                      builtTroubleJson?.activeDiscovery?.deleteInactiveInstances == false &&
+                      builtTroubleJson?.activeDiscovery?.discoveryInterval == '15m' && builtTroubleJson?.collectionInterval == '5m',
+     "built troubleshooter: ${builtTroubleJson?.activeDiscovery?.findAll { k, v -> k != 'params' }} / ${builtTroubleJson?.collectionInterval}")
+def autoDeleting = new File(ROOT, 'dist').listFiles({ f -> f.name.endsWith('.json') } as FileFilter).findAll { f ->
+    def ad = new JsonSlurper().parse(f).activeDiscovery
+    f.name != 'Proxmox_VE_Troubleshooter.json' && ad && (ad.autoDeleteInstances || ad.deleteInactiveInstances)
+}*.name
+note('trouble-built-others', autoDeleting.isEmpty(), "modules that auto-delete: ${autoDeleting}")
+}
+troubleshooterCases()
 
 server.stop(0)
 server2.stop(0)

@@ -444,6 +444,7 @@ APPLIES_TO = {
 }
 APPLIES_TO_BY_NAME = {
     "Proxmox_VE_Info": "info",
+    "Proxmox_VE_Troubleshooter": "info",
     "addERI_Proxmox_VE_Node": "eri_node",
     "addERI_Proxmox_VE_GuestResource": "eri_guest",
 }
@@ -486,11 +487,20 @@ def check_v1_names(path: Path, defn: dict) -> list[str]:
     return problems
 
 
+def check_auto_delete(path: Path, defn: dict) -> list[str]:
+    """Only a troubleshooter's instances are findings, which may go once fixed (spec A§3.2)."""
+    if defn.get("autoDeleteInstances") and not defn.get("name", "").endswith("_Troubleshooter"):
+        return [f"{path.name}: autoDeleteInstances is allowed only on a *_Troubleshooter module: "
+                f"elsewhere an instance discovery leaves out can be a wrong answer, and a deleted "
+                f"instance cannot alert"]
+    return []
+
+
 def check_definition(path: Path, defn: dict) -> list[str]:
     too_long = check_field_lengths(path, defn)
     if too_long:
         return too_long
-    role_problems = check_appliesto(path, defn) + check_v1_names(path, defn)
+    role_problems = check_appliesto(path, defn) + check_v1_names(path, defn) + check_auto_delete(path, defn)
     if role_problems:
         return role_problems
     kind = module_type(defn)
@@ -627,10 +637,11 @@ def build_module(defn: dict) -> tuple[dict, dict[str, str]]:
             "discoveryMethod": "ad_script",
             "params": {"type": "groovy", "content": discovery},
             "discoveryInterval": defn.get("discoveryInterval", "1440m"),
-            # Instances are never auto-deleted: a collection script that exits non-zero
-            # during a Proxmox outage must not cause LogicMonitor to tear down history.
+            # Never deleted at once. Auto-deleted after 30 days only where an instance is a
+            # finding, which check_auto_delete confines to a *_Troubleshooter: elsewhere an
+            # instance discovery leaves out can be a wrong answer, and a deleted one cannot alert.
             "deleteInactiveInstances": False,
-            "autoDeleteInstances": False,
+            "autoDeleteInstances": bool(defn.get("autoDeleteInstances", False)),
             "disableDiscoveredInstances": False,
             "groupMethod": "none",
             "filters": [],

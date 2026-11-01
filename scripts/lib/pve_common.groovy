@@ -820,9 +820,9 @@ def pveRole = { String label = null ->
 /*
  * What the troubleshooter's checks touch: name resolution, a TCP connect, ping, a TLS
  * handshake and an API read (read, not get: Map.get(key, default) would shadow it). Closures, so the harness can replace them one by one
- * (pveTestProbes).
+ * (pveTestProbes). A closure, so the build's shaker leaves it out of every other module.
  */
-def pveTroubleProbes = [
+def pveTroubleProbes = { -> [
     resolve: { String host -> InetAddress.getByName(host) },
     connect: { String host, int port ->
         new Socket().withCloseable { it.connect(new InetSocketAddress(host, port), pveTimeout) }
@@ -835,7 +835,7 @@ def pveTroubleProbes = [
         try { connection.connect() } finally { connection.disconnect() }
     },
     read   : { String base, String path -> pveGetAt(base, path) },
-] + (binding.hasVariable('pveTestProbes') ? pveTestProbes : [:])
+] + (binding.hasVariable('pveTestProbes') ? pveTestProbes : [:]) }
 
 /*
  * The troubleshooter's chain of checks (spec A§3.2). Returns [findings, reached]: one finding
