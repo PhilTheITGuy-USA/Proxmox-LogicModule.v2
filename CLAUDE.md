@@ -80,7 +80,9 @@ docker compose -f tests/docker-compose.yml run --rm tests > "$TMP/harness.txt" 2
   above 31 KB, keeping a kilobyte free; past that, trim the NetScan rather than raise the limit.
 - Collector objects are not Java collections: `hostProps` and `netscanProps` are
   `com.santaba.common.util.ParamMap` (`get` / `set`, no `put`, not a `Map`). Never type a
-  parameter that receives them as `Map`.
+  parameter that receives them as `Map`. So is each entry of `datasourceinstanceProps` (a
+  `HashMap` of them, lab 2026-11-02): read it through `pveBatchInstances`, and build a test's
+  binding with the harness's `asCollectorInstances`, never from plain maps.
 - **Module counts in prose are checked** (`check_doc_counts`): in `README.md` and this file, a
   number before "modules", "DataSources", "PropertySources" or "TopologySources" (digits or a
   word up to twenty) must match `modules/`, or the build fails.

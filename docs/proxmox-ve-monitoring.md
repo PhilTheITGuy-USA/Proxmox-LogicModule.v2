@@ -380,7 +380,7 @@ normal or is itself the problem:
 | When discovery no longer finds it | Modules | What happens |
 |---|---|---|
 | Normal: the object was removed | Guest Status, Guest Performance, Snapshots, Backups, Replication, SDN, Node Network, Troubleshooter | The instance leaves the Resources tree; its history is kept 30 days and comes back if the object does |
-| The problem: a pool, disk or service went missing | Storage Pools, Storage Capacity, Node Disks, Node Services, Node Certificates, Cluster Nodes, Cluster Status, Ceph OSD, Ceph Pools | The instance stays, with its history, and reads No Data; delete it by hand once the object is gone for good. A disk Proxmox stops listing raises an error instead (Node Disks' `Present`), since a disk that fails off its bus can no longer report SMART *(not yet verified)* |
+| The problem: a pool, disk or service went missing | Storage Pools, Storage Capacity, Node Disks, Node Services, Node Certificates, Cluster Nodes, Cluster Status, Ceph OSD, Ceph Pools | The instance stays, with its history, and reads No Data; delete it by hand once the object is gone for good. A disk Proxmox stops listing raises an error instead (Node Disks' `Present`), since a disk that fails off its bus can no longer report SMART |
 
 Proxmox hides from a token what it may not see instead of refusing the request, so to a token
 without `VM.Audit` a cluster seems to have no guests, backups or replication jobs. When a module
@@ -416,8 +416,13 @@ where it used to turn grey. A disk taken out on purpose keeps alerting until its
 deleted. Disks are named by device (`sda`, `sdc`), so a reboot that renames them can report a
 disk missing under its old name while discovery adds it under the new one.
 
-1. Re-import `Proxmox_VE_Node_Disks`. The other modules, the NetScan and the dashboards are as
-   in v2.3.2.
+Collection now reads the instances LogicMonitor hands a script, which it used to skip: each
+arrives as a Collector type that is not a Java map. This is what lets `Present` reach a missing
+disk. It also gives Node Network's VLAN instances their `Active` value on every poll, and lets the
+troubleshooter clear a problem it knows only from its instance *(not yet verified)*.
+
+1. Re-import `Proxmox_VE_Node_Disks`, `Proxmox_VE_Node_Network` and `Proxmox_VE_Troubleshooter`.
+   The other modules, the NetScan and the dashboards are as in v2.3.2.
 
 ### Upgrading from v2.3.1
 

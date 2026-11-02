@@ -96,6 +96,24 @@ def note = { String scope, boolean ok, String message ->
     if (!ok) { failures << (scope + ': ' + message) }
 }
 
+// LogicMonitor's ParamMap, as a Collector hands it over: get and set, and not a java.util.Map.
+// hostProps and netscanProps are one, and so is every entry of a BatchScript's
+// datasourceinstanceProps, a java.util.HashMap of ParamMaps (Poll Now output, lab 2026-11-02).
+def paramMapClass = new GroovyClassLoader(this.class.classLoader).parseClass('''package com.santaba.common.util
+class ParamMap {
+    private Map values = [:]
+    String get(String key) { values[key] }
+    String get(String key, String fallback) { values.containsKey(key) ? values[key] : fallback }
+    void set(String key, String value) { values[key] = value }
+}''')
+def paramMap = { Map props ->
+    def map = paramMapClass.getDeclaredConstructor().newInstance()
+    props.each { key, value -> map.set(key, value) }
+    map
+}
+// datasourceinstanceProps as the Collector builds it: a HashMap of ParamMaps.
+def asCollectorInstances = { Map instances -> new HashMap(instances.collectEntries { name, props -> [name, paramMap(props)] }) }
+
 /* Execute a script with the bindings a Collector injects, capturing its streams. */
 def runScript = { File file, Map bindings ->
     def outBuffer = new ByteArrayOutputStream()
@@ -1242,6 +1260,7 @@ def goneBridgeVlan = ['auto.pve_iface': 'vmbr7', 'auto.pve_iface_type': 'vlan', 
                       'vmbr0 (bridge)': [wildvalue: 'vmbr0', 'auto.pve_iface': 'vmbr0', 'auto.pve_iface_type': 'bridge']],
     'bare'         : ['vmbr0 VLAN 10': vlanInstance.collectEntries { k, v -> [k.replaceFirst('^auto\\.', ''), v] }],
     'no-wildvalue' : ['vmbr0 VLAN 10': vlanInstance.findAll { k, v -> k != 'wildvalue' }],
+    'collector'    : asCollectorInstances(['vmbr0 VLAN 10': vlanInstance, 'vmbr7 VLAN 3': goneBridgeVlan]),
 ].each { shape, instances ->
     def run = netCollect(instances)
     note('net-vlan-collect', run.exit == 0 && run.data['vmbr0-vlan10'] == [Active: run.data['vmbr0'].Active] &&
@@ -1294,6 +1313,12 @@ note('disk-present', disksGone.exit == 0 && ['pve1-sda', 'pve1-sdb', 'pve1-nvme0
                      disksGone.data['pve1-sdc'] == [Present: 0d] && disksGone.data['pve1-sdd'] == [Present: 0d] &&
                      disksGone.data['pve1-sda'].SizeGB != null,
      "disks with two gone: exit ${disksGone.exit}, ${disksGone.data} / ${disksGone.stderr}")
+// The same, as the Collector hands it over: each instance's properties a ParamMap, not a Map. On
+// the lab the script read none of them, and a pulled disk read No Data, not 0 (2026-11-02).
+def disksGoneLive = diskCollect(asCollectorInstances(diskBinding))
+note('disk-present-parammap', disksGoneLive.exit == 0 && ['pve1-sda', 'pve1-sdb', 'pve1-nvme0n1'].every { disksGoneLive.data[it]?.Present == 1d } &&
+                              disksGoneLive.data['pve1-sdc'] == [Present: 0d] && disksGoneLive.data['pve1-sdd'] == [Present: 0d],
+     "disks with two gone, ParamMap entries: exit ${disksGoneLive.exit}, ${disksGoneLive.data} / ${disksGoneLive.stderr}")
 def disksBare = diskCollect(null)
 note('disk-present', disksBare.exit == 0 && disksBare.data.keySet() == ['pve1-sda', 'pve1-sdb', 'pve1-nvme0n1'] as Set &&
                      disksBare.data.values().every { it.Present == 1d },
@@ -1897,7 +1922,7 @@ class GroovyScriptHelper {
             [load: { String snippet, String v -> com.logicmonitor.mod.Snippets.fakes[snippet] }] }] }]
     }
 }''')
-// LogicMonitor's ParamMap, as a Collector hands it over: get and set, and not a java.util.Map.
+// The ParamMap stub again, for the NetScan console copy, which names the class.
 stubClasses.parseClass('''package com.santaba.common.util
 class ParamMap {
     private Map values = [:]
@@ -1905,11 +1930,6 @@ class ParamMap {
     String get(String key, String fallback) { values.containsKey(key) ? values[key] : fallback }
     void set(String key, String value) { values[key] = value }
 }''')
-def paramMap = { Map props ->
-    def map = stubClasses.loadClass('com.santaba.common.util.ParamMap').getDeclaredConstructor().newInstance()
-    props.each { key, value -> map.set(key, value) }
-    map
-}
 def snippetFakes = stubClasses.loadClass('com.logicmonitor.mod.Snippets').fakes
 def emitted = []
 def portalDevices = []
@@ -2712,6 +2732,10 @@ def colGone = troubleScript(troubleCollect, hostProps, [datasourceinstanceProps:
 note('trouble-collect-failover-gone', colGone.exit == 0 && 'failover-127-0-0-1-1.Problem=0' in colLines(colGone) &&
                                       !colLines(colGone).any { it.endsWith('=1') },
      "a failover address no longer listed: exit ${colGone.exit}, ${colGone.stdout} / ${colGone.stderr}")
+// The same, with the binding's entries ParamMaps, as the Collector hands them over (lab 2026-11-02).
+def colGoneLive = troubleScript(troubleCollect, hostProps, [datasourceinstanceProps: asCollectorInstances(troubleInstances(['failover-127-0-0-1-1']))])
+note('trouble-collect-parammap', colGoneLive.exit == 0 && 'failover-127-0-0-1-1.Problem=0' in colLines(colGoneLive),
+     "a failover address no longer listed, ParamMap entries: exit ${colGoneLive.exit}, ${colGoneLive.stdout} / ${colGoneLive.stderr}")
 // On the lab Problem read No Data on a new instance, the binding lacking it or its wildvalue
 // (2026-11-01): every check the chain knows prints, binding or not.
 def colBare = withHealthyNode { troubleScript(troubleCollect, troubleNode + ['pve.node': 'pve9']) }
