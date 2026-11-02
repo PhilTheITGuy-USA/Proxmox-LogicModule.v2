@@ -852,12 +852,12 @@ def pveTroubleTarget = { String base ->
 
 /*
  * The troubleshooter's chain of checks (spec A§3.2). Returns [findings, reached]: one finding
- * [id, name, finding] per problem, and the id of every check run to a verdict. The first check
- * that fails ends the chain, since the ones after it depend on it, so one cause is one finding.
- * A check that does not apply to this kind of resource (node, failover) is not reached; one
- * turned off by a setting (certificate with pve.api.insecure) passes, so its open alert clears.
- * "failover" in reached means the failover stage ran: a failover-<address> instance not listed
- * any more is resolved.
+ * [id, name, finding] per problem, and the id of every check run to a verdict (for the harness).
+ * The first check that fails ends the chain, since the ones after it depend on it, so one cause
+ * is one finding -- except ping, which nothing after it depends on: it is recorded and the chain
+ * goes on. A check that does not apply to this kind of resource (node, failover) is not reached;
+ * one turned off by a setting (certificate with pve.api.insecure) passes. "failover" in reached
+ * means the failover stage ran.
  */
 def pveTroubleshoot = { Map probes ->
     def findings = []
@@ -901,17 +901,20 @@ def pveTroubleshoot = { Map probes ->
         }
         pass('address')
 
+        // A failed ping is recorded, not the end: nothing after it depends on ping, and a
+        // Collector's TCP-echo ping can fail on a host whose API answers (decision I4).
         def answers = false
         try { answers = probes.ping(host) } catch (IOException unreachable) { }
-        if (!answers) {
-            return fail('ping', 'Ping: allow ICMP from the Collector to ' + host,
+        if (answers) {
+            pass('ping')
+        } else {
+            fail('ping','Ping: allow ICMP from the Collector to ' + host,
                         host + ' does not answer ping from the Collector. LogicMonitor treats a resource that does ' +
                         'not answer ping as dead and holds back its alerts, however well its modules collect. ' +
                         'Allow ICMP echo from the Collector. Where the Collector does not run with the ' +
                         'privilege to send ICMP, its ping is a TCP connection to port 7 (echo) instead, ' +
                         'so a host firewall that drops port 7 reads as no ping too.')
         }
-        pass('ping')
 
         if (base.startsWith('https:') && !pveHostProp('pve.api.insecure', 'false').toBoolean()) {
             try {

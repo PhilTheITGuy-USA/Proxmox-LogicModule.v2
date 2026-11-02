@@ -489,7 +489,8 @@ with its edges to every node, and the vertex under the old key drops off the map
 
 **Proxmox VE Troubleshooter** runs on every cluster and node resource. Every 15 minutes it checks,
 in order, what the suite's modules need to collect, and stops at the first check that fails,
-because the ones after it depend on it. Each problem it finds is an instance under the resource,
+because the ones after it depend on it. Ping is the exception: nothing after it depends on it,
+so a failed ping is reported and the checks go on. Each problem it finds is an instance under the resource,
 named with its fix, and raises an error alert that carries the full finding. **A resource with no
 troubleshooter instances has no problems.** The alert clears within five minutes of the fix; the
 instance leaves the tree at the next check, and is deleted after 30 days.

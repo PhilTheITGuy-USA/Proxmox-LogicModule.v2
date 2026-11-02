@@ -133,11 +133,11 @@ the authority; this is the map.
   and corosync address and stamped by `addERI_Proxmox_VE_Node`.
 - **The troubleshooter** (`Proxmox_VE_Troubleshooter`, A§3.2, user 2026-11-01) applies to every
   cluster and node resource with no role check. Its discovery runs a chain of checks (settings,
-  address, ping, certificate, token, permissions, node, failover) and stops at the first failure.
-  Each problem becomes an instance whose wildvalue names the check and whose name gives the fix,
-  so a healthy resource has no instances and pays for discovery alone. Collection clears a
-  problem by value (`Problem` 0) and prints nothing for a check the chain didn't reach. The
-  harness's `trouble-*` cases cover it.
+  address, ping, certificate, token, permissions, node, failover) and stops at the first failure,
+  except ping, which is recorded without ending the chain. Each problem becomes an instance whose
+  wildvalue names the check and whose name gives the fix, so a healthy resource has no instances
+  and pays for discovery alone. Collection clears a problem by value (`Problem` 0), and prints 0
+  for a check the chain didn't reach too. The harness's `trouble-*` cases cover it.
 
 ## Verification -- the one record
 

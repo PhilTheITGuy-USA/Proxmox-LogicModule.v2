@@ -2457,9 +2457,13 @@ trouble(troubleNode + ['system.hostname': '[fd00::1]:8006'],
         [connect: { String h, int p -> connected << [h, p]; throw new ConnectException('Connection refused') }])
 note('trouble-address-ipv6', connected == [['fd00::1', 8006]], "IPv6 address connected as ${connected}")
 
-def tPing = trouble(troubleNode, [ping: { String h -> false }])
-note('trouble-ping', troubleIds(tPing) == ['ping'] && troubleText(tPing).contains('ICMP') && troubleText(tPing).contains('port 7'),
-     "no ping: ${tPing}")
+def noPing = [ping: { String h -> false }]
+def tPing = withHealthyNode { trouble(troubleNode, noPing) }
+note('trouble-ping', troubleIds(tPing) == ['ping'] && troubleText(tPing).contains('ICMP') && troubleText(tPing).contains('port 7') &&
+                     tPing?.reached == (CHAIN + 'failover') as Set, "no ping: ${tPing}")
+// A failed ping is recorded and the chain goes on, so a false one cannot hide the real problem (decision I4, user 2026-11-01).
+def tPingToken = trouble(troubleNode + ['pve.token.credential': 'monitor@pam!logicmonitor=11111111-1111-1111-1111-111111111111'], noPing)
+note('trouble-ping-continues', troubleIds(tPingToken) == ['ping', 'token'], "no ping and a rejected token: ${tPingToken}")
 // A hostname URI cannot parse (an underscore) is still checked, not a crash (final review I1).
 def tUnderscore = troubleRun(troubleNode + ['system.hostname': 'pve_1.example.invalid'],
                              [resolve: { String h -> throw new UnknownHostException(h) }])
@@ -2587,7 +2591,9 @@ note('trouble-ad-throws', adThrows.exit == 2 && adThrows.stdout.trim().isEmpty()
 def troubleInstances = { List ids -> ids.collectEntries { [(it): [wildvalue: it]] } }
 def colToken = troubleScript(troubleCollect, hostProps + ['pve.token.credential': wrongToken],
                              [datasourceinstanceProps: troubleInstances(['token', 'ping', 'failover-x'])])
-note('trouble-collect', colToken.exit == 0 && colToken.stdout.readLines().findAll { it.trim() } as Set == ['token.Problem=1', 'ping.Problem=0'] as Set,
+// failover-x is not reached (the token check stops the chain) and prints 0, so its alert clears (decision I2, user 2026-11-01).
+note('trouble-collect', colToken.exit == 0 && colToken.stdout.readLines().findAll { it.trim() } as Set ==
+                        ['token.Problem=1', 'ping.Problem=0', 'failover-x.Problem=0'] as Set,
      "rejected token: exit ${colToken.exit}, ${colToken.stdout} / ${colToken.stderr}")
 // A dead address taken out of pve.api.hosts is resolved, not left at No Data with its alert open.
 def colGone = troubleScript(troubleCollect, hostProps, [datasourceinstanceProps: troubleInstances(['failover-127-0-0-1-1'])])
