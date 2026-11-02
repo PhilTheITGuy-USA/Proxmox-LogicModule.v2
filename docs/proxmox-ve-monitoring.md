@@ -418,8 +418,9 @@ disk missing under its old name while discovery adds it under the new one.
 
 Collection now reads the instances LogicMonitor hands a script, which it used to skip: each
 arrives as a Collector type that is not a Java map. This is what lets `Present` reach a missing
-disk. It also gives Node Network's VLAN instances their `Active` value on every poll, and lets the
-troubleshooter clear a problem it knows only from its instance *(not yet verified)*.
+disk. It also gives Node Network's VLAN instances their `Active` value on every poll, where they
+read No Data, and lets the troubleshooter clear a problem it knows only from its instance *(not
+yet verified)*.
 
 1. Re-import `Proxmox_VE_Node_Disks`, `Proxmox_VE_Node_Network` and `Proxmox_VE_Troubleshooter`.
    The other modules, the NetScan and the dashboards are as in v2.3.2.
