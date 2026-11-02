@@ -387,8 +387,8 @@ without `VM.Audit` a cluster seems to have no guests, backups or replication job
 in the first row finds nothing, it checks the token's own permissions: if the token could not
 have seen the objects, discovery fails and names the missing privilege, and the instances stay.
 A discovery that fails to read Proxmox fails the same way, rather than retire what it could not
-read. *(Seen on the lab for the guest modules; not yet verified for Backups, Replication, SDN and
-Node Network.)*
+read. *(Seen on the lab for the guest modules, Backups, SDN and Node Network; not yet verified for
+Replication.)*
 
 No datapoint alerts on No Data, as in LogicMonitor's own hypervisor modules, so a kept instance
 that stops reporting turns grey rather than raising an alert. When collection itself breaks, the
