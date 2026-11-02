@@ -1582,6 +1582,22 @@ note('snapshots', snapBroken.exit == 0 && parseBatch(snapBroken.stdout).isEmpty(
 def snapDead = withFixtures(['/cluster/resources?type=vm': null]) { discoverWith(snapCollect, hostProps) }
 note('snapshots', snapDead.exit == 2, "an unreadable guest list exited ${snapDead.exit}")
 
+// /cluster/resources filters by the token's ACL instead of failing, so an under-privileged
+// token sees an empty guest list. Discovery and collection exit 2 on it rather than answer
+// "no guests": a successful empty discovery would retire every guest instance, which
+// auto-delete (spec A§3.2). The topology still draws a cluster without guests.
+def noGuests = ['/cluster/resources?type=vm': []]
+[statusAd, perfAd, snapCollect].each { file ->
+    def run = withFixtures(noGuests) { discoverWith(file, hostProps) }
+    note('guest-list-empty', run.exit == 2 && run.stdout.trim().isEmpty() && run.stderr.contains('VM.Audit'),
+         "${file.name} on an empty guest list: exit ${run.exit}, ${run.stdout} / ${run.stderr}")
+}
+def topoNoGuests = withFixtures(noGuests) {
+    runSource(preamble + '\nreturn pveTopoInput().guests.size()', [hostProps: hostProps])
+}
+note('guest-list-empty', topoNoGuests.thrown == null && topoNoGuests.exit == 0,
+     "pveTopoInput on an empty guest list: ${topoNoGuests.exit} / ${topoNoGuests.thrown}")
+
 // ------------------------------------------- the NetScan plan (N§4, §5.1, §5.2)
 //
 // pveNetscanPlan is pure: it turns what the NetScan read into the resources it emits. The

@@ -13,7 +13,8 @@
  * The map is the optional extra; the instance is not. Every failure on the way to a key
  * -- gating calls, a config read, a guest on an offline node -- leaves the guest
  * discovered without one. After a node's first failed config read, that node's later
- * guests are not read at all this run. Only /cluster/resources?type=vm failing exits 2.
+ * guests are not read at all this run. Only /cluster/resources?type=vm failing, or answering
+ * no guests (an under-privileged token), exits 2.
  */
 if (pveConfigError) {
     System.err.println(pveConfigError)

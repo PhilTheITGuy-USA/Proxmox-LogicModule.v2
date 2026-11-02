@@ -416,6 +416,11 @@ No property, the NetScan or the dashboards change.
 3. Instances that up to v2.2.0 were deleted after 30 days come back with their history at the
    next discovery, if the object still exists and it is within the 30 days.
 
+Guest discovery and Snapshots now fail, rather than report no guests, when Proxmox lists none:
+an under-privileged token sees an empty list, and an empty answer would retire every guest
+instance. On a cluster that has no guests yet, Guest Status, Guest Performance and Snapshots
+show a failed discovery until the first guest exists.
+
 ### Upgrading from v2.1.1
 
 v2.2.0 adds guest pressure, ballooning and disk latency, draws bridges and guest VLANs on the

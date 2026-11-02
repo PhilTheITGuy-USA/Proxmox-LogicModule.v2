@@ -493,12 +493,21 @@ def pveTopoClusterName = { List status ->
  * /cluster/resources is filtered by token ACL rather than erroring, so an
  * under-privileged token looks identical to an empty cluster; say so on stderr.
  */
-def pveGuestList = { ->
+/*
+ * An empty list throws, so discovery and collection exit 2 rather than answer "no guests":
+ * the endpoint filters by the token's ACL instead of failing, and a successful empty
+ * discovery would retire every guest instance (they auto-delete, spec A§3.2). A cluster
+ * with no guests at all reads as that failure too, which says what to check. allowEmpty is
+ * for the topology, which draws a cluster without guests.
+ */
+def pveGuestList = { boolean allowEmpty = false ->
     def resources = pveGet('/cluster/resources?type=vm') ?: []
     if (resources.isEmpty()) {
-        System.err.println('/cluster/resources returned no guests. This endpoint is filtered by ' +
+        def reason = '/cluster/resources returned no guests. This endpoint is filtered by ' +
             'token ACL rather than erroring, so an under-privileged token looks identical to an ' +
-            'empty cluster. Verify the token has VM.Audit on /vms.')
+            'empty cluster. Verify the token has VM.Audit on /vms.'
+        if (!allowEmpty) { throw new IllegalStateException(reason) }
+        System.err.println(reason)
     }
     return resources.findAll { it.type in ['qemu', 'lxc'] && !it.template }
 }
@@ -1489,7 +1498,7 @@ def pveTopoInput = { ->
         osdTree  : null,
         cephPools: []
     ]
-    def guests = pveGuestList()
+    def guests = pveGuestList(true)
     input.guests = guests
     pveForEachGuest('Config reads', guests, status, '/config', { guest, config, error ->
         if (error == null && config instanceof Map) { input.configs[guest.id.toString()] = config }
