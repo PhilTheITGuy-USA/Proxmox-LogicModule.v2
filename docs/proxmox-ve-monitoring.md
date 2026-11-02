@@ -380,7 +380,7 @@ normal or is itself the problem:
 | When discovery no longer finds it | Modules | What happens |
 |---|---|---|
 | Normal: the object was removed | Guest Status, Guest Performance, Snapshots, Backups, Replication, SDN, Node Network, Troubleshooter | The instance leaves the Resources tree; its history is kept 30 days and comes back if the object does |
-| The problem: a pool, disk or service went missing | Storage Pools, Storage Capacity, Node Disks, Node Services, Node Certificates, Cluster Nodes, Cluster Status, Ceph OSD, Ceph Pools | The instance stays, with its history, and reads No Data; delete it by hand once the object is gone for good |
+| The problem: a pool, disk or service went missing | Storage Pools, Storage Capacity, Node Disks, Node Services, Node Certificates, Cluster Nodes, Cluster Status, Ceph OSD, Ceph Pools | The instance stays, with its history, and reads No Data; delete it by hand once the object is gone for good. A disk Proxmox stops listing raises an error instead (Node Disks' `Present`), since a disk that fails off its bus can no longer report SMART *(not yet verified)* |
 
 Proxmox hides from a token what it may not see instead of refusing the request, so to a token
 without `VM.Audit` a cluster seems to have no guests, backups or replication jobs. When a module
@@ -408,6 +408,16 @@ Import in this order, so that each module finds what it depends on:
 
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
+
+### Upgrading from v2.3.2
+
+Node Disks gains `Present`: a disk Proxmox no longer lists on its node raises an error alert,
+where it used to turn grey. A disk taken out on purpose keeps alerting until its instance is
+deleted. Disks are named by device (`sda`, `sdc`), so a reboot that renames them can report a
+disk missing under its old name while discovery adds it under the new one.
+
+1. Re-import `Proxmox_VE_Node_Disks`. The other modules, the NetScan and the dashboards are as
+   in v2.3.2.
 
 ### Upgrading from v2.3.1
 
@@ -682,7 +692,7 @@ so no module replaces another.
 | Display Name | Type | Description | Replaces |
 |---|---|---|---|
 | Proxmox VE Node Detail | DataSource | CPU, memory, uptime, load, swap, root filesystem, CPU/IO/memory pressure, and the node's view of quorum | — |
-| Proxmox VE Node Disks | DataSource | SMART health, size and SSD wear of each disk | — |
+| Proxmox VE Node Disks | DataSource | SMART health, size and SSD wear of each disk, and a disk that is no longer there | — |
 | Proxmox VE Node Services | DataSource | State of the Proxmox-managed systemd services | — |
 | Proxmox VE Node Certificates | DataSource | TLS certificate expiry | — |
 | Proxmox VE Node Subscription | DataSource | Subscription status and renewal date | — |

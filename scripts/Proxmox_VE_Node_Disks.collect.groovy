@@ -27,6 +27,29 @@ try {
     def nodeName = pveSelfNode()
     def disks = pveNodeGet('/nodes/' + nodeName + '/disks/list') ?: []
 
+    /*
+     * Present: the module keeps its instances (spec A§3.2), so a disk that drops off the bus
+     * would only turn grey, its SMART alert unable to fire. Every instance the Collector hands
+     * over that Proxmox no longer lists reads Present 0, which alerts; a listed one reads 1.
+     * The instance's own wildvalue, or the node and device path discovery stamped on it where
+     * the binding lacks the wildvalue. Both sides are compared folded (pveWildValue), as the
+     * portal stores them. A node always has a disk, so an empty list while instances exist is
+     * a failed read, not every disk gone at once: nothing is printed.
+     */
+    def listedIds = disks.findAll { it.devpath }.collect {
+        pveWildValue(nodeName + '/' + it.devpath.toString().replaceAll('^/dev/', ''))
+    } as Set
+    def knownIds = pveBatchInstances().collect { instance ->
+        def devpath = instance.prop('pve_devpath')
+        instance.wildvalue ? pveWildValue(instance.wildvalue) :
+            (devpath ? pveWildValue((instance.prop('pve_node') ?: nodeName) + '/' + devpath.replaceAll('^/dev/', '')) : null)
+    }.findAll { it } as Set
+    if (listedIds.isEmpty() && knownIds) {
+        System.err.println('Proxmox listed no disks on ' + nodeName + ', so collection stops rather than report every disk missing.')
+        return 2
+    }
+    (knownIds + listedIds).each { id -> pveEmit(id, 'Present', listedIds.contains(id) ? 1 : 0) }
+
     disks.each { disk ->
         def devpath = disk.devpath?.toString()
         if (!devpath) { return }

@@ -1270,6 +1270,41 @@ def netNoBinding = netCollect(null)
 note('net-vlan-collect', netNoBinding.exit == 0 && netNoBinding.data.keySet() == ['vmbr0', 'vmbr1'] as Set && !netNoBinding.stderr.trim(),
      "VLAN collection without datasourceinstanceProps: exit ${netNoBinding.exit}, ${netNoBinding.data} ${netNoBinding.stderr}")
 
+// A disk Proxmox stops listing reads Present 0 (Node_Disks keeps its instances, spec A§3.2):
+// the instances come from datasourceinstanceProps, by folded wildvalue or, without one, by the
+// node and device path discovery stamps. A listed disk reads 1, binding or not. An empty list
+// while instances exist is a failed read: nothing printed, exit 2.
+def diskCollectFile = new File(scriptsDir, 'Proxmox_VE_Node_Disks.collect.groovy')
+def diskCollect = { Map instances, Map overrides = [:] ->
+    withFixtures(overrides) {
+        def run = runScript(diskCollectFile, instances == null ? [hostProps: nodeHostProps] :
+                                             [hostProps: nodeHostProps, datasourceinstanceProps: instances])
+        run.data = parseBatch(run.stdout)
+        run
+    }
+}
+def diskBinding = [
+    'pve1 sda'    : [wildvalue: 'pve1-sda', 'auto.pve_node': 'pve1', 'auto.pve_devpath': '/dev/sda'],
+    'pve1 sdc'    : [wildvalue: 'pve1-sdc', 'auto.pve_node': 'pve1', 'auto.pve_devpath': '/dev/sdc'],
+    'pve1 sdd'    : ['auto.pve_node': 'pve1', 'auto.pve_devpath': '/dev/sdd'],
+    'pve1 nvme0n1': [pve_node: 'pve1', pve_devpath: '/dev/nvme0n1'],
+]
+def disksGone = diskCollect(diskBinding)
+note('disk-present', disksGone.exit == 0 && ['pve1-sda', 'pve1-sdb', 'pve1-nvme0n1'].every { disksGone.data[it]?.Present == 1d } &&
+                     disksGone.data['pve1-sdc'] == [Present: 0d] && disksGone.data['pve1-sdd'] == [Present: 0d] &&
+                     disksGone.data['pve1-sda'].SizeGB != null,
+     "disks with two gone: exit ${disksGone.exit}, ${disksGone.data} / ${disksGone.stderr}")
+def disksBare = diskCollect(null)
+note('disk-present', disksBare.exit == 0 && disksBare.data.keySet() == ['pve1-sda', 'pve1-sdb', 'pve1-nvme0n1'] as Set &&
+                     disksBare.data.values().every { it.Present == 1d },
+     "disks without datasourceinstanceProps: exit ${disksBare.exit}, ${disksBare.data} / ${disksBare.stderr}")
+def disksEmpty = diskCollect(diskBinding, ['/nodes/pve1/disks/list': []])
+note('disk-present-empty', disksEmpty.exit == 2 && disksEmpty.stdout.trim().isEmpty() && disksEmpty.stderr.contains('no disks'),
+     "an empty disk list with instances: exit ${disksEmpty.exit}, ${disksEmpty.stdout} / ${disksEmpty.stderr}")
+def disksEmptyBare = diskCollect(null, ['/nodes/pve1/disks/list': []])
+note('disk-present-empty', disksEmptyBare.exit == 0 && disksEmptyBare.stdout.trim().isEmpty(),
+     "an empty disk list and no instances: exit ${disksEmptyBare.exit}, ${disksEmptyBare.stdout} / ${disksEmptyBare.stderr}")
+
 // ------------------------------- guest pressure, ballooning and disk latency (2026-10-30)
 //
 // None of it is in /cluster/resources: each online node's /nodes/<n>/qemu?full=1 and
