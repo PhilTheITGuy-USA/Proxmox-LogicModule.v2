@@ -382,6 +382,14 @@ normal or is itself the problem:
 | Normal: the object was removed | Guest Status, Guest Performance, Snapshots, Backups, Replication, SDN, Node Network, Troubleshooter | The instance leaves the Resources tree; its history is kept 30 days and comes back if the object does |
 | The problem: a pool, disk or service went missing | Storage Pools, Storage Capacity, Node Disks, Node Services, Node Certificates, Cluster Nodes, Cluster Status, Ceph OSD, Ceph Pools | The instance stays, with its history, and reads No Data; delete it by hand once the object is gone for good |
 
+Proxmox hides from a token what it may not see instead of refusing the request, so to a token
+without `VM.Audit` a cluster seems to have no guests, backups or replication jobs. When a module
+in the first row finds nothing, it checks the token's own permissions: if the token could not
+have seen the objects, discovery fails and names the missing privilege, and the instances stay.
+A discovery that fails to read Proxmox fails the same way, rather than retire what it could not
+read. *(Seen on the lab for the guest modules; not yet verified for Backups, Replication, SDN and
+Node Network.)*
+
 No datapoint alerts on No Data, as in LogicMonitor's own hypervisor modules, so a kept instance
 that stops reporting turns grey rather than raising an alert. When collection itself breaks, the
 Troubleshooter's instances say why.
@@ -400,6 +408,22 @@ Import in this order, so that each module finds what it depends on:
 
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
+
+### Upgrading from v2.3.1
+
+v2.3.2 is a fix release. v2.3.1 kept guests when the token could not see them; the same now
+holds for every module whose instances are deleted after 30 days. Backups, Replication and SDN
+discovery fail, rather than report nothing, when the token is not allowed to see what they list
+(a token without `VM.Audit` deleted every Backups instance on the lab), and Replication, SDN and
+Node Network fail rather than report nothing when Proxmox does not answer. Node Network fails
+when it cannot read every guest's network settings, instead of dropping those VLANs. A cluster
+that really has no guests yet now discovers cleanly, where v2.3.1 showed a failed discovery.
+
+1. Re-import `Proxmox_VE_Cluster_Backups`, `Proxmox_VE_Cluster_SDN`,
+   `Proxmox_VE_Node_Network`, `Proxmox_VE_Node_Replication`,
+   `Proxmox_VE_Cluster_GuestStatus`, `Proxmox_VE_Cluster_GuestPerformance`,
+   `Proxmox_VE_Cluster_Snapshots` and `Proxmox_VE_Cluster_Topology`. The other modules, the
+   NetScan and the dashboards are as in v2.3.1.
 
 ### Upgrading from v2.3.0
 

@@ -8,8 +8,8 @@
  * this node's alone: Proxmox cannot say that VLAN 30 on two nodes is one segment. A name that
  * is an SDN VNet is left to Proxmox_VE_Cluster_SDN. Physical ports, bonds and host VLAN
  * interfaces are not discovered: the node's SNMP interface monitoring covers them. A VLAN no
- * guest uses any more keeps its instance, as everything this suite discovers does, and is
- * deleted by hand.
+ * guest uses any more leaves at the next discovery and is deleted after 30 days (the module
+ * auto-deletes, spec A§3.2), so a run that could not read every guest fails instead.
  */
 if (pveConfigError) {
     System.err.println(pveConfigError)
@@ -28,6 +28,14 @@ try {
     }
     def rows = pveNodeGet('/nodes/' + nodeName + '/network')
     def bridgeNames = pveNodeBridgeNames(rows, vnetNames)
+    // Every bridge and VLAN, or none: a VLAN a partial read missed would be retired, so the
+    // VLANs are read before anything is printed.
+    def vlans = pveNodeVlans(nodeName, bridgeNames, vnetNames)
+    if (vlans.gaps) {
+        System.err.println('Proxmox bridge discovery stopped, so no bridge or VLAN instance is retired. VLANs: ' +
+            vlans.gaps.join('; '))
+        return 2
+    }
     pveNetBridges(rows).findAll { it.iface.toString() in bridgeNames }.each { bridge ->
         def name = bridge.iface.toString()
         def ports = [bridge.bridge_ports, bridge.ovs_ports].findAll { it }.join(' ').trim()
@@ -46,7 +54,7 @@ try {
             cluster ? pveEri(pveBridgeKey(cluster, nodeName, name), 'VirtualSwitch') : [:]
         )
     }
-    pveNodeVlans(nodeName, bridgeNames, vnetNames).each { vlan ->
+    vlans.vlans.each { vlan ->
         pveDiscover(
             vlan.bridge + '-vlan' + vlan.tag,
             vlan.bridge + ' VLAN ' + vlan.tag + ' (vlan)',

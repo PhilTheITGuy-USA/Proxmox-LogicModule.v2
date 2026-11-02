@@ -486,26 +486,41 @@ def pveTopoClusterName = { List status ->
 }
 
 /*
+ * Proxmox filters a list by the token's ACL instead of refusing it, so an empty answer means
+ * either "there are none" or "the token may see none" (lab 2026-11-02: guests, backup job
+ * members). A discovery that took the second for the first would retire every instance of a
+ * module that auto-deletes (spec A§3.2), so a discovery whose list comes back empty asks this
+ * first. The token's effective privileges on the list's parent path tell the two apart: a
+ * privilege that reaches that path with propagation (1) reaches every child, so the empty list
+ * is real. Held there without propagation (0), or not at all, the list was hidden. get is
+ * pveGet or pveNodeGet, so a node module still asks only its own node.
+ */
+def pveListHidden = { Closure get, String path, String privilege ->
+    def rights = get('/access/permissions?path=' + path)
+    def held = (rights instanceof Map && rights[path] instanceof Map) ? rights[path][privilege] : null
+    held?.toString() != '1'
+}
+def pveHiddenReason = { String what, String path, String privilege ->
+    what + ' came back empty, and the token does not hold ' + privilege + ' on ' + path +
+        ' with propagation. Proxmox filters this list by the token\'s ACL rather than refusing it, ' +
+        'so the list may only be hidden; discovery stops so the instances are kept. Give the token ' +
+        privilege + ' on / with propagation.'
+}
+
+/*
  * The guests discovery and topology both work on: every QEMU VM and LXC container, never
  * a template. Templates are never running, so discovering them creates instances that
  * alert as permanently down.
  *
- * /cluster/resources is filtered by token ACL rather than erroring, so an
- * under-privileged token looks identical to an empty cluster; say so on stderr.
- */
-/*
- * An empty list throws, so discovery and collection exit 2 rather than answer "no guests":
- * the endpoint filters by the token's ACL instead of failing, and a successful empty
- * discovery would retire every guest instance (they auto-delete, spec A§3.2). A cluster
- * with no guests at all reads as that failure too, which says what to check. allowEmpty is
- * for the topology, which draws a cluster without guests.
+ * An empty list the token was not allowed to see throws (pveListHidden), so discovery and
+ * collection exit 2 rather than answer "no guests" and retire every guest instance. A
+ * cluster that really has no guests answers an empty list. allowEmpty is for the topology,
+ * which draws the cluster without guests either way and only says so on stderr.
  */
 def pveGuestList = { boolean allowEmpty = false ->
     def resources = pveGet('/cluster/resources?type=vm') ?: []
-    if (resources.isEmpty()) {
-        def reason = '/cluster/resources returned no guests. This endpoint is filtered by ' +
-            'token ACL rather than erroring, so an under-privileged token looks identical to an ' +
-            'empty cluster. Verify the token has VM.Audit on /vms.'
+    if (resources.isEmpty() && pveListHidden(pveGet, '/vms', 'VM.Audit')) {
+        def reason = pveHiddenReason('The guest list (/cluster/resources)', '/vms', 'VM.Audit')
         if (!allowEmpty) { throw new IllegalStateException(reason) }
         System.err.println(reason)
     }
@@ -1244,21 +1259,26 @@ def pveVlanKey = { String cluster, String node, String bridge, int tag ->
 /*
  * The VLANs this node's guest NICs use on its own bridges, [bridge, tag], for
  * Proxmox_VE_Node_Network's discovery: the node's guest lists and each guest's config, asked
- * of the node itself, templates left out as the topology leaves them out. A list or config
- * that cannot be read costs that guest's VLANs, said once on stderr, never the run.
+ * of the node itself, templates left out as the topology leaves them out. Returns
+ * [vlans: [...], gaps: [...]]: a gap is what could not be read (a list, a config, the time
+ * budget, or guest lists the token may not see), and the discovery fails on any gap, since a
+ * VLAN left out of a successful run is retired with its history (spec A§3.2).
  */
 def pveNodeVlans = { String node, Set bridgeNames, Collection vnetNames ->
     def deadline = System.currentTimeMillis() + (pveHostProp('pve.api.budget.ms', '45000') as long)
     def found = [] as Set
     def skipped = 0
+    def gaps = []
+    def listed = 0
     ['qemu', 'lxc'].each { type ->
         def guests
         try {
             guests = pveNodeGet('/nodes/' + node + '/' + type) ?: []
         } catch (Exception failure) {
-            System.err.println('VLANs: no ' + type + ' list from ' + node + ': ' + failure.message)
+            gaps << 'no ' + type + ' list from ' + node + ': ' + failure.message
             return
         }
+        listed += guests.size()
         guests.findAll { it.vmid != null && !(it.template?.toString() in ['1', 'true']) }.each { guest ->
             if (System.currentTimeMillis() > deadline) { skipped++; return }
             try {
@@ -1268,12 +1288,15 @@ def pveNodeVlans = { String node, Set bridgeNames, Collection vnetNames ->
                     }
                 }
             } catch (Exception failure) {
-                System.err.println('VLANs: ' + type + '/' + guest.vmid + ' config not read: ' + failure.message)
+                gaps << type + '/' + guest.vmid + ' config not read: ' + failure.message
             }
         }
     }
-    if (skipped) { System.err.println('VLANs: time budget reached (pve.api.budget.ms): ' + skipped + ' guest configs not read') }
-    found.sort { a, b -> a.bridge <=> b.bridge ?: a.tag <=> b.tag }
+    if (skipped) { gaps << 'time budget reached (pve.api.budget.ms): ' + skipped + ' guest configs not read' }
+    if (!gaps && listed == 0 && pveListHidden(pveNodeGet, '/vms', 'VM.Audit')) {
+        gaps << pveHiddenReason('The guest lists of ' + node, '/vms', 'VM.Audit')
+    }
+    [vlans: found.sort { a, b -> a.bridge <=> b.bridge ?: a.tag <=> b.tag }, gaps: gaps]
 }
 
 def pveSdnKey = { String cluster, String zone, String vnet ->

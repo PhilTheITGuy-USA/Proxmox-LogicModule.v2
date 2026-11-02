@@ -1,7 +1,7 @@
 /*
  * Active Discovery: SDN zones and VNets, cluster-wide.
  *
- * A cluster without SDN discovers nothing and exits 0. Wildvalues are "zone/<zone>" and
+ * A cluster without SDN zones discovers nothing and exits 0. Wildvalues are "zone/<zone>" and
  * "vnet/<vnet>": Proxmox keeps both names unique in a cluster. Each instance carries the
  * vertex Proxmox_VE_Cluster_Topology draws between the nodes and the guests on that network,
  * type VirtualSwitch.
@@ -12,8 +12,20 @@ if (pveConfigError) {
 }
 
 try {
+    /*
+     * The module auto-deletes (spec A§3.2), so a run that read nothing must fail rather than
+     * answer "no SDN": an error answer (pveSdn's null; SDN is part of Proxmox VE 8 and 9),
+     * or empty lists the token may not see, which Proxmox filters by SDN.Audit per zone.
+     */
     def sdn = pveSdn()
-    if (sdn == null) { return 0 }
+    if (sdn == null) {
+        System.err.println('Proxmox SDN discovery stopped, so no SDN instance is retired: the SDN configuration was not readable.')
+        return 2
+    }
+    if (!sdn.zones && !sdn.vnets && pveListHidden(pveGet, '/sdn/zones', 'SDN.Audit')) {
+        System.err.println(pveHiddenReason('The SDN zones and VNets', '/sdn/zones', 'SDN.Audit'))
+        return 2
+    }
     def cluster = pveCarrierCluster('SDN', false)
     sdn.zones.each { zone ->
         def name = zone.zone.toString()

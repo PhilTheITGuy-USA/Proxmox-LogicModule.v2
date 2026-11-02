@@ -22,35 +22,36 @@ try {
     def nodeName = pveSelfNode()
 
     /*
-     * Replication is optional and absent on clusters that do not use it, so a failure
-     * here is not a discovery failure -- it is the normal case on most installs.
+     * A node that runs no replication answers an empty list, not an error, so a failed
+     * read fails the run: a run that answered "no jobs" instead would retire every job
+     * instance (the module auto-deletes, spec A§3.2). The list is filtered by the token's
+     * VM.Audit on each guest, so an empty one is checked with pveListHidden as well.
      */
-    try {
-        def jobs = pveNodeGet('/nodes/' + nodeName + '/replication') ?: []
+    def jobs = pveNodeGet('/nodes/' + nodeName + '/replication') ?: []
+    if (jobs.isEmpty() && pveListHidden(pveNodeGet, '/vms', 'VM.Audit')) {
+        System.err.println(pveHiddenReason('The replication jobs of ' + nodeName, '/vms', 'VM.Audit'))
+        return 2
+    }
 
-        jobs.each { job ->
-            def id = job.id?.toString()
-            if (!id || seen.contains(id)) { return }
-            seen << id
+    jobs.each { job ->
+        def id = job.id?.toString()
+        if (!id || seen.contains(id)) { return }
+        seen << id
 
-            def guest = job.guest?.toString()
-            pveDiscover(
-                id,
-                'Replication ' + id,
-                'Replication of guest ' + guest + ' to ' + (job.target ?: 'unknown'),
-                [
-                    pve_job     : id,
-                    pve_guest   : guest,
-                    pve_target  : job.target,
-                    pve_source  : job.source,
-                    pve_schedule: job.schedule,
-                    pve_type    : job.type
-                ]
-            )
-        }
-    } catch (Exception nodeException) {
-        System.err.println('Replication discovery skipped for node ' + nodeName + ': ' +
-            nodeException.message)
+        def guest = job.guest?.toString()
+        pveDiscover(
+            id,
+            'Replication ' + id,
+            'Replication of guest ' + guest + ' to ' + (job.target ?: 'unknown'),
+            [
+                pve_job     : id,
+                pve_guest   : guest,
+                pve_target  : job.target,
+                pve_source  : job.source,
+                pve_schedule: job.schedule,
+                pve_type    : job.type
+            ]
+        )
     }
     return 0
 } catch (Exception exception) {

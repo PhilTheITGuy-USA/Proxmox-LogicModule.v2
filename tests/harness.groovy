@@ -1583,20 +1583,69 @@ def snapDead = withFixtures(['/cluster/resources?type=vm': null]) { discoverWith
 note('snapshots', snapDead.exit == 2, "an unreadable guest list exited ${snapDead.exit}")
 
 // /cluster/resources filters by the token's ACL instead of failing, so an under-privileged
-// token sees an empty guest list. Discovery and collection exit 2 on it rather than answer
-// "no guests": a successful empty discovery would retire every guest instance, which
-// auto-delete (spec A§3.2). The topology still draws a cluster without guests.
+// token sees an empty guest list (lab 2026-11-02). Discovery and collection exit 2 on it
+// rather than answer "no guests": a successful empty discovery would retire every guest
+// instance, which auto-delete (spec A§3.2). pveListHidden tells it from a cluster that has no
+// guests, by the token's VM.Audit on /vms: missing, or held without propagation (0, as the
+// lab answers it). The topology draws a cluster without guests either way.
 def noGuests = ['/cluster/resources?type=vm': []]
+def vmsHidden = [
+    absent   : ['/access/permissions?path=/vms': ['/vms': ['Sys.Audit': 1, 'Datastore.Audit': 1]]],
+    unpropagated: ['/access/permissions?path=/vms': ['/vms': ['Sys.Audit': 1, 'VM.Audit': 0]]],
+    noPath   : ['/access/permissions?path=/vms': [:]],
+]
+vmsHidden.each { how, perms ->
+    [statusAd, perfAd, snapCollect].each { file ->
+        def run = withFixtures(noGuests + perms) { discoverWith(file, hostProps) }
+        note('guest-list-hidden', run.exit == 2 && run.stdout.trim().isEmpty() && run.stderr.contains('VM.Audit'),
+             "${file.name} on an empty guest list, VM.Audit ${how}: exit ${run.exit}, ${run.stdout} / ${run.stderr}")
+    }
+}
 [statusAd, perfAd, snapCollect].each { file ->
     def run = withFixtures(noGuests) { discoverWith(file, hostProps) }
-    note('guest-list-empty', run.exit == 2 && run.stdout.trim().isEmpty() && run.stderr.contains('VM.Audit'),
-         "${file.name} on an empty guest list: exit ${run.exit}, ${run.stdout} / ${run.stderr}")
+    note('guest-list-empty', run.exit == 0 && run.stdout.trim().isEmpty() &&
+                             run.requests.contains('/access/permissions?path=/vms'),
+         "${file.name} on a cluster with no guests: exit ${run.exit}, ${run.stdout} / ${run.stderr}")
 }
-def topoNoGuests = withFixtures(noGuests) {
+def guestsSeen = discoverWith(statusAd, hostProps)
+note('guest-list-empty', !guestsSeen.requests.any { it.startsWith('/access/permissions') },
+     "asked for permissions with guests listed: ${guestsSeen.requests}")
+def topoNoGuests = withFixtures(noGuests + vmsHidden.absent) {
     runSource(preamble + '\nreturn pveTopoInput().guests.size()', [hostProps: hostProps])
 }
-note('guest-list-empty', topoNoGuests.thrown == null && topoNoGuests.exit == 0,
-     "pveTopoInput on an empty guest list: ${topoNoGuests.exit} / ${topoNoGuests.thrown}")
+note('guest-list-hidden', topoNoGuests.thrown == null && topoNoGuests.exit == 0,
+     "pveTopoInput on a hidden guest list: ${topoNoGuests.exit} / ${topoNoGuests.thrown}")
+
+// The same for every other module that auto-deletes and reads a list Proxmox filters by ACL
+// (lab 2026-11-02: Backups retired its 8 instances on a token without VM.Audit, before this):
+// hidden fails, really empty succeeds with nothing, and a failed read fails.
+def backupsHidden = [
+    '/cluster/backup/backup-4e5f5bfc-094c/included_volumes': [children: []],
+    '/cluster/backup/backup-weekly/included_volumes'       : [children: []],
+    '/cluster/backup-info/not-backed-up'                   : [],
+]
+def replAd = new File(scriptsDir, 'Proxmox_VE_Node_Replication.ad.groovy')
+def sdnAd = new File(scriptsDir, 'Proxmox_VE_Cluster_SDN.ad.groovy')
+def sdnHidden = ['/access/permissions?path=/sdn/zones': ['/sdn/zones': ['Sys.Audit': 1, 'SDN.Audit': 0]]]
+def aclLists = [
+    [name: 'Backups', file: backupsAd, props: hostProps, empty: backupsHidden, hidden: vmsHidden.unpropagated, priv: 'VM.Audit',
+     broken: ['/cluster/backup': null]],
+    [name: 'Replication', file: replAd, props: nodeHostProps, empty: ['/nodes/pve1/replication': []], hidden: vmsHidden.absent,
+     priv: 'VM.Audit', broken: ['/nodes/pve1/replication': null]],
+    [name: 'SDN', file: sdnAd, props: hostProps, empty: ['/cluster/sdn/zones': [], '/cluster/sdn/vnets': []], hidden: sdnHidden,
+     priv: 'SDN.Audit', broken: ['/cluster/sdn/zones': null]],
+]
+aclLists.each { c ->
+    def hidden = withFixtures(c.empty + c.hidden) { discoverWith(c.file, c.props) }
+    note('acl-list-hidden', hidden.exit == 2 && hidden.stdout.trim().isEmpty() && hidden.stderr.contains(c.priv),
+         "${c.name} discovery on a hidden list: exit ${hidden.exit}, ${hidden.stdout} / ${hidden.stderr}")
+    def empty = withFixtures(c.empty) { discoverWith(c.file, c.props) }
+    note('acl-list-empty', empty.exit == 0 && empty.stdout.trim().isEmpty(),
+         "${c.name} discovery on a really empty list: exit ${empty.exit}, ${empty.stdout} / ${empty.stderr}")
+    def broken = withFixtures(c.broken) { discoverWith(c.file, c.props) }
+    note('acl-list-broken', broken.exit == 2 && broken.stdout.trim().isEmpty(),
+         "${c.name} discovery on a failed read: exit ${broken.exit}, ${broken.stdout} / ${broken.stderr}")
+}
 
 // ------------------------------------------- the NetScan plan (N§4, §5.1, §5.2)
 //
@@ -2335,14 +2384,24 @@ def netAd = withFixtures(topoFixtures) { runScript(new File(scriptsDir, 'Proxmox
 def vlanLine = netAd.stdout.readLines().find { it.startsWith('vmbr0-vlan10##') } ?: ''
 note('net-vlan-props', ['auto.pve_iface_type=vlan', 'auto.pve_iface=vmbr0', 'auto.pve_vlan=10', 'auto.pve_node=pve1'].every { vlanLine.contains(it) },
      "the VLAN instance line was: ${vlanLine}")
-// One guest's config unreadable: its VLANs are skipped with one line, the rest discovered.
+// One guest's config unreadable: the run fails and prints nothing, since the VLANs that guest
+// uses would otherwise be retired (the module auto-deletes, spec A§3.2). One stderr line.
+def netAdFile = new File(scriptsDir, 'Proxmox_VE_Node_Network.ad.groovy')
 def netAdFailure = withFixtures(topoFixtures + ['/nodes/pve1/qemu/101/config': null]) {
-    runScript(new File(scriptsDir, 'Proxmox_VE_Node_Network.ad.groovy'), [hostProps: nodeHostProps])
+    runScript(netAdFile, [hostProps: nodeHostProps])
 }
-def failureIds = parseAd(netAdFailure.stdout).keySet()
-note('net-vlan-config-failure', netAdFailure.exit == 0 && failureIds == ['vmbr0', 'vmbr1'] as Set &&
+note('net-vlan-config-failure', netAdFailure.exit == 2 && netAdFailure.stdout.trim().isEmpty() &&
                                 netAdFailure.stderr.readLines().count { it.contains('qemu/101') } == 1,
-     "with qemu/101's config unreadable: exit ${netAdFailure.exit}, ${failureIds}, stderr ${netAdFailure.stderr}")
+     "with qemu/101's config unreadable: exit ${netAdFailure.exit}, ${netAdFailure.stdout}, stderr ${netAdFailure.stderr}")
+def netNoGuests = topoFixtures + ['/nodes/pve1/qemu': [], '/nodes/pve1/lxc': []]
+def netHidden = withFixtures(netNoGuests + vmsHidden.unpropagated) { discoverWith(netAdFile, nodeHostProps) }
+note('net-vlan-hidden', netHidden.exit == 2 && netHidden.stdout.trim().isEmpty() && netHidden.stderr.contains('VM.Audit') &&
+                        netHidden.requests.every { it.startsWith('/nodes/pve1/') || it.startsWith('/cluster/') || it.startsWith('/access/') },
+     "Node_Network with the node's guest lists hidden: exit ${netHidden.exit}, ${netHidden.stdout} / ${netHidden.stderr}")
+def netEmpty = withFixtures(netNoGuests) { runScript(netAdFile, [hostProps: nodeHostProps]) }
+def netEmptyIds = parseAd(netEmpty.stdout).keySet()
+note('net-vlan-hidden', netEmpty.exit == 0 && netEmptyIds && !netEmptyIds.any { it.contains('-vlan') },
+     "Node_Network on a node with no guests: exit ${netEmpty.exit}, ${netEmptyIds} / ${netEmpty.stderr}")
 
 // A volume group is nearly all allocated by design: it reports AllocatedPercent, which carries
 // no alert, and never UsedPercent; the pools on it keep UsedPercent.

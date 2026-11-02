@@ -14,7 +14,15 @@ if (pveConfigError) {
 }
 
 try {
-    pveBackupInstances().each { instance ->
+    def instances = pveBackupInstances()
+    // Every guest is either in a job or not backed up, so an empty answer is a cluster
+    // without guests, or job members and uncovered guests the token may not see (lab
+    // 2026-11-02): those are kept, not retired.
+    if (instances.isEmpty() && pveListHidden(pveGet, '/vms', 'VM.Audit')) {
+        System.err.println(pveHiddenReason('The guests of every backup job and the guests no job covers', '/vms', 'VM.Audit'))
+        return 2
+    }
+    instances.each { instance ->
         def guest = (instance.name ?: (instance.type + '-' + instance.vmid)) + ' (' + instance.vmid + ')'
         pveDiscover(
             instance.id,

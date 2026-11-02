@@ -13,6 +13,24 @@
       "Pool.Audit": 1
     }
   },
+  "/access/permissions?path=/vms": {
+    "/vms": {
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "Datastore.Audit": 1,
+      "SDN.Audit": 1,
+      "Pool.Audit": 1
+    }
+  },
+  "/access/permissions?path=/sdn/zones": {
+    "/sdn/zones": {
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "Datastore.Audit": 1,
+      "SDN.Audit": 1,
+      "Pool.Audit": 1
+    }
+  },
   "/cluster/status": [
     {
       "type": "cluster",
