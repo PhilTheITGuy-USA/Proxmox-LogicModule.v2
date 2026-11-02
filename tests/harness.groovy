@@ -164,10 +164,9 @@ modulesDir.listFiles({ f -> f.name.endsWith('.json') } as FileFilter).sort { it.
      * dist/scripts/. Its Proxmox-side logic lives in the preamble helpers instead, and
      * those are asserted further down like anything else.
      */
-    // A module whose instances are findings (the only kind that auto-deletes) has none while
-    // healthy, so "discovered no instances" and "produced no output" do not apply: its cases
-    // are under "troubleshooter".
-    if (defn.moduleType in ['topologysource', 'propertysource'] || defn.autoDeleteInstances) {
+    // A module whose instances are findings has none while healthy, so "discovered no
+    // instances" and "produced no output" do not apply: its cases are under "troubleshooter".
+    if (defn.moduleType in ['topologysource', 'propertysource'] || defn.name.endsWith('_Troubleshooter')) {
         return
     }
 
@@ -2615,15 +2614,20 @@ note('trouble-collect-no-wildvalue', colNoWild.exit == 0 && 'failover-127-0-0-1-
      "an instance without its wildvalue: exit ${colNoWild.exit}, ${colNoWild.stdout} / ${colNoWild.stderr}")
 def builtTrouble = new File(ROOT, 'dist/Proxmox_VE_Troubleshooter.json')
 def builtTroubleJson = builtTrouble.exists() ? new JsonSlurper().parse(builtTrouble) : null
-note('trouble-built', builtTroubleJson?.activeDiscovery?.autoDeleteInstances == true &&
+// The export field is inverted on import: false is what auto-deletes (portal, 2026-11-01).
+note('trouble-built', builtTroubleJson?.activeDiscovery?.autoDeleteInstances == false &&
                       builtTroubleJson?.activeDiscovery?.deleteInactiveInstances == false &&
                       builtTroubleJson?.activeDiscovery?.discoveryInterval == '15m' && builtTroubleJson?.collectionInterval == '5m',
      "built troubleshooter: ${builtTroubleJson?.activeDiscovery?.findAll { k, v -> k != 'params' }} / ${builtTroubleJson?.collectionInterval}")
-def autoDeleting = new File(ROOT, 'dist').listFiles({ f -> f.name.endsWith('.json') } as FileFilter).findAll { f ->
-    def ad = new JsonSlurper().parse(f).activeDiscovery
-    f.name != 'Proxmox_VE_Troubleshooter.json' && ad && (ad.autoDeleteInstances || ad.deleteInactiveInstances)
+// Each built module carries its definition's decision, inverted, and none deletes at once.
+def autoDeleteWrong = new File(ROOT, 'modules').listFiles({ f -> f.name.endsWith('.json') } as FileFilter).findAll { f ->
+    def defn = new JsonSlurper().parse(f)
+    def built = new File(ROOT, 'dist/' + f.name)
+    def ad = built.exists() ? new JsonSlurper().parse(built).activeDiscovery : null
+    defn.discoveryScript && !(ad && defn.autoDelete instanceof Boolean &&
+                              ad.autoDeleteInstances == !defn.autoDelete && ad.deleteInactiveInstances == false)
 }*.name
-note('trouble-built-others', autoDeleting.isEmpty(), "modules that auto-delete: ${autoDeleting}")
+note('auto-delete-built', autoDeleteWrong.isEmpty(), "modules whose built auto-delete differs from autoDelete: ${autoDeleteWrong}")
 }
 troubleshooterCases()
 

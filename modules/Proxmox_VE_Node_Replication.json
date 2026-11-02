@@ -13,6 +13,7 @@
   "collectScript": "Proxmox_VE_Node_Replication.collect.groovy",
   "discoveryScript": "Proxmox_VE_Node_Replication.ad.groovy",
   "discoveryInterval": "60m",
+  "autoDelete": true,
   "datapoints": [
     {
       "name": "FailCount",

@@ -13,7 +13,7 @@
   "collectScript": "Proxmox_VE_Troubleshooter.collect.groovy",
   "discoveryScript": "Proxmox_VE_Troubleshooter.ad.groovy",
   "discoveryInterval": "15m",
-  "autoDeleteInstances": true,
+  "autoDelete": true,
   "datapoints": [
     {
       "name": "Problem",

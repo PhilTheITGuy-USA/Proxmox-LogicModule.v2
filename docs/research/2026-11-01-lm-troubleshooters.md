@@ -27,7 +27,7 @@ LogicMonitor's Active Discovery settings [doc]:
 
 - **Delete Immediately** (`deleteInactiveInstances`): "An instance (and all of its monitoring
   history) is immediately removed from LogicMonitor" once discovery reports it absent.
-- **Delete After 30 Days** (`autoDeleteInstances` alone): the instance leaves the Resources tree,
+- **Delete After 30 Days** (*Automatically Delete Instances* on, Delete Immediately off): the instance leaves the Resources tree,
   "its monitoring history will remain in LogicMonitor for 30 days before being removed", and "the
   prior monitoring history will be re-associated upon rediscovery" within that window.
 - "Toggle Automatically Delete Instance off if you want to receive alerts for instances even if
@@ -42,6 +42,11 @@ own `collector-scripting.md`, [LM recipes]). The real risks for a data module ar
 incomplete answer and a deleted instance that can no longer alert. Neither applies to a module
 whose instances are findings: there a missing instance means a fixed problem. Spec §3.2 records
 the decision this led to.
+
+**Correction (portal, 2026-11-01).** The import reads the export's `autoDeleteInstances`
+inverted: `false` ticks *Automatically Delete Instances*, `true` leaves it off (REST
+`persistentInstance` takes the value unchanged). An earlier draft of this note mapped
+`autoDeleteInstances` to *Delete After 30 Days*; spec §3.2 and §5 have the evidence.
 
 ## Sources
 

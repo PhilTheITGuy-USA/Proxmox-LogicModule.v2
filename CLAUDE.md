@@ -84,10 +84,13 @@ docker compose -f tests/docker-compose.yml run --rm tests > "$TMP/harness.txt" 2
 - **Module counts in prose are checked** (`check_doc_counts`): in `README.md` and this file, a
   number before "modules", "DataSources", "PropertySources" or "TopologySources" (digits or a
   word up to twenty) must match `modules/`, or the build fails.
-- **Instances are never auto-deleted, except by a `*_Troubleshooter`**: the build refuses
-  `autoDeleteInstances` on any other module and always emits `deleteInactiveInstances: false`,
-  since elsewhere a missing instance can be a wrong answer rather than a fixed problem. The
-  skill's lint carries the same exception (spec A§3.2).
+- **Auto-delete is decided per module** (spec A§3.2, amended 2026-11-01): every module with
+  discovery sets `"autoDelete": true` (instances discovery leaves out go after 30 days: guests,
+  jobs, SDN, interfaces, the troubleshooter) or `false` (kept: pools, disks, services, cluster
+  members), and the build refuses one without it. **The portal's import reads the export's
+  `autoDeleteInstances` inverted** (`false` is what auto-deletes), so the build writes
+  `not autoDelete` and refuses `autoDeleteInstances` in a definition; it always emits
+  `deleteInactiveInstances: false`. The skill's lint warns on `false` outside a troubleshooter.
 - Most sources are CRLF. When a Bash heredoc or `sed` must write a backslash, use the Edit tool instead:
   the Bash tool collapses doubled backslashes.
 

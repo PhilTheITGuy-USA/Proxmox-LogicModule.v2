@@ -14,6 +14,7 @@
   "discoveryScript": "Proxmox_VE_Node_Disks.ad.groovy",
   "instanceGroupProperty": "auto.pve_node",
   "discoveryInterval": "1440m",
+  "autoDelete": false,
   "datapoints": [
     {
       "name": "SizeGB",

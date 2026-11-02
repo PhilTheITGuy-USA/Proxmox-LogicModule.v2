@@ -317,13 +317,29 @@ problems, named with the fix, and which have no instances while all is well; thi
   BatchScript is not run on a resource without instances, so a healthy resource costs discovery
   alone.
 - **Instances are auto-deleted after 30 days, never immediately** (user, 2026-11-01).
-  `autoDeleteInstances` on, `deleteInactiveInstances` off: a fixed problem leaves the Resources
-  tree at the next discovery, its history kept 30 days and re-associated if it returns
-  ([Active Discovery](https://www.logicmonitor.com/support/active-discovery)). The suite's other
-  modules keep auto-delete off: for them a missing instance can be a successful, wrong answer (an
-  empty list to an unprivileged token, a down node's services), and a deleted instance cannot
-  alert. Here a missing instance means a fixed problem, since a check that cannot run is itself a
-  finding. The skill's lint allows this for `*_Troubleshooter` modules only (lessons, below).
+  *Automatically Delete Instances* on, *Delete after 30 days*: a fixed problem leaves the
+  Resources tree at the next discovery, its history kept 30 days and re-associated if it returns
+  ([Active Discovery](https://www.logicmonitor.com/support/active-discovery)). Here a missing
+  instance means a fixed problem, since a check that cannot run is itself a finding.
+- **Auto-delete is decided per module** (amended 2026-11-01, user, on the portal finding below;
+  it replaces "the suite's other modules keep auto-delete off"). A missing instance is either a
+  retired object or a successful, wrong answer (an empty list to an unprivileged token, a wrong
+  `pve.node`, a down node's services), and a deleted instance cannot alert. Each module with
+  discovery sets `autoDelete` in its definition, and the build refuses one that doesn't:
+  - **after 30 days** where objects come and go by design: `Cluster_GuestStatus`,
+    `Cluster_GuestPerformance`, `Cluster_Snapshots`, `Cluster_Backups`, `Node_Replication`,
+    `Cluster_SDN`, `Node_Network`, and the troubleshooter;
+  - **kept** where disappearing is the failure: `Node_StoragePools`, `Cluster_StorageCapacity`,
+    `Node_Disks`, `Node_Services`, `Node_Certificates`, `Cluster_Nodes`, `Cluster_Status`,
+    `Cluster_CephOSD`, `Cluster_CephPools`.
+
+  Nothing deletes immediately (`deleteInactiveInstances` false everywhere). Every datapoint
+  keeps "Do not trigger an alert" on No Data, so a kept instance that stops reporting turns grey
+  rather than alerting; No Data alerting is not part of this change. **The export field is
+  inverted on import** (portal UI and REST, user 2026-11-01): `autoDeleteInstances: false` ticks
+  *Automatically Delete Instances* and `true` leaves it off, stored as
+  `autoDiscoveryConfig.persistentInstance` unchanged. The build writes `not autoDelete`, so the
+  definition never names the export field.
 
 | # | Check | On | A problem when | Its fix |
 |---|---|---|---|---|
@@ -349,7 +365,10 @@ its shape and `##DSIDESCRIPTION##` in an alert body are **[unverified]** until t
 answer and a deleted instance that can no longer alert -- and has no room for a module whose
 instances are findings. The skill's rule and lint change to allow `autoDeleteInstances` with
 `deleteInactiveInstances` off for `*_Troubleshooter` modules, keep both refused everywhere else,
-and keep immediate deletion refused everywhere, with mutation cases for all three.
+and keep immediate deletion refused everywhere, with mutation cases for all three. Amended
+2026-11-01 (portal finding above): the lint errors on a `*_Troubleshooter` whose
+`autoDeleteInstances` is not `false` and warns on `false` elsewhere, naming the inversion, since
+the choice is now made per module; Delete Immediately stays an error.
 
 **Scale** (Q6: 10 clusters of 16 nodes and 1,000 guests) changes how the per-guest and per-node
 loops are written, not where the modules go: §3.9.
@@ -749,6 +768,7 @@ a layer changes; spike results stay in their rows above.
 | v2.2.0: local checks, portal import and live target | 2026-10-31 | The release build from `main` (user asked for the release once the backlog was done). Build clean (23 modules); harness 1,950 of 1,950; lint 0 errors, 4 warnings; both dashboards check clean. Against v2.1.1's build, four modules differ (`Cluster_GuestPerformance`, `Cluster_SDN`, `Node_Network`, `Cluster_Topology`); the other 19 and the NetScan are byte-for-byte the same, and the dashboards differ only in checkout line endings. The guest, SDN-on-PVE-9 and bridge/VLAN rows above hold its live proof. Portal import of the final `Node_Network`, `Cluster_SDN` and `Cluster_Topology` (user, 2026-10-31): a VLAN instance's Poll Now reports `Active` and leaves `Healthy` and `Ports` not found, its graphs titled Bridge State and Bridge Ports; a bridge reports all three; no new alerts. No SDN on the lab at the time, so a VNet without `Healthy` rests on the harness (`sdn-pve8`, `sdn-pve9`) |
 | The troubleshooter (§3.2): local checks | 2026-11-01 | Branch `troubleshooter`. Build clean (24 modules); compile job all pass; harness 1,986 of 1,986 after the whole-branch review's fixes (a URL-form or underscore address, the certificate check's own trust) and decisions I2 and I4, its `trouble-*` cases covering each check's failure and pass, the chain stopping at the first failure but going on past a failed ping, discovery printing findings and nothing when healthy, collection clearing by value and printing 0 for a check not reached, a failover address taken out of `pve.api.hosts` resolved, and only this module auto-deleting; the skill's lint (branch `troubleshooter-auto-delete`) 0 errors. Not yet: portal import, `##DSIDESCRIPTION##` in an alert, the shape of `/access/permissions`, and the 30-day deletion on a live portal |
 | The troubleshooter (§3.2): portal import | 2026-11-01 | Branch `troubleshooter` at `c66d8df`, imported by the user. AppliesTo matches both nodes. The Active Discovery Test Script on Node-A, a healthy node, answers "There is nothing applied to the selected resource.", read as no instances (no problem found); not yet told apart from a discovery that did not run. Not yet: an instance and its alert (`##DSIDESCRIPTION##`), its clearing by value, the shape of `/access/permissions`, the 30-day deletion. Then with `pve.node` set wrong on Node-A (user): discovery's instance appeared as *Node: set pve.node to Node-A*, its description and `auto.pve_finding` the full finding; but `Problem` read No Data on every 5-minute poll and no alert opened (API read: instance `wildValue` `node`, no `wildvalue` instance property). Collection now prints every check, binding or not (harness `trouble-collect-no-binding`, `trouble-collect-no-wildvalue`). Re-imported at `b7cd74a`: Poll Now read `Problem` 1; the first scheduled poll with `pve.node` wrong stored 1 and opened an error alert whose body carried the finding through `##DSIDESCRIPTION##` and the status name *Problem* through `##ALERTVALUEDISPLAYSTATUSNAME##`. A Poll Now raises no alert. On the way: the hourly NetScan set `pve.node` back between polls (it sends every property on every run, the resource detached by its manual save, as S3 saw), so one scheduled poll correctly stored 0. Not yet: the alert clearing on the fix, the instance leaving the tree, the 30-day deletion, the shape of `/access/permissions` |
+| Auto-delete read inverted (§3.2, amended 2026-11-01): portal import | 2026-11-01 | The troubleshooter's instance stayed after its fix. REST `autoDiscoveryConfig.persistentInstance` read `true` for the troubleshooter (shipped `autoDeleteInstances: true`) and `false` for every other multi-instance module (shipped `false`); the user read the UI: Node Storage Pools has *Automatically Delete Instances* ticked, *Delete after 30 days*, and the troubleshooter unticked. So up to v2.2.0 every module auto-deleted, against this spec. The audit log shows it acting: with `pve.node` wrong on Node-A, `Node_StoragePools` answered an empty list and both pools were deleted (twice, 19:53 and 20:24 EST); after the fix they came back under their old instance ids, history kept. SDN zone and VNets and a `Node_Network` VLAN were deleted the same way on 10-30 and 10-31, during the SDN and VLAN tests. Fixed by the per-module `autoDelete` above; harness `auto-delete-built` checks every built module against its definition. Not yet: the re-import showing each module's setting as decided |
 
 **Not yet seen on the lab:** Replication, Ceph and ZFS (the lab has none), a cluster address
 (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the default duplicate-IP

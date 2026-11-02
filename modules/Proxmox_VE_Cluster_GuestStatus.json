@@ -14,6 +14,7 @@
   "discoveryScript": "Proxmox_VE_Cluster_GuestStatus.ad.groovy",
   "instanceGroupProperty": "auto.pve_node",
   "discoveryInterval": "60m",
+  "autoDelete": true,
   "datapoints": [
     {"name": "Status", "description": "1 when the guest is running, 0 otherwise. Intentionally unthresholded; see technical notes.", "statusNames": {"0": "Not running", "1": "Running"}},
     {"name": "UpTimeSeconds", "description": "Seconds since the guest started."},

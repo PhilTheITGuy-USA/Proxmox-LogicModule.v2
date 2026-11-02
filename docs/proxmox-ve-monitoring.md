@@ -372,6 +372,19 @@ labelled. The units follow the figure's use, so they differ between modules:
 LogicMonitor prints a byte count of that size in scientific notation, so the capacities that
 dashboard tables show are in GB.
 
+### Instances That Disappear
+
+When Active Discovery stops finding something, what happens depends on whether its going away is
+normal or is itself the problem:
+
+| When discovery no longer finds it | Modules | What happens |
+|---|---|---|
+| Normal: the object was removed | Guest Status, Guest Performance, Snapshots, Backups, Replication, SDN, Node Network, Troubleshooter | The instance leaves the Resources tree; its history is kept 30 days and comes back if the object does |
+| The problem: a pool, disk or service went missing | Storage Pools, Storage Capacity, Node Disks, Node Services, Node Certificates, Cluster Nodes, Cluster Status, Ceph OSD, Ceph Pools | The instance stays, with its history, and reads No Data; delete it by hand once the object is gone for good |
+
+No datapoint alerts on No Data, so a kept instance that stops reporting turns grey rather than
+raising an alert *(not yet verified for every module)*.
+
 ### Import LogicModules
 
 Import in this order, so that each module finds what it depends on:
@@ -391,11 +404,17 @@ resources the NetScan creates.
 
 v2.3.0 adds one module, **Proxmox VE Troubleshooter**, which checks what the other modules need
 to collect and reports each problem as an instance named with its fix (see Troubleshooting).
-No other module, property, the NetScan or the dashboards change.
+It also corrects every module's **Automatically Delete Instances** setting. Up to v2.2.0 the
+setting was on for every module, against the suite's design, because LogicMonitor's import reads
+the setting the other way round from how the modules wrote it. Now it is on only where an
+instance going away is normal (see [Instances That Disappear](#instances-that-disappear)).
+No property, the NetScan or the dashboards change.
 
-1. Import `Proxmox_VE_Troubleshooter`. It applies to every cluster and node resource by category;
-   nothing needs to be set.
+1. Re-import every DataSource, and import `Proxmox_VE_Troubleshooter`. It applies to every
+   cluster and node resource by category; nothing needs to be set.
 2. A resource with no problems shows no troubleshooter instances. That is the healthy state.
+3. Instances that up to v2.2.0 were deleted after 30 days come back with their history at the
+   next discovery, if the object still exists and it is within the 30 days.
 
 ### Upgrading from v2.1.1
 
@@ -429,8 +448,8 @@ Module names, properties, the NetScan and the dashboards are unchanged; four mod
 3. Run Active Discovery for **Proxmox VE Node Network** on each node resource, **then** let the
    TopologySource run (saving it triggers a run), so the bridge and VLAN instances carry their
    vertex keys before the first run that draws them.
-4. A VLAN no guest uses any more keeps its instance, as everything the suite discovers does:
-   delete it by hand once you no longer need its history.
+4. A VLAN no guest uses any more leaves the tree after 30 days, its history kept until then (see
+   [Instances That Disappear](#instances-that-disappear)).
 
 ### Upgrading from v2.1.0
 

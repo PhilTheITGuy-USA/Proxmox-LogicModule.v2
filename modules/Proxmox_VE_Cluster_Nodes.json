@@ -13,6 +13,7 @@
   "collectScript": "Proxmox_VE_Cluster_Nodes.collect.groovy",
   "discoveryScript": "Proxmox_VE_Cluster_Nodes.ad.groovy",
   "discoveryInterval": "60m",
+  "autoDelete": false,
   "datapoints": [
     {
       "name": "Status",

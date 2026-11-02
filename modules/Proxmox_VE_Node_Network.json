@@ -14,6 +14,7 @@
   "discoveryScript": "Proxmox_VE_Node_Network.ad.groovy",
   "instanceGroupProperty": "auto.pve_iface_type",
   "discoveryInterval": "60m",
+  "autoDelete": true,
   "datapoints": [
     {
       "name": "Active",

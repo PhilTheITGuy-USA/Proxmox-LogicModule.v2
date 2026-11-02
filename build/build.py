@@ -488,11 +488,19 @@ def check_v1_names(path: Path, defn: dict) -> list[str]:
 
 
 def check_auto_delete(path: Path, defn: dict) -> list[str]:
-    """Only a troubleshooter's instances are findings, which may go once fixed (spec A§3.2)."""
-    if defn.get("autoDeleteInstances") and not defn.get("name", "").endswith("_Troubleshooter"):
-        return [f"{path.name}: autoDeleteInstances is allowed only on a *_Troubleshooter module: "
-                f"elsewhere an instance discovery leaves out can be a wrong answer, and a deleted "
-                f"instance cannot alert"]
+    """Every discovering module decides whether its instances auto-delete (spec A§3.2).
+
+    "autoDelete": true lets an instance discovery leaves out leave the tree after 30 days --
+    for objects that come and go by design (guests, jobs, SDN, interfaces) and for a
+    troubleshooter's findings. false keeps it, where its disappearing is itself the failure
+    (pools, disks, services, certificates, cluster members): a deleted instance cannot alert.
+    The export field is spelled the other way round, so the definition never names it."""
+    if "autoDeleteInstances" in defn:
+        return [f"{path.name}: write \"autoDelete\", not \"autoDeleteInstances\": the portal reads "
+                f"the export field inverted, and the build writes it"]
+    if "discoveryScript" in defn and not isinstance(defn.get("autoDelete"), bool):
+        return [f"{path.name}: a module with discovery must set \"autoDelete\" to true (instances "
+                f"discovery leaves out go after 30 days) or false (they stay)"]
     return []
 
 
@@ -637,11 +645,13 @@ def build_module(defn: dict) -> tuple[dict, dict[str, str]]:
             "discoveryMethod": "ad_script",
             "params": {"type": "groovy", "content": discovery},
             "discoveryInterval": defn.get("discoveryInterval", "1440m"),
-            # Never deleted at once. Auto-deleted after 30 days only where an instance is a
-            # finding, which check_auto_delete confines to a *_Troubleshooter: elsewhere an
-            # instance discovery leaves out can be a wrong answer, and a deleted one cannot alert.
+            # Never deleted at once ("Delete after 30 days" when auto-delete is on).
             "deleteInactiveInstances": False,
-            "autoDeleteInstances": bool(defn.get("autoDeleteInstances", False)),
+            # Inverted on import: false ticks "Automatically Delete Instances" and true leaves it
+            # off (REST autoDiscoveryConfig.persistentInstance takes the value as given). Every
+            # module shipped false landed auto-deleting, the one shipped true did not (portal UI
+            # and REST, user 2026-11-01). check_auto_delete makes each module decide.
+            "autoDeleteInstances": not defn["autoDelete"],
             "disableDiscoveredInstances": False,
             "groupMethod": "none",
             "filters": [],

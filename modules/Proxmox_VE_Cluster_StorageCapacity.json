@@ -14,6 +14,7 @@
   "discoveryScript": "Proxmox_VE_Cluster_Storage.ad.groovy",
   "instanceGroupProperty": "auto.pve_node",
   "discoveryInterval": "60m",
+  "autoDelete": false,
   "datapoints": [
     {"name": "Status", "description": "1 when the storage is available from this node.", "threshold": "< 1 1 1", "alertBody": "Proxmox storage ##INSTANCE## is not available. Guests with disks on this storage cannot start, and backups targeting it will fail.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago.", "statusNames": {"0": "Unavailable", "1": "Available"}},
     {"name": "UsedGB", "description": "Storage used, GB (decimal, 10^9 bytes)."},

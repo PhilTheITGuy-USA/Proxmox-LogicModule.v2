@@ -14,6 +14,7 @@
   "discoveryScript": "Proxmox_VE_Cluster_Guests.ad.groovy",
   "instanceGroupProperty": "auto.pve_node",
   "discoveryInterval": "60m",
+  "autoDelete": true,
   "datapoints": [
     {"name": "SnapshotCount", "description": "Snapshots the guest has, not counting Proxmox's current entry."},
     {"name": "OldestSnapshotAgeDays", "description": "Days since the guest's oldest snapshot was taken. Empty when it has none.", "conditional": true},

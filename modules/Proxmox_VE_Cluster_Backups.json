@@ -13,6 +13,7 @@
   "collectScript": "Proxmox_VE_Cluster_Backups.collect.groovy",
   "discoveryScript": "Proxmox_VE_Cluster_Backups.ad.groovy",
   "discoveryInterval": "60m",
+  "autoDelete": true,
   "instanceGroupProperty": "auto.pve_backup_job",
   "datapoints": [
     {"name": "NotCovered", "description": "1 for a guest that no backup job covers, 0 for a guest in a job. Ships without a threshold; see technical notes."},

@@ -13,6 +13,7 @@
   "collectScript": "Proxmox_VE_Cluster_CephPools.collect.groovy",
   "discoveryScript": "Proxmox_VE_Cluster_CephPools.ad.groovy",
   "discoveryInterval": "60m",
+  "autoDelete": false,
   "datapoints": [
     {
       "name": "UsedGB",
