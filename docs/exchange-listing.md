@@ -62,8 +62,8 @@ their values, so alerts read "Offline (0)" rather than "0".
 
 **Verified.** Imported into a LogicMonitor portal and run against a two-node Proxmox VE 9.2.3
 cluster, including failover and hand-back of the cluster role. Ceph, replication and a cluster
-address are designed for but not yet seen on a live cluster, and the troubleshooter is not yet
-imported.
+address are designed for but not yet seen on a live cluster. The troubleshooter was seen to find
+a wrong node name, raise its alert, clear it once fixed and drop the finding.
 
 ## Modules
 
