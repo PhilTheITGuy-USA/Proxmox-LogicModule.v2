@@ -9,7 +9,7 @@
  */
 try {
     pveTroubleshoot(pveTroubleProbes()).findings.each { finding ->
-        pveDiscover(finding.id, finding.name, finding.finding, [pve_finding: finding.finding])
+        pveDiscover(finding.id, finding.name, finding.finding, [pve_finding: finding.finding, pve_check: finding.id])
     }
     return 0
 } catch (Exception exception) {

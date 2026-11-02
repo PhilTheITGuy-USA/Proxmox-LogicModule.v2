@@ -2575,7 +2575,8 @@ def adToken = troubleScript(troubleAd, troubleNode + ['pve.token.credential': wr
 def adTokenLines = adToken.stdout.readLines().findAll { it.trim() }
 def adTokenMatch = adTokenLines.size() == 1 ? AD_LINE.matcher(adTokenLines[0]) : null
 note('trouble-ad', adToken.exit == 0 && adTokenMatch?.matches() && adTokenMatch.group(1) == 'token' &&
-                   adTokenMatch.group(3).contains('HTTP 401') && adTokenMatch.group(4).contains('auto.pve_finding='),
+                   adTokenMatch.group(3).contains('HTTP 401') && adTokenMatch.group(4).contains('auto.pve_finding=') &&
+                   adTokenMatch.group(4).contains('auto.pve_check=token'),
      "rejected token: exit ${adToken.exit}, ${adToken.stdout} / ${adToken.stderr}")
 def adHealthy = withHealthyNode { troubleScript(troubleAd, troubleNode) }
 note('trouble-ad-healthy', adHealthy.exit == 0 && adHealthy.stdout.trim().isEmpty(),
@@ -2591,14 +2592,27 @@ note('trouble-ad-throws', adThrows.exit == 2 && adThrows.stdout.trim().isEmpty()
 def troubleInstances = { List ids -> ids.collectEntries { [(it): [wildvalue: it]] } }
 def colToken = troubleScript(troubleCollect, hostProps + ['pve.token.credential': wrongToken],
                              [datasourceinstanceProps: troubleInstances(['token', 'ping', 'failover-x'])])
+def colLines = { Map run -> run.stdout.readLines()*.trim().findAll { it } }
 // failover-x is not reached (the token check stops the chain) and prints 0, so its alert clears (decision I2, user 2026-11-01).
-note('trouble-collect', colToken.exit == 0 && colToken.stdout.readLines().findAll { it.trim() } as Set ==
-                        ['token.Problem=1', 'ping.Problem=0', 'failover-x.Problem=0'] as Set,
+note('trouble-collect', colToken.exit == 0 &&
+                        colLines(colToken).containsAll(['token.Problem=1', 'ping.Problem=0', 'failover-x.Problem=0']) &&
+                        colLines(colToken).count { it.endsWith('=1') } == 1,
      "rejected token: exit ${colToken.exit}, ${colToken.stdout} / ${colToken.stderr}")
 // A dead address taken out of pve.api.hosts is resolved, not left at No Data with its alert open.
 def colGone = troubleScript(troubleCollect, hostProps, [datasourceinstanceProps: troubleInstances(['failover-127-0-0-1-1'])])
-note('trouble-collect-failover-gone', colGone.exit == 0 && colGone.stdout.trim() == 'failover-127-0-0-1-1.Problem=0',
+note('trouble-collect-failover-gone', colGone.exit == 0 && 'failover-127-0-0-1-1.Problem=0' in colLines(colGone) &&
+                                      !colLines(colGone).any { it.endsWith('=1') },
      "a failover address no longer listed: exit ${colGone.exit}, ${colGone.stdout} / ${colGone.stderr}")
+// On the lab Problem read No Data on a new instance, the binding lacking it or its wildvalue
+// (2026-11-01): every check the chain knows prints, binding or not.
+def colBare = withHealthyNode { troubleScript(troubleCollect, troubleNode + ['pve.node': 'pve9']) }
+note('trouble-collect-no-binding', colBare.exit == 0 && 'node.Problem=1' in colLines(colBare) &&
+                                   ['settings', 'address', 'ping', 'certificate', 'token', 'permissions'].every { (it + '.Problem=0') in colLines(colBare) },
+     "pve.node pve9, no datasourceinstanceProps: exit ${colBare.exit}, ${colBare.stdout} / ${colBare.stderr}")
+def colNoWild = troubleScript(troubleCollect, hostProps,
+                              [datasourceinstanceProps: ['Failover: gone': ['auto.pve_check': 'failover-127-0-0-1-1']]])
+note('trouble-collect-no-wildvalue', colNoWild.exit == 0 && 'failover-127-0-0-1-1.Problem=0' in colLines(colNoWild),
+     "an instance without its wildvalue: exit ${colNoWild.exit}, ${colNoWild.stdout} / ${colNoWild.stderr}")
 def builtTrouble = new File(ROOT, 'dist/Proxmox_VE_Troubleshooter.json')
 def builtTroubleJson = builtTrouble.exists() ? new JsonSlurper().parse(builtTrouble) : null
 note('trouble-built', builtTroubleJson?.activeDiscovery?.autoDeleteInstances == true &&
