@@ -335,7 +335,12 @@ problems, named with the fix, and which have no instances while all is well; thi
 
   Nothing deletes immediately (`deleteInactiveInstances` false everywhere). Every datapoint
   keeps "Do not trigger an alert" on No Data, so a kept instance that stops reporting turns grey
-  rather than alerting; No Data alerting is not part of this change. **The export field is
+  rather than alerting. **No datapoint alerts on No Data** (user, 2026-11-01), as in
+  LogicMonitor's own hypervisor suites: of 75 vSphere, vCenter, Nutanix, Hyper-V and Citrix
+  modules on the lab portal, one datapoint does (Nutanix's `nodeStatus`); vSphere reports
+  broken collection through a collection-health module and its troubleshooters instead, as the
+  troubleshooter does here. A standby's cluster modules print nothing by design, so No Data
+  alerting there would fire constantly. **The export field is
   inverted on import** (portal UI and REST, user 2026-11-01): `autoDeleteInstances: false` ticks
   *Automatically Delete Instances* and `true` leaves it off, stored as
   `autoDiscoveryConfig.persistentInstance` unchanged. The build writes `not autoDelete`, so the

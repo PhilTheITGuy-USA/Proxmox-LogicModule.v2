@@ -382,8 +382,9 @@ normal or is itself the problem:
 | Normal: the object was removed | Guest Status, Guest Performance, Snapshots, Backups, Replication, SDN, Node Network, Troubleshooter | The instance leaves the Resources tree; its history is kept 30 days and comes back if the object does |
 | The problem: a pool, disk or service went missing | Storage Pools, Storage Capacity, Node Disks, Node Services, Node Certificates, Cluster Nodes, Cluster Status, Ceph OSD, Ceph Pools | The instance stays, with its history, and reads No Data; delete it by hand once the object is gone for good |
 
-No datapoint alerts on No Data, so a kept instance that stops reporting turns grey rather than
-raising an alert *(not yet verified for every module)*.
+No datapoint alerts on No Data, as in LogicMonitor's own hypervisor modules, so a kept instance
+that stops reporting turns grey rather than raising an alert. When collection itself breaks, the
+Troubleshooter's instances say why.
 
 ### Import LogicModules
 
