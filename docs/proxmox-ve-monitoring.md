@@ -400,6 +400,17 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.3.0
+
+v2.3.1 is a fix release. Guest discovery and Snapshots now fail, rather than report no guests,
+when Proxmox lists none: an under-privileged token sees an empty list, and an empty answer would
+retire every guest instance. On a cluster that has no guests yet, Guest Status, Guest
+Performance and Snapshots show a failed discovery until the first guest exists.
+
+1. Re-import `Proxmox_VE_Cluster_GuestStatus`, `Proxmox_VE_Cluster_GuestPerformance`,
+   `Proxmox_VE_Cluster_Snapshots` and `Proxmox_VE_Cluster_Topology`. The other modules, the
+   NetScan and the dashboards are as in v2.3.0.
+
 ### Upgrading from v2.2.0
 
 v2.3.0 adds one module, **Proxmox VE Troubleshooter**, which checks what the other modules need
@@ -415,11 +426,6 @@ No property, the NetScan or the dashboards change.
 2. A resource with no problems shows no troubleshooter instances. That is the healthy state.
 3. Instances that up to v2.2.0 were deleted after 30 days come back with their history at the
    next discovery, if the object still exists and it is within the 30 days.
-
-Guest discovery and Snapshots now fail, rather than report no guests, when Proxmox lists none:
-an under-privileged token sees an empty list, and an empty answer would retire every guest
-instance. On a cluster that has no guests yet, Guest Status, Guest Performance and Snapshots
-show a failed discovery until the first guest exists.
 
 ### Upgrading from v2.1.1
 
