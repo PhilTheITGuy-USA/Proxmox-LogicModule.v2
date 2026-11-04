@@ -1510,6 +1510,152 @@ note('backups-ad', backupNoJobs.exit == 2, "discovery without /cluster/backup ex
 def backupDead = runScript(backupsCollect, [hostProps: hostProps + ['pve.api.url': 'http://127.0.0.1:1']])
 note('backups-collect', backupDead.exit == 2, "collection with the API down exited ${backupDead.exit}")
 
+// The alert names the failure (2026-11-04, user: "identify the VM or container in the backup
+// job that failed"): discovery writes the failed run's time, node and reason into the
+// description the alerts print, and stamps the run's start in auto.pve_backup_failed_at.
+def backupRows = { run ->
+    run.stdout.readLines().collect { AD_LINE.matcher(it) }.findAll { it.matches() }
+        .collectEntries { [(it.group(1)): it.group(3)] }
+}
+def backupRowsNow = backupRows(backupAdRun)
+note('backups-reason', backupRowsNow['backup-4e5f5bfc-094c-101'] ==~
+         /Backed up by backup-4e5f5bfc-094c\. Last failure in the run started 2026-10-2\d \d\d:\d\d \S+ on pve1: VM is locked \(backup\)/ &&
+                       backupInstances['backup-4e5f5bfc-094c-101']?.auto?.get('auto.pve_backup_failed_at') == '1792865236',
+     "a failed guest's description and stamp: ${backupRowsNow['backup-4e5f5bfc-094c-101']} / ${backupInstances['backup-4e5f5bfc-094c-101']?.auto}")
+// Succeeded since (103), or failed before its last good backup (weekly 105): the job alone.
+note('backups-reason', backupRowsNow['backup-4e5f5bfc-094c-103'] == 'Backed up by backup-4e5f5bfc-094c' &&
+                       backupRowsNow['backup-weekly-105'] == 'Backed up by Weekly to PBS' &&
+                       !backupInstances['backup-4e5f5bfc-094c-103']?.auto?.containsKey('auto.pve_backup_failed_at') &&
+                       backupRowsNow['none-102'] == 'Covered by no backup job',
+     "descriptions without a current failure: ${backupRowsNow}")
+// Runs that cannot all be read name no failure, and discovery still succeeds.
+def backupAdNoLog = withFixtures([(backupLog(1)): null]) { discoverWith(backupsAd, hostProps) }
+note('backups-reason', backupAdNoLog.exit == 0 && parseAd(backupAdNoLog.stdout).size() == 6 &&
+                       backupRows(backupAdNoLog)['backup-4e5f5bfc-094c-101'] == 'Backed up by backup-4e5f5bfc-094c',
+     "discovery with an unread run: exit ${backupAdNoLog.exit}, ${backupRows(backupAdNoLog)} ${backupAdNoLog.stderr}")
+
+// A sixth run on pve1, newest of all, ending at the given offsets from now.
+long backupNow = System.currentTimeMillis().intdiv(1000L)
+// The task id is a VMID when the run backs up one guest (a single-guest Run now), else empty.
+def withRunOf = { String guest, String status, List lines, long startAgo, Closure body ->
+    def task = [upid: 'UPID:pve1:00000006:00F00D00:6AD00006:vzdump:' + guest + ':root@pam:', node: 'pve1', type: 'vzdump',
+                id: guest, user: 'root@pam', starttime: backupNow - startAgo, endtime: backupNow - startAgo + 120]
+    if (status != null) { task.status = status } else { task.remove('endtime') }
+    withFixtures(['/nodes/pve1/tasks?typefilter=vzdump&limit=50': [task] + fixtures['/nodes/pve1/tasks?typefilter=vzdump&limit=50'],
+                  (backupLog(6).replace('vzdump::', 'vzdump:' + guest + ':')): lines.withIndex().collect { text, i -> [n: i + 1, t: text] }]) { body() }
+}
+def withRun6 = { String status, List lines, long startAgo, Closure body -> withRunOf('', status, lines, startAgo, body) }
+def backupCollectWith = { Map instances ->
+    def run = runScript(backupsCollect, instances == null ? [hostProps: hostProps] :
+                                        [hostProps: hostProps, datasourceinstanceProps: asCollectorInstances(instances)])
+    run.data = parseBatch(run.stdout)
+    run
+}
+def lockedRun = ['INFO: starting new backup job: vzdump 103 --node pve1 --mode snapshot --storage local',
+                 'INFO: Starting Backup of VM 103 (lxc)', 'ERROR: Backup of VM 103 failed - CT is locked (snapshot)',
+                 'TASK ERROR: job errors']
+// A failure collection sees before discovery has recorded it is withheld, so the alert never
+// opens without its reason; once the stamp names it, it reads 1. A stamp of an older failure
+// is not this one.
+withRun6('job errors', lockedRun, 600L) {
+    def start = (backupNow - 600L).toString()
+    def ad = discoverWith(backupsAd, hostProps)
+    note('backups-record', parseAd(ad.stdout)['backup-4e5f5bfc-094c-103']?.auto?.get('auto.pve_backup_failed_at') == start &&
+                           backupRows(ad)['backup-4e5f5bfc-094c-103'].endsWith(' on pve1: CT is locked (snapshot)'),
+         "a fresh failure's stamp and reason: ${backupRows(ad)['backup-4e5f5bfc-094c-103']} / ${parseAd(ad.stdout)['backup-4e5f5bfc-094c-103']?.auto}")
+    def early = backupCollectWith(null)
+    note('backups-record', early.exit == 0 && !early.data['backup-4e5f5bfc-094c-103'].containsKey('FailedSinceLastBackup') &&
+                           early.data['backup-4e5f5bfc-094c-103'].LastBackupAgeHours != null &&
+                           early.stderr.contains('reported once discovery records why: CT is locked (snapshot)'),
+         "an unrecorded fresh failure: ${early.data['backup-4e5f5bfc-094c-103']} / ${early.stderr}")
+    def stale = backupCollectWith(['relay (103)': [wildvalue: 'backup-4e5f5bfc-094c-103', 'auto.pve_backup_failed_at': '1792865236']])
+    note('backups-record', !stale.data['backup-4e5f5bfc-094c-103'].containsKey('FailedSinceLastBackup'),
+         "a stamp of another failure: ${stale.data['backup-4e5f5bfc-094c-103']}")
+    def stamped = backupCollectWith(['relay (103)': [wildvalue: 'backup-4e5f5bfc-094c-103', 'auto.pve_backup_failed_at': start]])
+    note('backups-record', stamped.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == 1d &&
+                           stamped.data['backup-4e5f5bfc-094c-101'].FailedSinceLastBackup == 1d,
+         "a recorded failure: ${stamped.data}")
+}
+// A run that ended over an hour ago alerts without the stamp: discovery may not be running.
+withRun6('job errors', lockedRun, 7200L) {
+    def settled = backupCollectWith(null)
+    note('backups-record', settled.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == 1d,
+         "a failure an hour old, unrecorded: ${settled.data['backup-4e5f5bfc-094c-103']} / ${settled.stderr}")
+}
+
+// A run that fails before it reaches a guest names none in its log: its guests are the VMIDs
+// on its command line, with the run's status as the reason. Not the weekly job's: another storage.
+def storageDown = "could not activate storage 'local': storage is not online"
+withRun6(storageDown, ['INFO: starting new backup job: vzdump 101 103 --node pve1 --mode snapshot --storage local',
+                       'TASK ERROR: ' + storageDown], 7200L) {
+    def run = backupCollectWith(null)
+    note('backups-early', run.data['backup-4e5f5bfc-094c-101'].FailedSinceLastBackup == 1d &&
+                          run.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == 1d &&
+                          run.data['backup-weekly-101'].FailedSinceLastBackup == 0d &&
+                          run.data['backup-weekly-105'].FailedSinceLastBackup == 0d,
+         "a run that failed before any guest: ${run.data} / ${run.stderr}")
+    note('backups-early', backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-103'].endsWith(': ' + storageDown),
+         "its reason in the description: ${backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-103']}")
+}
+// --all lists no VMIDs: its guests are the job's on the run's node (101 on pve1; 103 is on no
+// node in /cluster/resources), less --exclude. Asking /cluster/resources is the one extra call.
+withRun6(storageDown, ['INFO: starting new backup job: vzdump --all 1 --node pve1 --storage local'], 7200L) {
+    int before = requestLog.size()
+    def run = backupCollectWith(null)
+    note('backups-early-all', run.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == 0d &&
+                              new ArrayList(requestLog).subList(before, requestLog.size()).contains('/cluster/resources?type=vm'),
+         "an all run that failed early: ${run.data['backup-4e5f5bfc-094c-103']}")
+}
+withRun6(storageDown, ['INFO: starting new backup job: vzdump --all 1 --node pve1 --storage local --exclude 101,105'], 7200L) {
+    // 101 already failed in an earlier run, so its excluded early failure shows in the reason, not the value.
+    note('backups-early-all', !backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-101'].contains(storageDown),
+         "an excluded guest: ${backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-101']}")
+}
+withRun6(storageDown, ['INFO: starting new backup job: vzdump --all 1 --node pve1 --storage local'], 7200L) {
+    note('backups-early-all', backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-101'].contains(storageDown),
+         "an all run's guest on its node: ${backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-101']}")
+}
+// A run that fails before its job starts logs no command line (lab 2026-11-04: a disabled
+// storage, two lines). Its guest is the task id's VMID and its storage the one the error names;
+// one that names neither fails no one, rather than every job guest on its node.
+def notified = 'INFO: notified via target `mail-to-root`'
+def disabled = "could not activate storage 'local': storage 'local' is disabled"
+withRunOf('103', disabled, [notified, 'TASK ERROR: ' + disabled], 7200L) {
+    def run = backupCollectWith(null)
+    note('backups-prejob', run.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == 1d &&
+                           run.data['backup-weekly-105'].FailedSinceLastBackup == 0d &&
+                           !backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-101'].contains(disabled) &&
+                           backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-103'].endsWith(': ' + disabled),
+         "a one-guest run that failed before its job started: ${run.data} / ${run.stderr}")
+}
+// No VMID in the task id: the job guests on its node writing to the storage named (101 on pve1,
+// not the weekly job's 101, which writes to pbs-store).
+withRunOf('', disabled, [notified, 'TASK ERROR: ' + disabled], 7200L) {
+    def rows = backupRows(discoverWith(backupsAd, hostProps))
+    note('backups-prejob', rows['backup-4e5f5bfc-094c-101'].contains(disabled) && !rows['backup-weekly-101'].contains(disabled),
+         "a scheduled run that failed before its job started: ${rows}")
+}
+withRunOf('', 'unexpected error', ['TASK ERROR: unexpected error'], 7200L) {
+    def run = backupCollectWith(null)
+    def rows = backupRows(discoverWith(backupsAd, hostProps))
+    note('backups-prejob', run.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == 0d &&
+                           rows.values().every { !it.contains('unexpected error') } &&
+                           run.stderr.contains('failed before naming its guests or storage'),
+         "a run that names no guest or storage: ${run.data['backup-4e5f5bfc-094c-103']} / ${rows} / ${run.stderr}")
+}
+// A run that succeeded with warnings, or is still running, failed nothing it did not reach;
+// one that ended in job errors failed the guests it never reached.
+def partialRun = ['INFO: starting new backup job: vzdump 103 101 --node pve1 --mode snapshot --storage local',
+                  'INFO: Starting Backup of VM 101 (qemu)', 'INFO: Finished Backup of VM 101 (00:01:00)']
+['WARNINGS: 1': 0d, (null): 0d, 'job errors': 1d].each { status, expected ->
+    withRun6(status, partialRun, 7200L) {
+        def run = backupCollectWith(null)
+        note('backups-early-status', run.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == expected &&
+                                     run.data['backup-4e5f5bfc-094c-101'].FailedSinceLastBackup == 0d,
+             "a run with status ${status} that never reached 103: ${run.data['backup-4e5f5bfc-094c-103']} / ${run.data['backup-4e5f5bfc-094c-101']}")
+    }
+}
+
 // ---------------------------------------------------------------- Sizes in names
 //
 // Storage and OSD instances carry their size in the display name, guests and nodes their root
