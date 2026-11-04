@@ -552,7 +552,7 @@ def pveSizeLabel = { bytes ->
  * and never from the node, so a live migration does not orphan the instance.
  * rawProperties passes straight through to pveDiscover.
  */
-def pveGuestDiscover = { Map guest, Map rawProperties = [:] ->
+def pveGuestDiscover = { Map guest, Map rawProperties = [:], Map extraProperties = [:] ->
     def vmid = guest.vmid?.toString()
     def kind = guest.type == 'qemu' ? 'virtual machine' : 'container'
     def disk = pveSizeLabel(guest.maxdisk)
@@ -567,7 +567,7 @@ def pveGuestDiscover = { Map guest, Map rawProperties = [:] ->
             pve_vmid: vmid,
             pve_pool: guest.pool,
             pve_tags: guest.tags
-        ],
+        ] + extraProperties,
         rawProperties
     )
 }

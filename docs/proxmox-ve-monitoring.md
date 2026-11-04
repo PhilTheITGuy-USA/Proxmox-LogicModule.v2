@@ -409,6 +409,22 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.4.0
+
+Guest Status gains `StartAtBootNotRunning`: a guest set to **Start at boot** in Proxmox that is
+not running raises an error after two polls (6 minutes), so a restart does not page. A guest
+that is locked by a task such as a stop-mode backup, a guest managed by HA, and a guest on a
+node that is down do not alert. `Status` still ships without a threshold. To silence a guest
+that is meant to stay stopped, turn off its Start at boot. The alert clears at the next
+discovery, within the hour.
+
+Discovery now records Start at boot from the guest configurations it already reads, including
+when `topo.namespace` or `topo.blacklist` is set; there it still adds no topology keys. Until
+that first discovery has run, the new datapoint is empty.
+
+1. Re-import `Proxmox_VE_Cluster_GuestStatus`. The other modules, the NetScan and the dashboards
+   are as in v2.4.0.
+
 ### Upgrading from v2.3.2
 
 Node Disks gains `Present`: a disk Proxmox no longer lists on its node raises an error alert,

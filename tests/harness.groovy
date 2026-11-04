@@ -510,9 +510,25 @@ note('guest-eri-standalone', standaloneKey == 'proxmoxve--pve-a--qemu-105',
          "${prop} set but keys were still emitted:\n${run.stdout}")
     note('guest-eri-namespace', run.stderr.contains(prop),
          "${prop} set but stderr did not say so: ${run.stderr}")
-    note('guest-eri-namespace', !run.requests.any { it.contains('/config') },
-         "${prop} set but guest configs were still read: ${run.requests}")
+    // The configs are still read: onboot comes from them (2026-11-04).
+    note('guest-eri-namespace', parseAd(run.stdout)['qemu-101']?.auto?.get('auto.pve_onboot') == '0',
+         "${prop} set and onboot not read: ${parseAd(run.stdout)['qemu-101']} / ${run.requests}")
 }
+
+// Start at boot (2026-11-04, user, gap review #3): discovery stamps each guest's onboot from
+// its config, 1 or 0 (absent means off); a guest whose config was not read gets none.
+def onbootAd = withFixtures(extendedFixtures + ['/nodes/pve1/lxc/103/config': extendedFixtures['/nodes/pve1/lxc/103/config'] + [onboot: 1]]) {
+    parseAd(discoverWith(statusAd, hostProps).stdout)
+}
+note('guest-onboot-ad', onbootAd['lxc-103']?.auto?.get('auto.pve_onboot') == '1' &&
+                        onbootAd['qemu-101']?.auto?.get('auto.pve_onboot') == '0' &&
+                        !onbootAd['qemu-104']?.auto?.containsKey('auto.pve_onboot') &&
+                        !onbootAd['lxc-200']?.auto?.containsKey('auto.pve_onboot'),
+     "onboot stamps: ${onbootAd.collectEntries { id, props -> [(id): props.auto['auto.pve_onboot']] }}")
+def onbootNoGate = withFixtures(['/cluster/status': null]) { discoverWith(statusAd, hostProps) }
+note('guest-onboot-ad', onbootNoGate.exit == 0 && !parseAd(onbootNoGate.stdout).values().any { it.auto.containsKey('auto.pve_onboot') },
+     "onboot stamped without a config read: ${onbootNoGate.stdout}")
+
 
 // The gating calls are the optional extra; when they fail, discovery is today's.
 def gateFails = withFixtures(['/cluster/status': null]) { discoverWith(statusAd, hostProps) }
@@ -1329,6 +1345,41 @@ note('disk-present-empty', disksEmpty.exit == 2 && disksEmpty.stdout.trim().isEm
 def disksEmptyBare = diskCollect(null, ['/nodes/pve1/disks/list': []])
 note('disk-present-empty', disksEmptyBare.exit == 0 && disksEmptyBare.stdout.trim().isEmpty(),
      "an empty disk list and no instances: exit ${disksEmptyBare.exit}, ${disksEmptyBare.stdout} / ${disksEmptyBare.stderr}")
+
+// Start at boot, collection (2026-11-04): Collection: 1 for a guest set to start at boot that is not running, unless it is locked,
+// HA-managed or on a node that is down; nothing for a guest whose onboot is not recorded.
+def statusCollectFile = new File(scriptsDir, 'Proxmox_VE_Cluster_GuestStatus.collect.groovy')
+def onbootGuests = [
+    [id: 'lxc/301', vmid: 301, status: 'stopped'],                       // down: alerts
+    [id: 'lxc/302', vmid: 302, status: 'stopped'],                       // not set to start at boot
+    [id: 'lxc/303', vmid: 303, status: 'stopped', lock: 'backup'],       // a stop-mode backup
+    [id: 'qemu/304', vmid: 304, status: 'stopped', hastate: 'stopped'],  // HA decides
+    [id: 'lxc/305', vmid: 305, status: 'stopped', node: 'pve2'],         // its node is down
+    [id: 'lxc/306', vmid: 306, status: 'running'],
+    [id: 'lxc/307', vmid: 307, status: 'stopped'],                       // onboot not recorded
+].collect { [type: it.id.tokenize('/')[0], name: 'g' + it.vmid, node: 'pve1', template: false] + it }
+def onbootBinding = ['301': '1', '302': '0', '303': '1', '304': '1', '305': '1', '306': '1'].collectEntries { vmid, flag ->
+    def type = vmid == '304' ? 'qemu' : 'lxc'
+    [('g' + vmid): [wildvalue: type + '-' + vmid, 'auto.pve_onboot': flag]]
+}
+def onbootCollect = { Map instances ->
+    withFixtures(['/cluster/resources?type=vm': onbootGuests]) {
+        def run = runScript(statusCollectFile, instances == null ? [hostProps: hostProps] :
+                                               [hostProps: hostProps, datasourceinstanceProps: asCollectorInstances(instances)])
+        run.data = parseBatch(run.stdout)
+        run
+    }
+}
+def onbootRun = onbootCollect(onbootBinding)
+def onbootValues = onbootRun.data.collectEntries { id, values -> [(id): values.StartAtBootNotRunning] }
+note('guest-onboot-collect', onbootRun.exit == 0 &&
+                             onbootValues == ['lxc-301': 1d, 'lxc-302': 0d, 'lxc-303': 0d, 'qemu-304': 0d,
+                                              'lxc-305': 0d, 'lxc-306': 0d, 'lxc-307': null],
+     "StartAtBootNotRunning: exit ${onbootRun.exit}, ${onbootValues} ${onbootRun.stderr}")
+def onbootBare = onbootCollect(null)
+note('guest-onboot-collect', onbootBare.exit == 0 && onbootBare.data['lxc-301'].Status == 0d &&
+                             !onbootBare.data.values().any { it.containsKey('StartAtBootNotRunning') },
+     "without datasourceinstanceProps: ${onbootBare.data}")
 
 // ------------------------------- guest pressure, ballooning and disk latency (2026-10-30)
 //
