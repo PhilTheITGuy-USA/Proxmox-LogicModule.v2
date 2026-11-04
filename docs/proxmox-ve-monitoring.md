@@ -417,14 +417,27 @@ the run started 2026-11-03 21:00 EST on Node-A: CT is locked (backup)". So the r
 there, the failure alerts once discovery, which now runs every 15 minutes, has recorded it:
 normally within 15 minutes, and at most an hour after the run ended. A run that fails before it
 reaches any guest, for example because its storage is offline, now fails each guest it was
-meant to back up, with the run's error as the reason. It used to fail none.
+meant to back up, with the run's error as the reason. It used to fail none. A run whose log
+and error name neither its guests nor its storage still fails none, rather than guess.
 
 `LastBackupAgeHours` now warns after 8 days without a good backup and raises an error after 14,
 which catches a daily or weekly job that has stopped running. For a job that runs less often
 than weekly, raise the threshold on its instance group.
 
-1. Re-import `Proxmox_VE_Cluster_Backups`. The other modules, the NetScan and the dashboards are
-   as in v2.4.0.
+Guest Status gains `StartAtBootNotRunning`: a guest set to **Start at boot** in Proxmox that is
+not running raises an error once three polls in a row have seen it down: 6 minutes after the
+first, up to 9 after it stopped. A restart does not page. A guest
+that is locked by a task such as a stop-mode backup, a guest managed by HA, and a guest on a
+node that is down do not alert. `Status` still ships without a threshold. To silence a guest
+that is meant to stay stopped, turn off its Start at boot. The alert clears at the next
+discovery, within the hour.
+
+Discovery now records Start at boot from the guest configurations it already reads, including
+when `topo.namespace` or `topo.blacklist` is set; there it still adds no topology keys. Until
+that first discovery has run, the new datapoint is empty.
+
+1. Re-import `Proxmox_VE_Cluster_Backups` and `Proxmox_VE_Cluster_GuestStatus`. The other modules,
+   the NetScan and the dashboards are as in v2.4.0.
 
 ### Upgrading from v2.3.2
 
