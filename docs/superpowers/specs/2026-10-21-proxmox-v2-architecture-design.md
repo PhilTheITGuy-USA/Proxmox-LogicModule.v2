@@ -385,7 +385,10 @@ problems, named with the fix, and which have no instances while all is well; thi
   `OK` nor `WARNINGS: n` fails every guest it was meant to back up that its log never reached,
   the reason being the run's status -- the VMIDs on its command line, or for `--all` and `--pool`
   the job's guests on the run's node less `--exclude`, one `/cluster/resources` call made only
-  then. **`LastBackupAgeHours` gets a default** (user: 8 and 14 days): `> 192 336`, a backstop for
+  then. A run that fails before its job starts logs no command line at all (lab 2026-11-04: a
+  disabled storage, `TASK ERROR: could not activate storage 'x': storage 'x' is disabled`), so
+  its guest is the task id's VMID (a one-guest run) and its storage the one the error names; one
+  that names neither fails no one, never every job guest on its node. **`LastBackupAgeHours` gets a default** (user: 8 and 14 days): `> 192 336`, a backstop for
   a daily or weekly job that stopped, disabled or failing before any guest; tuned per job group.
 
 | # | Check | On | A problem when | Its fix |

@@ -671,7 +671,10 @@ def pveBackupInstances = { ->
  * was meant to back up that its log never reached failed in it, with the run's status as the
  * reason. Its guests are the VMIDs its command line lists; a run of --all or --pool lists
  * none, so they are the job guests that live on the run's node, less any --exclude, which
- * costs one /cluster/resources call, made only then.
+ * costs one /cluster/resources call, made only then. A run that fails before its job starts
+ * logs no command line at all ("TASK ERROR: could not activate storage 'x': storage 'x' is
+ * disabled", lab 2026-11-04): its guest is the task id's VMID, set when the run backs up one
+ * guest, and its storage the one the error names; a run that names neither fails no one.
  *
  * Runs are read newest first, across all online nodes, and reading stops once every job
  * guest has a successful backup -- normally after the newest run. A log is read whole: the
@@ -777,6 +780,22 @@ def pveBackupResults = { List instances, int maxRuns = 50 ->
         if (!status || status == 'OK' || status.startsWith('WARNINGS')) { continue }
         def words = jobLine ? jobLine.substring(jobLine.indexOf('vzdump') + 6).trim().tokenize() : []
         def listed = words.takeWhile { it ==~ /\d+/ }
+        if (!jobLine) {
+            // A run that fails before its job starts (its storage disabled, say) logs no job
+            // line, so its guest and storage come from what else names them: the task's id, a
+            // VMID when the run backs up one guest, and the error, which names the storage it
+            // could not use. A run that names neither is pinned on no one, rather than on
+            // every job guest on its node.
+            def upidParts = run.upid.split(':', -1)
+            def upidGuest = upidParts.size() > 6 ? upidParts[6] : ''
+            listed = upidGuest ==~ /\d+/ ? [upidGuest] : []
+            def storageNamed = status =~ "storage '([^']+)'"
+            runStorage = storageNamed.find() ? storageNamed.group(1) : null
+            if (!listed && runStorage == null) {
+                System.err.println('Backup run ' + run.upid + ' failed before naming its guests or storage: ' + status)
+                continue
+            }
+        }
         def excludeMatch = jobLine ? (jobLine =~ excludeOption) : null
         def excluded = excludeMatch?.find() ? excludeMatch.group(1).tokenize(',; ') : []
         if (!listed && guestNodes == null) {

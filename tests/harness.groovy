@@ -1536,13 +1536,15 @@ note('backups-reason', backupAdNoLog.exit == 0 && parseAd(backupAdNoLog.stdout).
 
 // A sixth run on pve1, newest of all, ending at the given offsets from now.
 long backupNow = System.currentTimeMillis().intdiv(1000L)
-def withRun6 = { String status, List lines, long startAgo, Closure body ->
-    def task = [upid: 'UPID:pve1:00000006:00F00D00:6AD00006:vzdump::root@pam:', node: 'pve1', type: 'vzdump',
-                id: '', user: 'root@pam', starttime: backupNow - startAgo, endtime: backupNow - startAgo + 120]
+// The task id is a VMID when the run backs up one guest (a single-guest Run now), else empty.
+def withRunOf = { String guest, String status, List lines, long startAgo, Closure body ->
+    def task = [upid: 'UPID:pve1:00000006:00F00D00:6AD00006:vzdump:' + guest + ':root@pam:', node: 'pve1', type: 'vzdump',
+                id: guest, user: 'root@pam', starttime: backupNow - startAgo, endtime: backupNow - startAgo + 120]
     if (status != null) { task.status = status } else { task.remove('endtime') }
     withFixtures(['/nodes/pve1/tasks?typefilter=vzdump&limit=50': [task] + fixtures['/nodes/pve1/tasks?typefilter=vzdump&limit=50'],
-                  (backupLog(6))                               : lines.withIndex().collect { text, i -> [n: i + 1, t: text] }]) { body() }
+                  (backupLog(6).replace('vzdump::', 'vzdump:' + guest + ':')): lines.withIndex().collect { text, i -> [n: i + 1, t: text] }]) { body() }
 }
+def withRun6 = { String status, List lines, long startAgo, Closure body -> withRunOf('', status, lines, startAgo, body) }
 def backupCollectWith = { Map instances ->
     def run = runScript(backupsCollect, instances == null ? [hostProps: hostProps] :
                                         [hostProps: hostProps, datasourceinstanceProps: asCollectorInstances(instances)])
@@ -1612,6 +1614,34 @@ withRun6(storageDown, ['INFO: starting new backup job: vzdump --all 1 --node pve
 withRun6(storageDown, ['INFO: starting new backup job: vzdump --all 1 --node pve1 --storage local'], 7200L) {
     note('backups-early-all', backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-101'].contains(storageDown),
          "an all run's guest on its node: ${backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-101']}")
+}
+// A run that fails before its job starts logs no command line (lab 2026-11-04: a disabled
+// storage, two lines). Its guest is the task id's VMID and its storage the one the error names;
+// one that names neither fails no one, rather than every job guest on its node.
+def notified = 'INFO: notified via target `mail-to-root`'
+def disabled = "could not activate storage 'local': storage 'local' is disabled"
+withRunOf('103', disabled, [notified, 'TASK ERROR: ' + disabled], 7200L) {
+    def run = backupCollectWith(null)
+    note('backups-prejob', run.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == 1d &&
+                           run.data['backup-weekly-105'].FailedSinceLastBackup == 0d &&
+                           !backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-101'].contains(disabled) &&
+                           backupRows(discoverWith(backupsAd, hostProps))['backup-4e5f5bfc-094c-103'].endsWith(': ' + disabled),
+         "a one-guest run that failed before its job started: ${run.data} / ${run.stderr}")
+}
+// No VMID in the task id: the job guests on its node writing to the storage named (101 on pve1,
+// not the weekly job's 101, which writes to pbs-store).
+withRunOf('', disabled, [notified, 'TASK ERROR: ' + disabled], 7200L) {
+    def rows = backupRows(discoverWith(backupsAd, hostProps))
+    note('backups-prejob', rows['backup-4e5f5bfc-094c-101'].contains(disabled) && !rows['backup-weekly-101'].contains(disabled),
+         "a scheduled run that failed before its job started: ${rows}")
+}
+withRunOf('', 'unexpected error', ['TASK ERROR: unexpected error'], 7200L) {
+    def run = backupCollectWith(null)
+    def rows = backupRows(discoverWith(backupsAd, hostProps))
+    note('backups-prejob', run.data['backup-4e5f5bfc-094c-103'].FailedSinceLastBackup == 0d &&
+                           rows.values().every { !it.contains('unexpected error') } &&
+                           run.stderr.contains('failed before naming its guests or storage'),
+         "a run that names no guest or storage: ${run.data['backup-4e5f5bfc-094c-103']} / ${rows} / ${run.stderr}")
 }
 // A run that succeeded with warnings, or is still running, failed nothing it did not reach;
 // one that ended in job errors failed the guests it never reached.
