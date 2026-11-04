@@ -436,8 +436,11 @@ Discovery now records Start at boot from the guest configurations it already rea
 when `topo.namespace` or `topo.blacklist` is set; there it still adds no topology keys. Until
 that first discovery has run, the new datapoint is empty.
 
-1. Re-import `Proxmox_VE_Cluster_Backups` and `Proxmox_VE_Cluster_GuestStatus`. The other modules,
-   the NetScan and the dashboards are as in v2.4.0.
+1. Re-import `Proxmox_VE_Cluster_Backups` and `Proxmox_VE_Cluster_GuestStatus`.
+   `Proxmox_VE_Cluster_GuestPerformance` and `Proxmox_VE_Cluster_Snapshots` share the discovery
+   code Guest Status extends, and their files differ for that alone: they behave as in v2.4.0,
+   so re-importing them is optional. The other modules, the NetScan and the dashboards are as
+   in v2.4.0.
 
 ### Upgrading from v2.3.2
 
