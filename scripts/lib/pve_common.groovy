@@ -860,6 +860,51 @@ def pveNodeStall = { Map rrdRow, Map status ->
     return null
 }
 
+/*
+ * Whether a node needs a reboot, and how many of its Proxmox packages have a newer version
+ * waiting, from /nodes/{node}/apt/versions (Sys.Audit; gap review #4, lab 2026-11-04).
+ * The proxmox-ve row carries RunningKernel ("7.0.6-2-pve"); each kernel image is its own
+ * package, proxmox-kernel-<version>-pve-signed (Proxmox VE 8 and 9, signed or not) or the
+ * older pve-kernel-<version>-pve, and a removed one lingers as ConfigFiles. A reboot is
+ * required when the newest installed image is newer than the running kernel: the node has
+ * been upgraded and not restarted. The API does not show a kernel pinned with
+ * proxmox-boot-tool, so a node pinned to an older kernel reads 1. Versions compare as
+ * numbers, so 7.0.14 is newer than 7.0.6. A running kernel that is not a Proxmox build has
+ * nothing to compare with, and the answer is null, never a guess.
+ *
+ * updates counts installed packages whose candidate (Version) differs from what is
+ * installed (OldVersion), each package once (a row can repeat). apt/versions lists only
+ * Proxmox's own packages, about 60, not everything on the node. A node whose package cache
+ * knows no repository says Origin "unknown" for proxmox-ve itself (lab, 2026-11-04), and
+ * there 0 would claim "up to date" without knowing: updates is null.
+ */
+def pveKernelState = { List rows ->
+    def versionOf = { String text -> text.tokenize('.-').collect { it as long } }
+    def newer = { List left, List right ->
+        for (int i = 0; i < Math.min(left.size(), right.size()); i++) {
+            if (left[i] != right[i]) { return left[i] > right[i] }
+        }
+        left.size() > right.size()
+    }
+    def installed = (rows ?: []).findAll { it?.CurrentState?.toString() == 'Installed' && it.Package }
+    def pve = installed.find { it.Package.toString() == 'proxmox-ve' }
+    def running = pve?.RunningKernel?.toString()
+    def runningMatch = running =~ /^(\d+(?:\.\d+)+-\d+)-pve$/
+    def images = installed.collect { (it.Package.toString() =~ /^(?:proxmox|pve)-kernel-(\d+(?:\.\d+)+-\d+)-pve(?:-signed)?$/) }
+        .findAll { it.matches() }.collect { versionOf(it.group(1)) }
+    def newest = images ? images.max { left, right -> newer(left, right) ? 1 : (newer(right, left) ? -1 : 0) } : null
+    def reboot = null
+    if (runningMatch.matches() && newest != null) {
+        reboot = newer(newest, versionOf(runningMatch.group(1))) ? 1 : 0
+    }
+    def updates = null
+    if (pve && pve.Origin?.toString() != 'unknown') {
+        updates = installed.findAll { it.OldVersion && it.Version && it.OldVersion.toString() != it.Version.toString() }
+            *.Package*.toString().unique().size()
+    }
+    [rebootRequired: reboot, updates: updates]
+}
+
 // Whether a /cluster/status answer is quorate; a standalone host (no cluster row) is.
 def pveQuorate = { List status ->
     def clusterRow = status.find { it.type?.toString() == 'cluster' }
