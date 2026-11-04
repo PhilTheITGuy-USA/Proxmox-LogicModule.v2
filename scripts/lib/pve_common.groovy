@@ -640,6 +640,181 @@ def pveBackupInstances = { ->
     return instances
 }
 
+/*
+ * Every guest's backup results from the logs of vzdump runs, for Proxmox_VE_Cluster_Backups:
+ * collection reports them, and discovery names a guest's newest failure in its description,
+ * the one place text reaches an alert (##DSIDESCRIPTION##). Both read them here, so the two
+ * always agree.
+ *
+ * Everything comes from vzdump task logs, which PVEAuditor can read. Backup files on a
+ * storage are not an option for a read-only token: Proxmox lists a backup file only to a
+ * token holding Datastore.AllocateSpace and VM.Backup, and leaves the others out of the
+ * listing without an error.
+ *
+ * A vzdump task covers a whole run, not one guest (its id is empty), so a guest's result is
+ * named only in the run's log:
+ *
+ *   INFO: starting new backup job: vzdump 101 102 --node pve1 ... --storage <id>
+ *   INFO: Starting Backup of VM 102 (lxc)
+ *   INFO: archive file size: 3.51GB
+ *   INFO: Finished Backup of VM 102 (00:00:50)
+ *   ERROR: Backup of VM 101 failed - CT is locked (backup)
+ *
+ * "VM" is written for containers too. The archive size is in binary units (GB here means
+ * GiB) and is absent for some storage types, such as Proxmox Backup Server. The run's
+ * storage ties each result to the job instances writing to it: a run without --storage used
+ * the node's default and matches any job, as a job without a storage matches any run.
+ *
+ * A run can also fail before it reaches a guest -- its storage offline, say -- and then its
+ * log names none. Such a run has finished (it has a status) with a status other than OK or
+ * WARNINGS: n (Proxmox's status for a run that succeeded with warnings), and every guest it
+ * was meant to back up that its log never reached failed in it, with the run's status as the
+ * reason. Its guests are the VMIDs its command line lists; a run of --all or --pool lists
+ * none, so they are the job guests that live on the run's node, less any --exclude, which
+ * costs one /cluster/resources call, made only then.
+ *
+ * Runs are read newest first, across all online nodes, and reading stops once every job
+ * guest has a successful backup -- normally after the newest run. A log is read whole: the
+ * API returns 50 lines unless asked for more, and a run of several guests is longer. At most
+ * the newest maxRuns runs are read, so a guest whose last good backup is older than that
+ * reads as having none. complete is false when any online node's task list, a needed run's
+ * log or the guest list cannot be read: the missing run may hold a guest's newest result, and
+ * a guess would be worse than a gap.
+ */
+def pveBackupResults = { List instances, int maxRuns = 50 ->
+    def online = (pveGet('/cluster/resources?type=node') ?: [])
+        .findAll { it.status?.toString() == 'online' }
+        .collect { it.node?.toString() }
+        .findAll { it }
+    def runs = []
+    def complete = true
+    online.each { nodeName ->
+        // Per-node try: one unreachable node must not cost the others their data.
+        try {
+            (pveGet('/nodes/' + nodeName + '/tasks?typefilter=vzdump&limit=' + maxRuns) ?: []).each { task ->
+                if (task.upid && task.starttime != null) {
+                    runs << [node  : nodeName, upid: task.upid.toString(), start: task.starttime as long,
+                             end   : task.endtime == null ? null : task.endtime as long,
+                             status: task.status?.toString()?.trim()]
+                }
+            }
+        } catch (Exception nodeException) {
+            complete = false
+            System.err.println('Backup runs not read from node ' + nodeName + ': ' + nodeException.message)
+        }
+    }
+    runs = runs.sort { -it.start }.take(maxRuns)
+
+    def startingLine = ~/^INFO: Starting Backup of VM (\d+)/
+    def finishedLine = ~/^INFO: Finished Backup of VM (\d+)/
+    def failedLine = ~/^ERROR: Backup of VM (\d+) failed(?: - (.*))?/
+    def sizeLine = ~/archive file size: ([\d.]+)\s*([KMGT]?)B/
+    def storageOption = ~/--storage\s+(\S+)/
+    def excludeOption = ~/--exclude\s+(\S+)/
+    def binary = ['': 1d, K: 1024d, M: 1048576d, G: 1073741824d, T: 1099511627776d]
+    def sameStorage = { instance, String storage ->
+        instance.storage == null || storage == null || storage == instance.storage
+    }
+    // Results in the order read, newest run first: the first match is the newest.
+    def successes = []
+    def failures = []
+    def covered = instances.findAll { it.covered }
+    def newestSuccess = { instance ->
+        successes.find { it.vmid == instance.vmid && sameStorage(instance, it.storage) }
+    }
+    def guestNodes = null
+
+    for (run in runs) {
+        if (covered.every { newestSuccess(it) }) { break }
+        def logPath = '/nodes/' + run.node + '/tasks/' + URLEncoder.encode(run.upid, 'UTF-8') + '/log'
+        def lines = []
+        try {
+            int start = 0
+            while (true) {
+                def page = pveGet(logPath + '?start=' + start + '&limit=1000') ?: []
+                lines.addAll(page.collect { it.t?.toString() ?: '' })
+                if (page.size() < 1000) { break }
+                start += 1000
+            }
+        } catch (Exception logException) {
+            complete = false
+            System.err.println('Backup run ' + run.upid + ' not read: ' + logException.message)
+            break
+        }
+        def jobLine = lines.find { it.contains('starting new backup job') }
+        def storageMatch = jobLine ? (jobLine =~ storageOption) : null
+        def runStorage = storageMatch?.find() ? storageMatch.group(1) : null
+        def failure = { String vmid, String reason ->
+            [storage: runStorage, vmid: vmid, start: run.start, end: run.end, node: run.node,
+             reason : reason?.trim() ?: 'no reason logged']
+        }
+
+        String current = null
+        Double currentBytes = null
+        def reached = [] as Set
+        lines.each { line ->
+            def starting = line =~ startingLine
+            def size = line =~ sizeLine
+            def finished = line =~ finishedLine
+            def failed = line =~ failedLine
+            if (starting.find()) {
+                current = starting.group(1)
+                currentBytes = null
+                reached << current
+            } else if (size.find()) {
+                currentBytes = (size.group(1) as double) * binary[size.group(2)]
+            } else if (finished.find()) {
+                reached << finished.group(1)
+                successes << [storage: runStorage, vmid: finished.group(1), start: run.start,
+                              bytes  : finished.group(1) == current ? currentBytes : null]
+            } else if (failed.find()) {
+                reached << failed.group(1)
+                failures << failure(failed.group(1), failed.group(2))
+            }
+        }
+
+        def status = run.status
+        if (!status || status == 'OK' || status.startsWith('WARNINGS')) { continue }
+        def words = jobLine ? jobLine.substring(jobLine.indexOf('vzdump') + 6).trim().tokenize() : []
+        def listed = words.takeWhile { it ==~ /\d+/ }
+        def excludeMatch = jobLine ? (jobLine =~ excludeOption) : null
+        def excluded = excludeMatch?.find() ? excludeMatch.group(1).tokenize(',; ') : []
+        if (!listed && guestNodes == null) {
+            try {
+                guestNodes = (pveGet('/cluster/resources?type=vm') ?: [])
+                    .collectEntries { [(it.vmid?.toString()): it.node?.toString()] }
+            } catch (Exception guestException) {
+                complete = false
+                System.err.println('Guests of backup run ' + run.upid + ' not found: ' + guestException.message)
+                break
+            }
+        }
+        covered.findAll { instance ->
+            !reached.contains(instance.vmid) && sameStorage(instance, runStorage) &&
+                (listed ? listed.contains(instance.vmid) :
+                    guestNodes[instance.vmid] == run.node && !excluded.contains(instance.vmid))
+        }.collect { it.vmid }.unique().each { vmid ->
+            failures << failure(vmid, status)
+        }
+    }
+
+    return [complete: complete, successes: successes, failures: failures, sameStorage: sameStorage]
+}
+
+/*
+ * One job guest's state from pveBackupResults: its newest successful backup (null if none
+ * was read), and the newest failure since then (null if there is none), whose start, end,
+ * node and reason name the run.
+ */
+def pveBackupState = { Map instance, Map results ->
+    def newest = results.successes.find { it.vmid == instance.vmid && results.sameStorage(instance, it.storage) }
+    long newestTime = newest ? newest.start as long : 0L
+    def failure = results.failures.find { failure ->
+        failure.vmid == instance.vmid && results.sameStorage(instance, failure.storage) && failure.start > newestTime
+    }
+    [newest: newest, failure: failure]
+}
+
 // ------------------------------------------------------------- node pressure
 
 // The newest row of /nodes/{node}/rrddata that carries data: the last one is often still

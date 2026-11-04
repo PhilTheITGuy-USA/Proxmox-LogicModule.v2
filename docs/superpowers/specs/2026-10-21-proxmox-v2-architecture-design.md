@@ -369,6 +369,25 @@ problems, named with the fix, and which have no instances while all is well; thi
   other kept modules don't need it: a storage, service or certificate stays listed when it fails
   (and reports that), and a cluster member, OSD or Ceph pool leaves the list only when removed.
 
+  **A backup alert names the guest, its job and why** (amended 2026-11-04, user, gap review
+  #2: "identify the VM or container in the backup job that failed ... so they don't have to
+  rummage logs"). `Cluster_Backups` already had an instance per guest per job; what an alert
+  lacked was the reason, which a datapoint cannot carry. Only discovery writes text an alert
+  prints (`##DSIDESCRIPTION##`), so discovery runs every 15 minutes instead of 60, reads the
+  same vzdump runs as collection (the preamble's `pveBackupResults`), and while a guest has failed
+  since its last good backup its description reads `Backed up by <job>. Last failure in the run
+  started <time> on <node>: <reason>`, with the failed run's start stamped in
+  `auto.pve_backup_failed_at`. Collection reports `FailedSinceLastBackup` 1 once that stamp names
+  the failure and withholds it until then (user: wait for the reason), so the alert opens with
+  it, normally within 15 minutes; a run that ended over an hour ago alerts without the stamp, so
+  a discovery that cannot run never holds the alert back. **A run that fails before it reaches a
+  guest** (user: flag its guests) names none in its log: a finished run whose status is neither
+  `OK` nor `WARNINGS: n` fails every guest it was meant to back up that its log never reached,
+  the reason being the run's status -- the VMIDs on its command line, or for `--all` and `--pool`
+  the job's guests on the run's node less `--exclude`, one `/cluster/resources` call made only
+  then. **`LastBackupAgeHours` gets a default** (user: 8 and 14 days): `> 192 336`, a backstop for
+  a daily or weekly job that stopped, disabled or failing before any guest; tuned per job group.
+
 | # | Check | On | A problem when | Its fix |
 |---|---|---|---|---|
 | 1 | `settings` | every resource | no API URL can be built, `pve.token.credential` is missing, or it is not of the form `user@realm!tokenid=secret` (a password pasted for a token) | the property, and the form expected |

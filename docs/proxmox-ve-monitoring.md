@@ -409,6 +409,23 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.4.0
+
+A backup alert now says which guest failed, in which job, and why. The Backups instance's
+description, which the alert prints, reads for example "Backed up by Nightly. Last failure in
+the run started 2026-11-03 21:00 EST on Node-A: CT is locked (backup)". So the reason is always
+there, the failure alerts once discovery, which now runs every 15 minutes, has recorded it:
+normally within 15 minutes, and at most an hour after the run ended. A run that fails before it
+reaches any guest, for example because its storage is offline, now fails each guest it was
+meant to back up, with the run's error as the reason. It used to fail none.
+
+`LastBackupAgeHours` now warns after 8 days without a good backup and raises an error after 14,
+which catches a daily or weekly job that has stopped running. For a job that runs less often
+than weekly, raise the threshold on its instance group.
+
+1. Re-import `Proxmox_VE_Cluster_Backups`. The other modules, the NetScan and the dashboards are
+   as in v2.4.0.
+
 ### Upgrading from v2.3.2
 
 Node Disks gains `Present`: a disk Proxmox no longer lists on its node raises an error alert,
