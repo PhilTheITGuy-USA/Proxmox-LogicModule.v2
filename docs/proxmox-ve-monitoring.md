@@ -412,7 +412,8 @@ resources the NetScan creates.
 ### Upgrading from v2.4.0
 
 Guest Status gains `StartAtBootNotRunning`: a guest set to **Start at boot** in Proxmox that is
-not running raises an error after two polls (6 minutes), so a restart does not page. A guest
+not running raises an error once three polls in a row have seen it down: 6 minutes after the
+first, up to 9 after it stopped. A restart does not page. A guest
 that is locked by a task such as a stop-mode backup, a guest managed by HA, and a guest on a
 node that is down do not alert. `Status` still ships without a threshold. To silence a guest
 that is meant to stay stopped, turn off its Start at boot. The alert clears at the next
