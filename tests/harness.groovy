@@ -42,6 +42,10 @@ def serve = { exchange, List log ->
         // A valid token without the privilege: Proxmox names it in the status line
         status = 403
         body = JsonOutput.toJson([data: null])
+    } else if (fixtures[key] instanceof Map && fixtures[key].harnessStatus) {
+        // A fixture that stands for an error answer, such as a guest agent that is not running.
+        status = fixtures[key].harnessStatus as int
+        body = JsonOutput.toJson([data: null, message: fixtures[key].message])
     } else if (fixtures.containsKey(key)) {
         status = 200
         body = JsonOutput.toJson([data: fixtures[key]])
@@ -157,7 +161,7 @@ def NODE_SCOPED = ['Proxmox_VE_Node_Disks', 'Proxmox_VE_Node_Services', 'Proxmox
                    'Proxmox_VE_Node_StoragePools', 'Proxmox_VE_Node_Network']
 
 // Modules whose collection calls each guest's own node, so a guest on an offline node reports nothing.
-def GUEST_NODE_READ_MODULES = ['Proxmox_VE_Cluster_Snapshots']
+def GUEST_NODE_READ_MODULES = ['Proxmox_VE_Cluster_Snapshots', 'Proxmox_VE_Cluster_VMHealth']
 def AD_LINE = ~/^([A-Za-z0-9_.\-]+)##([^#]*)##([^#]*)####(.*)$/
 def BATCH_LINE = ~/^([A-Za-z0-9_.\-]+)\.([A-Za-z0-9_]+)=(.*)$/
 def PLAIN_LINE = ~/^([A-Za-z0-9_]+)=(.*)$/
@@ -2965,6 +2969,101 @@ def autoDeleteWrong = new File(ROOT, 'modules').listFiles({ f -> f.name.endsWith
 note('auto-delete-built', autoDeleteWrong.isEmpty(), "modules whose built auto-delete differs from autoDelete: ${autoDeleteWrong}")
 }
 troubleshooterCases()
+
+// ------------------------------------------------------ VM health (gap review #5, 2026-11-04)
+//
+// Discovery stamps each VM's agent option; collection reads QEMU's own state from each online
+// node's ?full=1 list and asks the agent of every VM with it enabled that is running,
+// unlocked, not paused and past its boot grace. The lab's agent/info and qmpstatus shapes
+// (PVE 9.2.3, 2026-11-04) are the fixtures'.
+def vmHealthCases = { ->
+    def vmAd = new File(scriptsDir, 'Proxmox_VE_Cluster_VMHealth.ad.groovy')
+    def found = discoverWith(vmAd, hostProps)
+    def foundAd = parseAd(found.stdout)
+    note('vm-health-ad', found.exit == 0 && foundAd.keySet() == ['qemu-101', 'qemu-102'] as Set &&
+                         foundAd['qemu-101'].auto['auto.pve_agent'] == '1' &&
+                         !foundAd['qemu-102'].auto.containsKey('auto.pve_agent'),
+         "VMs only, agent from the config, none for a VM on an offline node: exit ${found.exit}, " +
+         "${foundAd.collectEntries { id, p -> [(id): p.auto['auto.pve_agent']] }} / ${found.stderr}")
+    def agentOff = withFixtures(['/nodes/pve1/qemu/101/config': fixtures['/nodes/pve1/qemu/101/config'] + [agent: '0']]) {
+        parseAd(discoverWith(vmAd, hostProps).stdout)
+    }
+    note('vm-health-ad', agentOff['qemu-101']?.auto?.get('auto.pve_agent') == '0', "agent 0 read as ${agentOff['qemu-101']}")
+    def noGate = withFixtures(['/cluster/status': null]) { discoverWith(vmAd, hostProps) }
+    note('vm-health-ad', noGate.exit == 0 && parseAd(noGate.stdout).size() == 2 &&
+                         !parseAd(noGate.stdout).values().any { it.auto.containsKey('auto.pve_agent') },
+         "without /cluster/status the VMs are discovered without the agent stamp: ${noGate.stdout} / ${noGate.stderr}")
+
+    def vmCollect = new File(scriptsDir, 'Proxmox_VE_Cluster_VMHealth.collect.groovy')
+    def vm = { int vmid, Map extra = [:] ->
+        [id: 'qemu/' + vmid, type: 'qemu', vmid: vmid, name: 'vm' + vmid, node: 'pve1', status: 'running',
+         uptime: 86400, template: false] + extra
+    }
+    def vms = [vm(401), vm(402), vm(403), vm(404, [lock: 'backup']), vm(405, [status: 'stopped', uptime: 0]),
+               vm(406), vm(407, [uptime: 60]), vm(408, [node: 'pve2']), vm(409), vm(410), vm(412),
+               [id: 'lxc/411', type: 'lxc', vmid: 411, name: 'ct411', node: 'pve1', status: 'running', template: false]]
+    def qmp = ['401': 'running', '402': 'running', '403': 'io-error', '404': 'paused', '406': 'running',
+               '407': 'running', '409': 'running', '412': 'running']
+    def agentFlags = ['401': '1', '402': '1', '403': '1', '404': '1', '405': '1', '406': '0', '407': '1',
+                      '408': '1', '409': '1', '410': '1', '412': '1']
+    def instances = agentFlags.collectEntries { vmid, flag -> [('vm' + vmid): [wildvalue: 'qemu-' + vmid, 'auto.pve_agent': flag]] }
+    def info = fixtures['/nodes/pve1/qemu/101/agent/info']
+    def vmFixtures = [
+        '/cluster/resources?type=vm'        : vms,
+        '/nodes/pve1/qemu?full=1'           : qmp.collect { vmid, qemuState -> [vmid: vmid as int, status: 'running', qmpstatus: qemuState] },
+        '/nodes/pve1/qemu/401/agent/info'   : info,
+        '/nodes/pve1/qemu/402/agent/info'   : [harnessStatus: 500, message: 'QEMU guest agent is not running'],
+        '/nodes/pve1/qemu/409/agent/info'   : [harnessStatus: 403, message: 'Permission check failed'],
+    ]
+    def collectWith = { Map extraFixtures, Map binding ->
+        withFixtures(vmFixtures + extraFixtures) {
+            int before = requestLog.size()
+            def run = runScript(vmCollect, [hostProps: hostProps] + binding)
+            def log = new ArrayList(requestLog)
+            run.requests = log.subList(before, log.size())
+            run.data = parseBatch(run.stdout)
+            run
+        }
+    }
+    def run = collectWith([:], [datasourceinstanceProps: asCollectorInstances(instances)])
+    def paused = run.data.collectEntries { id, values -> [(id): values.Paused] }.findAll { id, v -> v != null }
+    def agent = run.data.collectEntries { id, values -> [(id): values.AgentResponding] }.findAll { id, v -> v != null }
+    note('vm-health-paused', run.exit == 0 && paused == ['qemu-401': 0d, 'qemu-402': 0d, 'qemu-403': 1d, 'qemu-404': 0d,
+                                                         'qemu-405': 0d, 'qemu-406': 0d, 'qemu-407': 0d, 'qemu-409': 0d,
+                                                         'qemu-412': 0d],
+         "Paused: io-error alerts, a lock explains a pause, a stopped VM reads 0, an offline node and a VM missing " +
+         "from its node's list read nothing: exit ${run.exit}, ${paused} / ${run.stderr}")
+    note('vm-health-agent', agent == ['qemu-401': 1d, 'qemu-402': 0d],
+         "AgentResponding: an answer is 1, Proxmox's 500 is 0, and a refusal (409), a missing answer (412), a paused (403), " +
+         "locked (404), stopped (405), agentless (406), booting (407) or offline (408) VM read nothing: ${agent}")
+    def agentReads = run.requests.findAll { it.endsWith('/agent/info') }.sort()
+    note('vm-health-agent', agentReads == ['/nodes/pve1/qemu/401/agent/info', '/nodes/pve1/qemu/402/agent/info',
+                                           '/nodes/pve1/qemu/409/agent/info', '/nodes/pve1/qemu/412/agent/info'],
+         "only running, unlocked, unpaused VMs with the agent on and past the grace are asked: ${agentReads}")
+    note('vm-health-agent', run.requests.count { it.startsWith('/nodes/pve1/qemu?full=1') } == 1 &&
+                            !run.requests.any { it.startsWith('/nodes/pve2/') },
+         "one VM list for pve1 and nothing of the offline pve2: ${run.requests}")
+    note('vm-health-refused', run.stderr.contains('1 guest agent checks refused (HTTP 403)') && run.stderr.contains('VM.GuestAgent.Audit'),
+         "a refused agent read should be counted on stderr: ${run.stderr}")
+    // Without the instances discovery wrote there is no agent stamp, and no agent is asked.
+    def bare = collectWith([:], [:])
+    note('vm-health-agent', bare.exit == 0 && bare.data['qemu-403']?.Paused == 1d &&
+                            !bare.data.values().any { it.containsKey('AgentResponding') } &&
+                            !bare.requests.any { it.endsWith('/agent/info') },
+         "without datasourceinstanceProps: ${bare.data} / ${bare.requests.findAll { it.contains('agent') }}")
+    // A node list that cannot be read withholds Paused for its running VMs, and asks none of their agents.
+    def vmNoList = collectWith(['/nodes/pve1/qemu?full=1': null], [datasourceinstanceProps: asCollectorInstances(instances)])
+    note('vm-health-list', vmNoList.exit == 0 && vmNoList.data.findAll { id, v -> v.containsKey('Paused') }.keySet() == ['qemu-405'] as Set &&
+                           !vmNoList.data.values().any { it.containsKey('AgentResponding') } && vmNoList.stderr.contains('no VM list from node pve1'),
+         "an unreadable node list: ${vmNoList.data} / ${vmNoList.stderr}")
+    // The standby, while the active node collects, prints nothing.
+    def standby = collectWith([:], [hostProps: hostProps + ['pve.cluster.role': 'standby', 'pve.cluster.active': 'pve1', 'pve.node': 'pve2',
+                                                            'system.hostname': '127.0.0.1:' + server.address.port],
+                                    datasourceinstanceProps: asCollectorInstances(instances)])
+    note('vm-health-standby', standby.exit == 0 && standby.stdout.trim().isEmpty(),
+         "the standby collected while pve1 is online: ${standby.stdout} / ${standby.stderr}")
+}
+vmHealthCases()
 
 server.stop(0)
 server2.stop(0)
