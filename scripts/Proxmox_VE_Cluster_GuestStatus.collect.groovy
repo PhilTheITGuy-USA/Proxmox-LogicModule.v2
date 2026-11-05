@@ -59,7 +59,8 @@ try {
 
         def startAtBoot = onboot[pveWildValue(id)]
         if (startAtBoot != null) {
-            def down = startAtBoot == '1' && status != 'running' && !guest.lock && !haState &&
+            // A paused VM is not down: Proxmox_VE_Cluster_VMHealth alerts on it (Paused).
+            def down = startAtBoot == '1' && !(status in ['running', 'paused']) && !guest.lock && !haState &&
                 onlineNodes.contains(guest.node?.toString())
             pveEmit(id, 'StartAtBootNotRunning', down ? 1 : 0)
         }

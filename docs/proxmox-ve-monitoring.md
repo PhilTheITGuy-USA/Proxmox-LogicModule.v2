@@ -54,9 +54,12 @@ Designed for up to 10 clusters of 16 nodes and 1,000 guests each. *(not yet veri
 | Cluster, node, storage, Ceph, backup and guest metrics | `PVEAuditor` role on `/`, propagated |
 | A guest's live address (NetScan, Proxmox VE 9) | `VM.GuestAgent.Audit`, which `PVEAuditor` includes |
 | A guest's live address (NetScan, Proxmox VE 8) | `VM.Monitor`, which `PVEAuditor` does not include *(not yet verified)* |
+| Whether a VM's guest agent answers (VM Health, Proxmox VE 9) | `VM.GuestAgent.Audit`, which `PVEAuditor` includes |
+| Whether a VM's guest agent answers (VM Health, Proxmox VE 8) | `VM.Monitor`, which `PVEAuditor` does not include *(not yet verified)* |
 
 **Note:** Without the guest-agent privilege the NetScan still runs: it uses the address in the
-guest's configuration, or the guest's name, as the hostname, and reports that it did.
+guest's configuration, or the guest's name, as the hostname, and reports that it did. VM Health
+leaves `AgentResponding` empty (No Data) rather than reading 0, and `Paused` still reports.
 
 ### Getting the NetScan Script and Dashboards
 
@@ -717,6 +720,7 @@ so no module replaces another.
 | Proxmox VE Cluster Nodes | DataSource | Each node's online state, seen from the cluster | — |
 | Proxmox VE Cluster Guest Status | DataSource | Power state, lock and HA state of every VM and container | — |
 | Proxmox VE Cluster Guest Performance | DataSource | CPU, memory, network and disk of every VM and container; CPU/IO/memory pressure; for VMs, ballooning, disk IOPS and disk latency | — |
+| Proxmox VE Cluster VM Health | DataSource | Each VM that QEMU has paused while Proxmox reads it as running (a full or failed storage), and each VM whose guest agent stops answering (a hung guest) | — |
 | Proxmox VE Cluster Storage Capacity | DataSource | Capacity and availability of every storage, per node | — |
 | Proxmox VE Cluster Ceph | DataSource | Ceph health, placement groups and capacity | — |
 | Proxmox VE Cluster Ceph OSD | DataSource | Each OSD's state, fill level and latency | — |
