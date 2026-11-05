@@ -93,7 +93,7 @@
       "conditional": true,
       "threshold": "> 25 50",
       "triggerInterval": 2,
-      "alertBody": "Proxmox guest ##INSTANCE## spent ##VALUE##% of the last 10 seconds with tasks waiting for CPU, on three polls in a row. It is short of CPU: it needs more cores or a higher CPU limit, or its node is overcommitted (see the node's CPU pressure on Proxmox_VE_Node_Detail). The thresholds are starting points; tune them per group.\n\nThis started at ##START##, ##DURATION## ago."
+      "alertBody": "Proxmox guest ##INSTANCE## spent ##VALUE##% of the last 10 seconds with tasks waiting for CPU, on three polls in a row. It is short of CPU: it needs more cores or a higher CPU limit, or its node is overcommitted (see the node's CPU pressure on Proxmox VE Node Detail). The thresholds are starting points; tune them per group.\n\nThis started at ##START##, ##DURATION## ago."
     },
     {
       "name": "PressureCPUFullPercent",
