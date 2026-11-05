@@ -1361,9 +1361,10 @@ def onbootGuests = [
     [id: 'lxc/305', vmid: 305, status: 'stopped', node: 'pve2'],         // its node is down
     [id: 'lxc/306', vmid: 306, status: 'running'],
     [id: 'lxc/307', vmid: 307, status: 'stopped'],                       // onboot not recorded
+    [id: 'qemu/308', vmid: 308, status: 'paused'],                       // paused: VM Health alerts (lab 2026-11-05)
 ].collect { [type: it.id.tokenize('/')[0], name: 'g' + it.vmid, node: 'pve1', template: false] + it }
-def onbootBinding = ['301': '1', '302': '0', '303': '1', '304': '1', '305': '1', '306': '1'].collectEntries { vmid, flag ->
-    def type = vmid == '304' ? 'qemu' : 'lxc'
+def onbootBinding = ['301': '1', '302': '0', '303': '1', '304': '1', '305': '1', '306': '1', '308': '1'].collectEntries { vmid, flag ->
+    def type = vmid in ['304', '308'] ? 'qemu' : 'lxc'
     [('g' + vmid): [wildvalue: type + '-' + vmid, 'auto.pve_onboot': flag]]
 }
 def onbootCollect = { Map instances ->
@@ -1378,7 +1379,7 @@ def onbootRun = onbootCollect(onbootBinding)
 def onbootValues = onbootRun.data.collectEntries { id, values -> [(id): values.StartAtBootNotRunning] }
 note('guest-onboot-collect', onbootRun.exit == 0 &&
                              onbootValues == ['lxc-301': 1d, 'lxc-302': 0d, 'lxc-303': 0d, 'qemu-304': 0d,
-                                              'lxc-305': 0d, 'lxc-306': 0d, 'lxc-307': null],
+                                              'lxc-305': 0d, 'lxc-306': 0d, 'lxc-307': null, 'qemu-308': 0d],
      "StartAtBootNotRunning: exit ${onbootRun.exit}, ${onbootValues} ${onbootRun.stderr}")
 def onbootBare = onbootCollect(null)
 note('guest-onboot-collect', onbootBare.exit == 0 && onbootBare.data['lxc-301'].Status == 0d &&
