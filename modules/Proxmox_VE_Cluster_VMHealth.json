@@ -1,0 +1,70 @@
+{
+  "name": "Proxmox_VE_Cluster_VMHealth",
+  "displayedAs": "Proxmox VE Cluster VM Health",
+  "description": "Whether each QEMU virtual machine in a Proxmox VE cluster is really running: paused by QEMU while Proxmox reads it as running, or its guest agent not answering.",
+  "group": "Proxmox VE",
+  "appliesTo": "pve.cluster.role == \"active\" || pve.cluster.role == \"standby\"",
+  "searchKeywords": "proxmox,pve,vm,qemu,guest,agent,qemu-guest-agent,hung,paused,io-error,heartbeat",
+  "technicalNotes": "BatchScript, one instance per QEMU virtual machine (containers have no QEMU and no guest agent), with the same wildvalues as the guest modules. It answers what Guest Status cannot: Proxmox reads a VM as running for as long as its QEMU process exists, whether or not the VM is doing anything.\n\nPaused is 1 when Proxmox says running, no task holds a lock on the VM, and QEMU's own state (qmpstatus) is anything else: its CPUs are stopped because its storage filled or failed (io-error), the guest panicked, or it was paused by hand. A suspend-mode backup, a migration or a snapshot pauses a VM on purpose under a lock, and reads 0. It raises an error on the second poll in a row.\n\nAgentResponding is 1 when the VM's QEMU guest agent answers /agent/info and 0 when Proxmox answers that it does not (HTTP 500): the guest's operating system is hung, or the agent service inside it has stopped. It raises an error on the third poll in a row (10 to 15 minutes), so a reboot does not page. Only VMs with the agent option enabled are asked; discovery reads it from each VM's config into auto.pve_agent, hourly. A VM that is stopped, locked, paused (Paused alerts instead), up for less than three minutes, or on a node that is down is not asked and reads No Data. The agent must be installed and running inside the guest: a VM with the option on and no agent reads 0, so turn the option off for it.\n\nCost per poll: /cluster/resources and /cluster/status, one /nodes/{node}/qemu?full=1 per online node running a VM, and one agent read per VM asked, sent to the VM's own node, at most pve.api.concurrency at a time per node (default 2) and within pve.api.budget.ms (default 45000). An unresponsive agent costs Proxmox's own wait before it answers 500. A read that times out or that the budget skips reads No Data. Discovery adds one config read per VM, hourly.\n\nApplies on the cluster role: resources whose pve.cluster.role is active or standby, which the NetScan sets. Only one of the pair collects -- the active resource, or the standby while the active one is down or has lost quorum. The other prints nothing, so its datapoints read No Data and the pair never alerts twice.\n\nRequires VM.Audit on /vms/{vmid} and Sys.Audit on /, which PVEAuditor includes, and for AgentResponding VM.GuestAgent.Audit (Proxmox VE 9, in PVEAuditor) or VM.Monitor (Proxmox VE 8, not in PVEAuditor -- not yet verified). A refused agent read leaves AgentResponding No Data rather than 0.",
+  "collectionMethod": "batchscript",
+  "collectionInterval": "5m",
+  "multiInstance": true,
+  "useWildValueAsUniqueIdentifier": true,
+  "collectScript": "Proxmox_VE_Cluster_VMHealth.collect.groovy",
+  "discoveryScript": "Proxmox_VE_Cluster_VMHealth.ad.groovy",
+  "instanceGroupProperty": "auto.pve_node",
+  "discoveryInterval": "60m",
+  "autoDelete": true,
+  "datapoints": [
+    {
+      "name": "Paused",
+      "description": "1 when Proxmox reads the VM as running but QEMU has stopped its CPUs (paused, io-error, a guest panic) and no task holds a lock on it. 0 when it is not running.",
+      "conditional": true,
+      "threshold": "> 0 0",
+      "triggerInterval": 1,
+      "alertBody": "Proxmox VM ##INSTANCE## reads as running, but QEMU has stopped it: its CPUs are paused, so whatever it serves is down. The usual cause is its storage filling up or failing (QEMU pauses a VM on an I/O error); a guest panic, or someone pausing it, also does this. Its Summary page shows QEMU's state. Free or fix the storage, then resume the VM (qm resume, or Resume in its menu).\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago.",
+      "statusNames": {
+        "0": "Not paused",
+        "1": "Paused"
+      }
+    },
+    {
+      "name": "AgentResponding",
+      "description": "1 when the VM's guest agent answers, 0 when Proxmox reports it does not. Only for VMs with the agent option enabled that are running, unlocked and not paused.",
+      "conditional": true,
+      "threshold": "< 1 1",
+      "triggerInterval": 2,
+      "alertBody": "The QEMU guest agent in Proxmox VM ##INSTANCE## has not answered for three polls in a row, while QEMU itself runs. The guest's operating system is hung, or the agent service inside it has stopped. Open the VM's console: if it is unresponsive, reset it; if it works, start the qemu-guest-agent service. If the VM has no agent installed, turn off its QEMU Guest Agent option.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago.",
+      "statusNames": {
+        "0": "Not responding",
+        "1": "Responding"
+      }
+    }
+  ],
+  "graphs": [
+    {
+      "title": "Paused",
+      "verticalLabel": "1 = yes",
+      "max": 1,
+      "lines": [
+        {
+          "dp": "Paused",
+          "legend": "Paused by QEMU",
+          "color": "red"
+        }
+      ]
+    },
+    {
+      "title": "Guest Agent",
+      "verticalLabel": "1 = yes",
+      "max": 1,
+      "lines": [
+        {
+          "dp": "AgentResponding",
+          "legend": "Agent responding",
+          "color": "green"
+        }
+      ]
+    }
+  ]
+}

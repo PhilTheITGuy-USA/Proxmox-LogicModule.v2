@@ -43,6 +43,21 @@ try {
         pveEmit(null, 'DaysUntilDue', pveRound(((due as double) - (now as double)) /
                                             SECONDS_PER_DAY))
     }
+
+    /*
+     * Reboot required and updates waiting, from the node's package versions (Sys.Audit).
+     * A refused or failed read withholds both and leaves the subscription figures standing:
+     * it is a second question, and the troubleshooter names a missing privilege.
+     */
+    def kernel = null
+    try {
+        kernel = pveKernelState(pveNodeGet('/nodes/' + nodeName + '/apt/versions') as List)
+    } catch (IOException failure) {
+        System.err.println('Proxmox package versions not read, so RebootRequired and UpdatesAvailable are withheld: ' +
+                           failure.message)
+    }
+    if (kernel?.rebootRequired != null) { pveEmit(null, 'RebootRequired', kernel.rebootRequired == 1 ? 1 : 0) }
+    if (kernel?.updates != null) { pveEmit(null, 'UpdatesAvailable', kernel.updates) }
     return 0
 } catch (Exception exception) {
     System.err.println('Proxmox subscription collection failed: ' + exception.message)

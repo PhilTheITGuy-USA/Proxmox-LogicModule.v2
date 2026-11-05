@@ -73,6 +73,7 @@ a wrong node name, raise its alert, clear it once fixed and drop the finding.
 | `Proxmox_VE_Cluster_Nodes` | DataSource | 5 min |
 | `Proxmox_VE_Cluster_GuestStatus` | DataSource | 3 min |
 | `Proxmox_VE_Cluster_GuestPerformance` | DataSource | 5 min |
+| `Proxmox_VE_Cluster_VMHealth` | DataSource | 5 min |
 | `Proxmox_VE_Cluster_StorageCapacity` | DataSource | 10 min |
 | `Proxmox_VE_Cluster_Ceph` | DataSource | 5 min |
 | `Proxmox_VE_Cluster_CephOSD` | DataSource | 5 min |
@@ -95,7 +96,7 @@ a wrong node name, raise its alert, clear it once fixed and drop the finding.
 | `addERI_Proxmox_VE_GuestResource` | PropertySource (ERI) | 30 min |
 
 Keywords: proxmox, pve, proxmox ve, hypervisor, virtualization, cluster, node, qemu, lxc, vm,
-container, ceph, storage, backup, snapshot, replication, topology, quorum, ha, troubleshooter.
+container, ceph, storage, backup, snapshot, replication, topology, quorum, ha, guest agent, troubleshooter.
 
 ## Before submitting
 
