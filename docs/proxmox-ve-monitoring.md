@@ -412,6 +412,50 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.5.0
+
+**VM Health is a new module.** Proxmox reads a VM as running for as long as its QEMU process
+exists, so Guest Status cannot see a VM that has stopped working. `Proxmox_VE_Cluster_VMHealth`
+adds an instance for each VM, and containers are left out:
+
+- `Paused` raises an error on the second poll in a row when QEMU has stopped the VM's CPUs,
+  usually because its storage filled up or failed. A guest panic, or someone pausing the VM by
+  hand, does the same. A backup, migration or snapshot that pauses a VM under a lock does not
+  alert.
+- `AgentResponding` raises an error on the third poll in a row (10 to 15 minutes) when a VM with
+  the QEMU Guest Agent option on stops answering, so its operating system has hung or the agent
+  has stopped. A reboot does not page. A VM with the option on and no agent installed reads 0,
+  so turn the option off for it.
+
+Guest Status no longer raises `StartAtBootNotRunning` on a paused VM, so a pause gives one alert,
+from VM Health. `Status` still reads "Not running" while a VM is paused.
+
+**Node Subscription** gains `RebootRequired`, a warning when a node has a newer kernel installed
+than the one it is running, and `UpdatesAvailable`, the number of Proxmox packages with a newer
+version in the node's package cache, which ships without a threshold. The module polls every 12
+hours, so the warning can take that long to open or clear. A node pinned to an older kernel on
+purpose will warn: disable the alert on that node. `UpdatesAvailable` reads No Data on a node
+whose package cache knows no repository, until `apt update` has run there.
+
+**Guest Performance** now alerts on contention, on the third poll in a row:
+
+| Datapoint | Warning | Error |
+|---|---|---|
+| `PressureCPUSomePercent` | 25 | 50 |
+| `PressureMemoryFullPercent` | 5 | 15 |
+| `GuestSwapInRateMB` | 1 | 10 |
+
+These thresholds are starting points, so tune them on an instance group where a guest runs hot
+by design. I/O pressure still ships without a threshold: a camera recorder's normal reads reach
+23%.
+
+1. Import `Proxmox_VE_Cluster_VMHealth`, and re-import `Proxmox_VE_Cluster_GuestPerformance`,
+   `Proxmox_VE_Cluster_GuestStatus` and `Proxmox_VE_Node_Subscription`. The other modules, the
+   NetScan and the dashboards are as in v2.5.0.
+2. On Proxmox VE 8, for `AgentResponding`, give the token `VM.Monitor`, which `PVEAuditor` does
+   not include *(not yet verified)*. Without it the datapoint reads No Data. Proxmox VE 9 needs
+   nothing new.
+
 ### Upgrading from v2.4.0
 
 A backup alert now says which guest failed, in which job, and why. The Backups instance's
@@ -719,7 +763,7 @@ so no module replaces another.
 | Proxmox VE Cluster Status | DataSource | Quorum, HA manager health, migrations, nodes online and a cluster health score | — |
 | Proxmox VE Cluster Nodes | DataSource | Each node's online state, seen from the cluster | — |
 | Proxmox VE Cluster Guest Status | DataSource | Power state, lock and HA state of every VM and container | — |
-| Proxmox VE Cluster Guest Performance | DataSource | CPU, memory, network and disk of every VM and container; CPU/IO/memory pressure; for VMs, ballooning, disk IOPS and disk latency | — |
+| Proxmox VE Cluster Guest Performance | DataSource | CPU, memory, network and disk of every VM and container; CPU/IO/memory pressure, with alerts on sustained CPU contention and memory thrashing; for VMs, ballooning, swap-in, disk IOPS and disk latency | — |
 | Proxmox VE Cluster VM Health | DataSource | Each VM that QEMU has paused while Proxmox reads it as running (a full or failed storage), and each VM whose guest agent stops answering (a hung guest) | — |
 | Proxmox VE Cluster Storage Capacity | DataSource | Capacity and availability of every storage, per node | — |
 | Proxmox VE Cluster Ceph | DataSource | Ceph health, placement groups and capacity | — |
@@ -738,7 +782,7 @@ so no module replaces another.
 | Proxmox VE Node Disks | DataSource | SMART health, size and SSD wear of each disk, and a disk that is no longer there | — |
 | Proxmox VE Node Services | DataSource | State of the Proxmox-managed systemd services | — |
 | Proxmox VE Node Certificates | DataSource | TLS certificate expiry | — |
-| Proxmox VE Node Subscription | DataSource | Subscription status and renewal date | — |
+| Proxmox VE Node Subscription | DataSource | Subscription status and renewal date; whether the node needs a reboot to run its newest kernel; how many Proxmox package updates are waiting | — |
 | Proxmox VE Node Replication | DataSource | Replication job failures, staleness and duration | — |
 | Proxmox VE Node Storage Pools | DataSource | Size, use and health of ZFS pools, LVM volume groups and thin pools | — |
 | Proxmox VE Node Network | DataSource | State of the bridges guests attach to, and of the VLANs guests use on them | — |
