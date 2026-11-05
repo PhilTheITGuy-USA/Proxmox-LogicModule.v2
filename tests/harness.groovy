@@ -2985,6 +2985,56 @@ def contentionCases = { ->
 }
 contentionCases()
 
+// ----------------------------------------------------- reboot required (gap review #4)
+//
+// pveKernelState reads /nodes/{node}/apt/versions in the shape the lab returned (PVE 9.2.3,
+// 2026-11-04): RunningKernel on the proxmox-ve row, one package per kernel image.
+def kernelCases = { ->
+    def baseRows = fixtures['/nodes/pve1/apt/versions']
+    def kernelOf = { List rows ->
+        def run = runSource(preamble + '\nreturn pveKernelState(rows)', [hostProps: nodeHostProps, rows: rows])
+        run.thrown ? [thrown: run.thrown.toString()] : run.exit
+    }
+    def image = { String version, String pkgState = 'Installed', String prefix = 'proxmox-kernel-', String suffix = '-pve-signed' ->
+        [Package: prefix + version + suffix, Origin: 'Proxmox', CurrentState: pkgState, OldVersion: version, Version: version]
+    }
+    def withRunning = { List rows, String running -> rows.collect { it.Package == 'proxmox-ve' ? it + [RunningKernel: running] : it } }
+
+    def lab = kernelOf(baseRows)
+    note('kernel-current', lab == [rebootRequired: 0, updates: 3],
+         "the lab's own rows (running its newest kernel, 3 packages behind, one listed twice) gave ${lab}")
+    def pending = kernelOf(baseRows + [image('7.0.14-28')])
+    note('kernel-pending', pending?.rebootRequired == 1, "7.0.14-28 installed under a running 7.0.6-2 gave ${pending}")
+    def minor = kernelOf(withRunning(baseRows, '7.0.14-28-pve'))
+    note('kernel-order', minor?.rebootRequired == 0, "running 7.0.14 with 7.0.6 installed read as older: ${minor}")
+    def series = kernelOf(baseRows + [image('7.1.0-1')])
+    note('kernel-order', series?.rebootRequired == 1, "a 7.1 kernel over a running 7.0 gave ${series}")
+    def removed = kernelOf(baseRows + [image('7.0.14-28', 'ConfigFiles')])
+    note('kernel-removed', removed?.rebootRequired == 0, "a removed kernel's leftover config counted as installed: ${removed}")
+    def unsigned = kernelOf(baseRows + [image('7.0.14-28', 'Installed', 'proxmox-kernel-', '-pve')])
+    note('kernel-unsigned', unsigned?.rebootRequired == 1, "an unsigned image was not counted: ${unsigned}")
+    def legacy = kernelOf(withRunning([baseRows[0], image('5.15.102-1', 'Installed', 'pve-kernel-', '-pve'),
+                                       image('5.15.108-1', 'Installed', 'pve-kernel-', '-pve')], '5.15.102-1-pve'))
+    note('kernel-legacy', legacy?.rebootRequired == 1, "pve-kernel- names (Proxmox VE 7) gave ${legacy}")
+    def custom = kernelOf(withRunning(baseRows, '6.1.0-13-amd64'))
+    note('kernel-foreign', custom?.rebootRequired == null, "a non-Proxmox running kernel was compared: ${custom}")
+    def noRepo = kernelOf(baseRows.collect { it.Package == 'proxmox-ve' ? it + [Origin: 'unknown'] : it })
+    note('updates-no-repo', noRepo?.updates == null && noRepo?.rebootRequired == 0,
+         "a package cache with no repository gave ${noRepo}")
+
+    def subscriptionFile = new File(scriptsDir, 'Proxmox_VE_Node_Subscription.collect.groovy')
+    def sub = runScript(subscriptionFile, [hostProps: nodeHostProps])
+    def subLines = sub.stdout.readLines()
+    note('kernel-script', sub.exit == 0 && 'RebootRequired=0' in subLines && 'UpdatesAvailable=3' in subLines,
+         "the subscription script printed ${subLines} / ${sub.stderr}")
+    def subFail = withFixtures(['/nodes/pve1/apt/versions': null]) { runScript(subscriptionFile, [hostProps: nodeHostProps]) }
+    def failLines = subFail.stdout.readLines()
+    note('kernel-unread', subFail.exit == 0 && 'Active=1' in failLines && !failLines.any { it.startsWith('RebootRequired') || it.startsWith('UpdatesAvailable') } &&
+                          subFail.stderr.contains('withheld'),
+         "an unreadable package list gave exit ${subFail.exit}, ${failLines} / ${subFail.stderr}")
+}
+kernelCases()
+
 server.stop(0)
 server2.stop(0)
 

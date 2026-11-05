@@ -656,6 +656,17 @@
       "disable": 1
     }
   ],
+  "/nodes/pve1/apt/versions": [
+    {"Package": "proxmox-ve", "Title": "Proxmox Virtual Environment", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "9.2.0", "Version": "9.2.0", "RunningKernel": "7.0.6-2-pve", "Arch": "all", "Priority": "optional", "Section": "admin"},
+    {"Package": "pve-manager", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "9.2.3", "Version": "9.2.25", "ManagerVersion": "9.2.3", "Arch": "all"},
+    {"Package": "proxmox-kernel-helper", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "9.2.0", "Version": "9.2.1", "Arch": "all"},
+    {"Package": "proxmox-kernel-7.0", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "7.0.6-2", "Version": "7.0.14-28", "Arch": "amd64"},
+    {"Package": "proxmox-kernel-7.0.6-2-pve-signed", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "7.0.6-2", "Version": "7.0.6-2", "Arch": "amd64"},
+    {"Package": "proxmox-kernel-7.0.2-4-pve-signed", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "7.0.2-4", "Version": "7.0.2-4", "Arch": "amd64"},
+    {"Package": "proxmox-kernel-6.17.13-9-pve-signed", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "6.17.13-9", "Version": "6.17.13-9", "Arch": "amd64"},
+    {"Package": "proxmox-kernel-helper", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "9.2.0", "Version": "9.2.1", "Arch": "all"},
+    {"Package": "corosync", "Origin": "Proxmox", "CurrentState": "Installed", "OldVersion": "3.1.10-pve2", "Version": "3.1.10-pve2", "Arch": "amd64"}
+  ],
   "/nodes/pve1/subscription": {
     "status": "active",
     "level": "c",
