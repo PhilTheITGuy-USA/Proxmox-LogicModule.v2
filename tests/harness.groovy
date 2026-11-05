@@ -2966,6 +2966,25 @@ note('auto-delete-built', autoDeleteWrong.isEmpty(), "modules whose built auto-d
 }
 troubleshooterCases()
 
+// ------------------------------------------------- guest contention thresholds (gap review #6)
+//
+// CPU pressure, memory thrashing and VM swap-in alert on the third poll in a row, from the
+// values proposed against the lab's week of idle readings (user, 2026-11-04). IO pressure
+// keeps none: a camera recorder's normal reads reach 23%.
+def contentionCases = { ->
+    def builtPerf = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Cluster_GuestPerformance.json'))
+    def byName = builtPerf.datapoints.collectEntries { [(it.name): it] }
+    [PressureCPUSomePercent: '> 25 50', PressureMemoryFullPercent: '> 5 15', GuestSwapInRateMB: '> 1 10'].each { dp, want ->
+        def got = byName[dp]
+        note('guest-contention', got?.threshold == want && got?.triggerInterval == 2 && got?.alertBody?.contains('##VALUE##'),
+             "${dp}: threshold ${got?.threshold}, triggerInterval ${got?.triggerInterval}")
+    }
+    ['PressureIOSomePercent', 'PressureIOFullPercent', 'PressureCPUFullPercent', 'PressureMemorySomePercent'].each { dp ->
+        note('guest-contention', !byName[dp]?.threshold, "${dp} should have no threshold, has ${byName[dp]?.threshold}")
+    }
+}
+contentionCases()
+
 server.stop(0)
 server2.stop(0)
 
