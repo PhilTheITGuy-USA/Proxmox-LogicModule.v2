@@ -1,8 +1,8 @@
 /*
  * BatchScript collection: whether each QEMU virtual machine is really running.
  *
- * Proxmox's status reads "running" for as long as the QEMU process exists, so two kinds of
- * hang leave Guest Status green:
+ * A node's own VM list reads "running" for as long as the QEMU process exists, so two kinds
+ * of hang leave the VM looking up there:
  *
  *   Paused           QEMU has stopped the VM's CPUs while Proxmox still says running: its
  *                    storage filled or failed (io-error), the guest panicked, or someone
@@ -10,6 +10,9 @@
  *                    one call per node) is anything but running and no task holds a lock on
  *                    the VM -- a suspend-mode backup, a migration or a snapshot pauses it on
  *                    purpose. 0 for a VM that is not running: Guest Status covers that.
+ *                    /cluster/resources is not used for this: it calls a paused VM "paused",
+ *                    not "running" (lab, qm suspend, 2026-11-05), so its status only says
+ *                    which VMs are stopped; the node's own list decides the rest.
  *   AgentResponding  The VM's operating system is hung while QEMU runs on. 1 when its guest
  *                    agent answers /agent/info, 0 when Proxmox answers HTTP 500, as it does for
  *                    an agent that does not respond. Asked only of a VM discovery recorded with
@@ -43,11 +46,12 @@ try {
         [(pveWildValue(known.wildvalue)): known.prop('pve_agent')]
     }
 
-    // QEMU's own state, from one list per online node running a VM, inside the time budget.
-    def qmpStatus = [:]
+    // Each VM's row in its node's own list (status and QEMU's state), one list per online node
+    // with a VM that is not stopped, inside the time budget.
+    def qemuRows = [:]
     def listed = [] as Set
     def deadline = System.currentTimeMillis() + (pveHostProp('pve.api.budget.ms', '45000') as long)
-    vms.findAll { it.status?.toString() == 'running' && it.node?.toString() in online }
+    vms.findAll { it.status?.toString() != 'stopped' && it.node?.toString() in online }
         .collect { it.node.toString() }.unique().sort().each { node ->
             if (System.currentTimeMillis() > deadline) {
                 System.err.println('QEMU state: time budget reached (pve.api.budget.ms) before node ' + node + "'s VM list")
@@ -55,7 +59,7 @@ try {
             }
             try {
                 (pveGet('/nodes/' + node + '/qemu?full=1') ?: []).each { row ->
-                    if (row.vmid != null) { qmpStatus[row.vmid.toString()] = row.qmpstatus?.toString() }
+                    if (row.vmid != null) { qemuRows[row.vmid.toString()] = row }
                 }
                 listed << node
             } catch (Exception listFailure) {
@@ -67,11 +71,17 @@ try {
     vms.each { vm ->
         def node = vm.node?.toString()
         if (!(node in online)) { return }
-        if (vm.status?.toString() != 'running') {
+        if (vm.status?.toString() == 'stopped') {
             pveEmit(vm.id, 'Paused', 0)
             return
         }
-        def state = node in listed ? qmpStatus[vm.vmid.toString()] : null
+        def row = node in listed ? qemuRows[vm.vmid.toString()] : null
+        if (row == null) { return }
+        if (row.status?.toString() != 'running') {
+            pveEmit(vm.id, 'Paused', 0)
+            return
+        }
+        def state = row.qmpstatus?.toString()
         if (state == null) { return }
         pveEmit(vm.id, 'Paused', !vm.lock && state != 'running' ? 1 : 0)
         if (agentEnabled[pveWildValue(vm.id)] == '1' && !vm.lock && state == 'running' &&

@@ -2999,7 +2999,10 @@ def vmHealthCases = { ->
         [id: 'qemu/' + vmid, type: 'qemu', vmid: vmid, name: 'vm' + vmid, node: 'pve1', status: 'running',
          uptime: 86400, template: false] + extra
     }
-    def vms = [vm(401), vm(402), vm(403), vm(404, [lock: 'backup']), vm(405, [status: 'stopped', uptime: 0]),
+    // /cluster/resources reports a VM QEMU has paused as status "paused"; the node's own list
+    // keeps "running" and puts the pause in qmpstatus (lab, qm suspend, 2026-11-05).
+    def vms = [vm(401), vm(402), vm(403, [status: 'paused']), vm(404, [lock: 'backup', status: 'paused']),
+               vm(405, [status: 'stopped', uptime: 0]),
                vm(406), vm(407, [uptime: 60]), vm(408, [node: 'pve2']), vm(409), vm(410), vm(412),
                [id: 'lxc/411', type: 'lxc', vmid: 411, name: 'ct411', node: 'pve1', status: 'running', template: false]]
     def qmp = ['401': 'running', '402': 'running', '403': 'io-error', '404': 'paused', '406': 'running',
