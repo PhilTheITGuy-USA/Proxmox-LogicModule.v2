@@ -1362,9 +1362,11 @@ def onbootGuests = [
     [id: 'lxc/306', vmid: 306, status: 'running'],
     [id: 'lxc/307', vmid: 307, status: 'stopped'],                       // onboot not recorded
     [id: 'qemu/308', vmid: 308, status: 'paused'],                       // paused: VM Health alerts (lab 2026-11-05)
+    [id: 'qemu/309', vmid: 309, status: 'guest-panicked'],               // panicked: VM Health alerts (lab 2026-11-06)
+    [id: 'qemu/310', vmid: 310, status: 'io-error'],                     // storage full: VM Health alerts (lab 2026-11-06)
 ].collect { [type: it.id.tokenize('/')[0], name: 'g' + it.vmid, node: 'pve1', template: false] + it }
-def onbootBinding = ['301': '1', '302': '0', '303': '1', '304': '1', '305': '1', '306': '1', '308': '1'].collectEntries { vmid, flag ->
-    def type = vmid in ['304', '308'] ? 'qemu' : 'lxc'
+def onbootBinding = ['301': '1', '302': '0', '303': '1', '304': '1', '305': '1', '306': '1', '308': '1', '309': '1', '310': '1'].collectEntries { vmid, flag ->
+    def type = vmid in ['304', '308', '309', '310'] ? 'qemu' : 'lxc'
     [('g' + vmid): [wildvalue: type + '-' + vmid, 'auto.pve_onboot': flag]]
 }
 def onbootCollect = { Map instances ->
@@ -1379,7 +1381,7 @@ def onbootRun = onbootCollect(onbootBinding)
 def onbootValues = onbootRun.data.collectEntries { id, values -> [(id): values.StartAtBootNotRunning] }
 note('guest-onboot-collect', onbootRun.exit == 0 &&
                              onbootValues == ['lxc-301': 1d, 'lxc-302': 0d, 'lxc-303': 0d, 'qemu-304': 0d,
-                                              'lxc-305': 0d, 'lxc-306': 0d, 'lxc-307': null, 'qemu-308': 0d],
+                                              'lxc-305': 0d, 'lxc-306': 0d, 'lxc-307': null, 'qemu-308': 0d, 'qemu-309': 0d, 'qemu-310': 0d],
      "StartAtBootNotRunning: exit ${onbootRun.exit}, ${onbootValues} ${onbootRun.stderr}")
 def onbootBare = onbootCollect(null)
 note('guest-onboot-collect', onbootBare.exit == 0 && onbootBare.data['lxc-301'].Status == 0d &&
@@ -3071,7 +3073,7 @@ def vmHealthCases = { ->
     }
     // /cluster/resources reports a VM QEMU has paused as status "paused"; the node's own list
     // keeps "running" and puts the pause in qmpstatus (lab, qm suspend, 2026-11-05).
-    def vms = [vm(401), vm(402), vm(403, [status: 'paused']), vm(404, [lock: 'backup', status: 'paused']),
+    def vms = [vm(401), vm(402), vm(403, [status: 'io-error']), vm(404, [lock: 'backup', status: 'paused']),
                vm(405, [status: 'stopped', uptime: 0]),
                vm(406), vm(407, [uptime: 60]), vm(408, [node: 'pve2']), vm(409), vm(410), vm(412),
                [id: 'lxc/411', type: 'lxc', vmid: 411, name: 'ct411', node: 'pve1', status: 'running', template: false]]
