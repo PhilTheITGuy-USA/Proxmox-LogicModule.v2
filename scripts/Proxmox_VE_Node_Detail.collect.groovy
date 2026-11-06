@@ -2,10 +2,10 @@
  * Script collection: this node's own health, asked of the node itself at the resource's
  * hostname -- never through another node, which would answer for itself.
  *
- * Three calls: /nodes/{node}/status (CPU, memory, uptime, load, swap, root filesystem),
- * /nodes/{node}/rrddata (Linux pressure stall figures, per-minute averages) and
- * /cluster/status (this node's own view of quorum, so a quorum loss alerts from every
- * node that survives it, whichever resource is down).
+ * Four calls: /nodes/{node}/status (CPU, memory, uptime, load, swap, root filesystem),
+ * /nodes/{node}/rrddata (Linux pressure stall figures, per-minute averages),
+ * /nodes/{node}/time (its clock) and /cluster/status (this node's own view of quorum, so a
+ * quorum loss alerts from every node that survives it, whichever resource is down).
  */
 if (pveConfigError) {
     System.err.println(pveConfigError)
@@ -54,6 +54,22 @@ try {
     // "wait" is the node's IO wait, reported on a 0..1 scale exactly like cpu. Sustained
     // IO wait is the clearest signal that storage, not CPU, is the constraint.
     pveEmit(null, 'IOWaitPercent', pveRound(((status.wait ?: 0) as double) * 100.0d))
+
+    /*
+     * The node's clock against the Collector's, in whole seconds, which is all the API gives.
+     * The request's midpoint stands for when the node read its clock. A failed read withholds
+     * this one datapoint: it must not cost the node its other figures.
+     */
+    try {
+        long sent = System.currentTimeMillis()
+        def clock = pveNodeGet('/nodes/' + node + '/time')
+        long midpoint = (sent + System.currentTimeMillis()).intdiv(2L)
+        if (clock?.time != null) {
+            pveEmit(null, 'ClockOffsetSeconds', Math.round(Math.abs((clock.time as long) * 1000L - midpoint) / 1000.0d))
+        }
+    } catch (Exception clockException) {
+        System.err.println('Node clock unavailable: ' + clockException.message)
+    }
 
     /*
      * KSM reclaims memory by merging identical pages across guests. A node with KSM
