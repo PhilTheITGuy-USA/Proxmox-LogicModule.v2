@@ -3021,7 +3021,9 @@ loadThresholdCases()
 // Shapes from the lab, one container under HA on two nodes (2026-11-06). With no HA there is no
 // master entry and fencing reads standby, on a healthy cluster. A stopped manager keeps its entry,
 // so its presence proves nothing: only the status text says so, and it reads "old timestamp -
-// dead?" or, with a removal pending, "idle". Fencing falls to standby with it, which must not raise a second alert for the one cause.
+// dead?" or, with a removal pending, "idle". Fencing falls to standby with it, which must not raise a second alert for the one cause. Both read 2, not nothing,
+// when there is nothing to check: a datapoint that stops reporting leaves its open alert open for
+// good (lab, over 40 minutes).
 def haCases = { ->
     def haQuorum = [id: 'quorum', type: 'quorum', quorate: 1, status: 'OK']
     def haMaster = { String st -> [id: 'master', type: 'master', node: 'pve1', timestamp: 1793981487, status: "pve1 (${st}, Fri Nov  6 11:11:27 2026)".toString()] }
@@ -3030,19 +3032,19 @@ def haCases = { ->
     def haRun = { List ha -> parsePlain(withFixtures(['/cluster/ha/status/current': ha]) { discoverWith(clusterCollect, hostProps) }.stdout) }
 
     def haNone = haRun([haQuorum, haFencing('standby')])
-    note('ha-none', haNone.HAServicesTotal == 0d && !haNone.containsKey('HAMasterPresent') && !haNone.containsKey('HAFencingArmed'),
+    note('ha-none', haNone.HAServicesTotal == 0d && haNone.HAMasterPresent == 2d && haNone.HAFencingArmed == 2d,
          "a cluster with no HA printed ${haNone.subMap(['HAServicesTotal', 'HAMasterPresent', 'HAFencingArmed'])}")
     def haHealthy = haRun([haQuorum, haMaster('active'), haFencing('armed'), haService])
     note('ha-healthy', haHealthy.HAMasterPresent == 1d && haHealthy.HAFencingArmed == 1d,
          "healthy HA printed ${haHealthy.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
     def haDead = haRun([haQuorum, haMaster('old timestamp - dead?'), haFencing('standby'), haService])
-    note('ha-dead-master', haDead.HAMasterPresent == 0d && !haDead.containsKey('HAFencingArmed'),
+    note('ha-dead-master', haDead.HAMasterPresent == 0d && haDead.HAFencingArmed == 2d,
          "a dead master printed ${haDead.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
     def haIdle = haRun([haQuorum, haMaster('idle'), haFencing('standby'), haService + [state: 'deleting']])
-    note('ha-idle-master', haIdle.HAMasterPresent == 0d && !haIdle.containsKey('HAFencingArmed'),
+    note('ha-idle-master', haIdle.HAMasterPresent == 0d && haIdle.HAFencingArmed == 2d,
          "an idle master with a service still listed printed ${haIdle.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
     def haMissing = haRun([haQuorum, haFencing('standby'), haService])
-    note('ha-no-master', haMissing.HAMasterPresent == 0d && !haMissing.containsKey('HAFencingArmed'),
+    note('ha-no-master', haMissing.HAMasterPresent == 0d && haMissing.HAFencingArmed == 2d,
          "no master entry printed ${haMissing.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
     def haUnarmed = haRun([haQuorum, haMaster('active'), haFencing('standby'), haService])
     note('ha-unarmed', haUnarmed.HAMasterPresent == 1d && haUnarmed.HAFencingArmed == 0d,

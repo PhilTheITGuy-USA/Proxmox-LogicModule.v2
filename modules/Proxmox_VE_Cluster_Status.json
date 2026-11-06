@@ -83,12 +83,12 @@
     },
     {
       "name": "HAMasterPresent",
-      "description": "1 when a running HA manager master has been elected, 0 when none is running. Only on a cluster with HA services.",
+      "description": "1 when a running HA manager master has been elected, 0 when HA services exist and none is running, 2 when there are no HA services.",
       "conditional": true,
       "threshold": "< 1 1",
       "triggerInterval": 2,
       "alertBody": "The Proxmox cluster containing ##HOST## has HA services but no running HA manager, so a failed node's guests will not be recovered. Check pve-ha-crm on each node.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago.",
-      "statusNames": {"0": "No master", "1": "Master running"}
+      "statusNames": {"0": "No master", "1": "Master running", "2": "No HA services"}
     },
     {
       "name": "GuestsTotal",
@@ -129,12 +129,12 @@
     },
     {
       "name": "HAFencingArmed",
-      "description": "1 when the cluster's fencing is armed. A cluster that cannot fence a failed node cannot safely recover its guests. Only on a cluster with HA services and a running master, and on Proxmox versions that expose fencing state.",
+      "description": "1 when the cluster's fencing is armed. A cluster that cannot fence a failed node cannot safely recover its guests. Reads 2 when there is nothing to check: no HA services, or no running master, which has its own alert. Reported only by Proxmox versions that expose fencing state.",
       "conditional": true,
       "threshold": "< 1 1",
       "triggerInterval": 2,
       "alertBody": "The Proxmox cluster containing ##HOST## has a running HA manager, but its fencing is not armed. A cluster that cannot fence a failed node cannot safely recover its guests.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago.",
-      "statusNames": {"0": "Not armed", "1": "Armed"}
+      "statusNames": {"0": "Not armed", "1": "Armed", "2": "Not checked"}
     },
     {
       "name": "MigrationsRunning",
@@ -158,7 +158,8 @@
     {"title": "Nodes", "verticalLabel": "nodes", "lines": [{"dp": "NodesTotal", "legend": "Total", "color": "blue"}, {"dp": "NodesOnline", "legend": "Online", "color": "green"}, {"dp": "NodesOffline", "legend": "Offline", "color": "red"}, {"dp": "NodesExpected", "legend": "Expected", "color": "black"}]},
     {"title": "Cluster Health", "verticalLabel": "%", "max": 100, "lines": [{"dp": "HealthScore", "legend": "Health score", "color": "blue"}, {"dp": "NodesOnlinePercent", "legend": "Nodes online", "color": "green"}]},
     {"title": "Quorum Votes", "verticalLabel": "votes", "lines": [{"dp": "Votes", "legend": "Votes", "color": "blue"}, {"dp": "ExpectedVotes", "legend": "Expected", "color": "black"}]},
-    {"title": "Cluster State", "verticalLabel": "1 = yes", "max": 1, "lines": [{"dp": "Quorate", "legend": "Quorate", "color": "green"}, {"dp": "ClusterConfigured", "legend": "Cluster configured", "color": "black"}, {"dp": "HAMasterPresent", "legend": "HA master present", "color": "fuchsia"}, {"dp": "HAFencingArmed", "legend": "HA fencing armed", "color": "blue"}]},
+    {"title": "Cluster State", "verticalLabel": "1 = yes", "max": 1, "lines": [{"dp": "Quorate", "legend": "Quorate", "color": "green"}, {"dp": "ClusterConfigured", "legend": "Cluster configured", "color": "black"}]},
+    {"title": "HA State", "verticalLabel": "0 = problem, 2 = no HA", "max": 2, "lines": [{"dp": "HAMasterPresent", "legend": "HA master present", "color": "fuchsia"}, {"dp": "HAFencingArmed", "legend": "HA fencing armed", "color": "blue"}]},
     {"title": "Guests", "verticalLabel": "guests", "lines": [{"dp": "GuestsTotal", "legend": "Total", "color": "blue"}, {"dp": "GuestsRunning", "legend": "Running", "color": "green"}]},
     {"title": "vCPU Allocation", "verticalLabel": "vCPUs", "lines": [{"dp": "VCPUsAllocated", "legend": "Allocated", "color": "blue"}, {"dp": "VCPUsCapacity", "legend": "Capacity", "color": "black"}]},
     {"title": "Memory Allocation", "verticalLabel": "bytes", "scale1024": true, "lines": [{"dp": "MemoryAllocatedBytes", "legend": "Allocated", "color": "blue"}, {"dp": "MemoryCapacityBytes", "legend": "Capacity", "color": "black"}]},
