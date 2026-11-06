@@ -68,6 +68,7 @@
       "id": "master",
       "type": "master",
       "node": "pve1",
+      "status": "pve1 (active, Sat Oct 26 2024)",
       "timestamp": 1730000000
     },
     {

@@ -105,7 +105,17 @@ try {
 
         pveEmit(null, 'HAServicesTotal', services.size())
         pveEmit(null, 'HAServicesError', errored)
-        pveEmit(null, 'HAMasterPresent', ha.any { it.type == 'master' } ? 1 : 0)
+
+        /*
+         * Only a cluster with HA services has a master to lose: with none there is no master
+         * entry, and that is healthy. A stopped manager keeps its entry, read as "old timestamp -
+         * dead?", so the entry's presence is not enough (lab, 2026-11-06).
+         */
+        def master = ha.find { it.type == 'master' }
+        def masterAlive = master && !master.status?.toString()?.contains('old timestamp')
+        if (services) {
+            pveEmit(null, 'HAMasterPresent', masterAlive ? 1 : 0)
+        }
 
         /*
          * A service whose current state has not caught up with what the CRM requested is
@@ -122,10 +132,11 @@ try {
         /*
          * Fencing is what makes HA recovery possible: a cluster that cannot fence a failed
          * node cannot safely recover its guests. Only reported by Proxmox versions that
-         * expose a fencing entry, so it is withheld rather than guessed at.
+         * expose a fencing entry, so it is withheld rather than guessed at. Fencing falls to
+         * standby with the master, so it is withheld then too: the master's alert covers it.
          */
         def fencing = ha.find { it.type == 'fencing' }
-        if (fencing) {
+        if (fencing && services && masterAlive) {
             pveEmit(null, 'HAFencingArmed', fencing['armed-state']?.toString() == 'armed' ? 1 : 0)
         }
     } catch (Exception haException) {

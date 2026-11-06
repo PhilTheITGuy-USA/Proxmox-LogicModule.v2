@@ -83,8 +83,12 @@
     },
     {
       "name": "HAMasterPresent",
-      "description": "1 when an HA manager master has been elected.",
-      "conditional": true
+      "description": "1 when a running HA manager master has been elected, 0 when none is running. Only on a cluster with HA services.",
+      "conditional": true,
+      "threshold": "< 1 1",
+      "triggerInterval": 2,
+      "alertBody": "The Proxmox cluster containing ##HOST## has HA services but no running HA manager, so a failed node's guests will not be recovered. Check pve-ha-crm on each node.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago.",
+      "statusNames": {"0": "No master", "1": "Master running"}
     },
     {
       "name": "GuestsTotal",
@@ -125,8 +129,12 @@
     },
     {
       "name": "HAFencingArmed",
-      "description": "1 when the cluster's fencing is armed. A cluster that cannot fence a failed node cannot safely recover its guests. Reported only by Proxmox versions that expose fencing state.",
-      "conditional": true
+      "description": "1 when the cluster's fencing is armed. A cluster that cannot fence a failed node cannot safely recover its guests. Only on a cluster with HA services and a running master, and on Proxmox versions that expose fencing state.",
+      "conditional": true,
+      "threshold": "< 1 1",
+      "triggerInterval": 2,
+      "alertBody": "The Proxmox cluster containing ##HOST## has a running HA manager, but its fencing is not armed. A cluster that cannot fence a failed node cannot safely recover its guests.\n\nStatus: ##ALERTVALUEDISPLAYSTATUSNAME## (##VALUE##).\n\nThis started at ##START##, ##DURATION## ago.",
+      "statusNames": {"0": "Not armed", "1": "Armed"}
     },
     {
       "name": "MigrationsRunning",
