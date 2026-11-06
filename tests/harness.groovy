@@ -2976,10 +2976,12 @@ troubleshooterCases()
 // CPU pressure, memory thrashing and VM swap-in alert on the third poll in a row, from the
 // values proposed against the lab's week of idle readings (user, 2026-11-04). IO pressure
 // keeps none: a camera recorder's normal reads reach 23%.
+// One level each: a value moving up a band resets LogicMonitor's count, so a guest crossing a
+// second line can stay silent however long it thrashes (lab, five polls over 5 and no alert, 2026-11-05).
 def contentionCases = { ->
     def builtPerf = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Cluster_GuestPerformance.json'))
     def byName = builtPerf.datapoints.collectEntries { [(it.name): it] }
-    [PressureCPUSomePercent: '> 25 50', PressureMemoryFullPercent: '> 5 15', GuestSwapInRateMB: '> 1 10'].each { dp, want ->
+    [PressureCPUSomePercent: '> 25', PressureMemoryFullPercent: '> 5', GuestSwapInRateMB: '> 1'].each { dp, want ->
         def got = byName[dp]
         note('guest-contention', got?.threshold == want && got?.triggerInterval == 2 && got?.alertBody?.contains('##VALUE##'),
              "${dp}: threshold ${got?.threshold}, triggerInterval ${got?.triggerInterval}")
