@@ -19,7 +19,7 @@
     {
       "name": "CPUUsagePercent",
       "description": "Guest CPU utilisation, percent of its allocated cores.",
-      "threshold": "> 90 95 98",
+      "threshold": "> 90",
       "triggerInterval": 5,
       "alertBody": "Proxmox guest ##INSTANCE## is using ##VALUE##% of its allocated CPU. Applications in the guest will be slow; it needs more cores, or its workload needs investigating.\n\nThis started at ##START##, ##DURATION## ago."
     },
