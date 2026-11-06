@@ -100,8 +100,8 @@ container, ceph, storage, backup, snapshot, replication, topology, quorum, ha, g
 
 ## Before submitting
 
-- [ ] The repository is **public**, and the product page's *(not yet public)* marker beside its
-      link is removed. The listing and the product page both send readers there.
+- [x] The repository is **public** (confirmed 2026-11-05). The listing and the product page both
+      send readers there.
 - [ ] `python ../lab-scrub/check.py` is clean, and the repo's history holds no lab details
       (rewritten 2026-10-27).
 - [ ] Every module is imported from the current build and collecting; the portal's copies are

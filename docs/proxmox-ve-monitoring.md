@@ -64,7 +64,7 @@ leaves `AgentResponding` empty (No Data) rather than reading 0, and `Paused` sti
 ### Getting the NetScan Script and Dashboards
 
 LM Exchange carries LogicModules only. The NetScan script and the two dashboards come from the
-suite's repository, [github.com/PhilTheITGuy-USA/Proxmox-LogicModule.v2](https://github.com/PhilTheITGuy-USA/Proxmox-LogicModule.v2) *(not yet public)*:
+suite's repository, [github.com/PhilTheITGuy-USA/Proxmox-LogicModule.v2](https://github.com/PhilTheITGuy-USA/Proxmox-LogicModule.v2):
 
 | File | Where in the repository |
 |---|---|
