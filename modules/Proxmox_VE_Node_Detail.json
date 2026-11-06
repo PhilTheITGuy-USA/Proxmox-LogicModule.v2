@@ -15,7 +15,7 @@
     {
       "name": "CPUUsagePercent",
       "description": "Node CPU utilisation, percent.",
-      "threshold": "> 85 92 97",
+      "threshold": "> 85",
       "triggerInterval": 3,
       "alertBody": "Proxmox node ##HOSTNAME## is at ##VALUE##% CPU. Its guests are competing for CPU time; consider migrating some to a less busy node.\n\nThis started at ##START##, ##DURATION## ago."
     },
@@ -95,7 +95,7 @@
     {
       "name": "LoadPerCore",
       "description": "1 minute load average divided by logical CPU count.",
-      "threshold": "> 1.5 2 4",
+      "threshold": "> 1.5",
       "triggerInterval": 3,
       "alertBody": "Proxmox node ##HOSTNAME## has a load of ##VALUE## per core.\n\nThis started at ##START##, ##DURATION## ago."
     },
@@ -143,7 +143,7 @@
     {
       "name": "IOWaitPercent",
       "description": "Percent of CPU time spent waiting on IO. Sustained IO wait means storage, not CPU, is the constraint.",
-      "threshold": "> 20 35 50",
+      "threshold": "> 20",
       "triggerInterval": 5,
       "alertBody": "Proxmox node ##HOSTNAME## is spending ##VALUE##% of its CPU time waiting on disk IO. Storage, not CPU, is the bottleneck, and guests on this node will be slow to read and write.\n\nThis started at ##START##, ##DURATION## ago."
     },

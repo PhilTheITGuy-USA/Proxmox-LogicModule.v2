@@ -412,6 +412,27 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.6.1
+
+**Four CPU and load alerts have one level.** A value that moves up a severity band restarts
+LogicMonitor's count of polls in a row, so a busy guest or node moving between bands could stay
+over the line for as long as it liked without alerting. Each of these datapoints now only warns,
+and has no error or critical level:
+
+| Module | Datapoint | Warning | Polls in a row |
+|---|---|---|---|
+| Guest Performance | `CPUUsagePercent` | 90 | 6 |
+| Node Detail | `CPUUsagePercent` | 85 | 4 |
+| Node Detail | `LoadPerCore` | 1.5 | 4 |
+| Node Detail | `IOWaitPercent` | 20 | 6 |
+
+If your alert routing pages only on error or critical, these four no longer page, so route their
+warnings if you want them to. Memory and swap keep their levels, because they tend to climb and
+stay rather than move back and forth.
+
+Re-import `Proxmox_VE_Cluster_GuestPerformance` and `Proxmox_VE_Node_Detail`. The other modules,
+the NetScan and the dashboards are as in v2.6.1.
+
 ### Upgrading from v2.6.0
 
 **A VM that panics or hits a storage error now gives one alert, not two.** Guest Status raised

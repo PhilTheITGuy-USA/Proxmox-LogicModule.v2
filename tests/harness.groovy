@@ -2994,6 +2994,28 @@ def contentionCases = { ->
 }
 contentionCases()
 
+// ------------------------------------------------------- CPU and load thresholds (v2.6.2)
+//
+// One warning level on the four datapoints that bounce. Only a move up a band restarts the count:
+// nine guest CPU polls between 92 and 96.7 never alerted, and a steady 91.6 alerted on the sixth
+// poll counted from the last move up (lab, 2026-11-06). Memory and swap keep their levels:
+// they climb and stay, so they reach each band without bouncing across it.
+def loadThresholdCases = { ->
+    def dps = { name -> new JsonSlurper().parse(new File(ROOT, "dist/${name}.json")).datapoints.collectEntries { [(it.name): it] } }
+    def guest = dps('Proxmox_VE_Cluster_GuestPerformance')
+    def node = dps('Proxmox_VE_Node_Detail')
+    [[guest, 'CPUUsagePercent', '> 90', 5], [node, 'CPUUsagePercent', '> 85', 3],
+     [node, 'LoadPerCore', '> 1.5', 3], [node, 'IOWaitPercent', '> 20', 5]].each { set, dp, want, trigger ->
+        note('load-single-level', set[dp]?.threshold == want && set[dp]?.triggerInterval == trigger,
+             "${dp}: threshold ${set[dp]?.threshold}, triggerInterval ${set[dp]?.triggerInterval}")
+    }
+    [[guest, 'MemoryUsagePercent', '> 90 95 98'], [node, 'MemoryUsagePercent', '> 85 92 97'],
+     [node, 'SwapUsagePercent', '> 25 50 80']].each { set, dp, want ->
+        note('load-single-level', set[dp]?.threshold == want, "${dp} should keep ${want}, has ${set[dp]?.threshold}")
+    }
+}
+loadThresholdCases()
+
 // ----------------------------------------------------- reboot required (gap review #4)
 //
 // pveKernelState reads /nodes/{node}/apt/versions in the shape the lab returned (PVE 9.2.3,
