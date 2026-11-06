@@ -59,8 +59,9 @@ try {
 
         def startAtBoot = onboot[pveWildValue(id)]
         if (startAtBoot != null) {
-            // A paused VM is not down: Proxmox_VE_Cluster_VMHealth alerts on it (Paused).
-            def down = startAtBoot == '1' && !(status in ['running', 'paused']) && !guest.lock && !haState &&
+            // Only "stopped" is down. /cluster/resources names a VM QEMU has stopped by why it stopped
+            // ("paused", "guest-panicked", "io-error"), and Proxmox_VE_Cluster_VMHealth alerts on those (Paused).
+            def down = startAtBoot == '1' && status == 'stopped' && !guest.lock && !haState &&
                 onlineNodes.contains(guest.node?.toString())
             pveEmit(id, 'StartAtBootNotRunning', down ? 1 : 0)
         }
