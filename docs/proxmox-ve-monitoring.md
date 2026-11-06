@@ -412,6 +412,28 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.6.0
+
+**A VM that panics or hits a storage error now gives one alert, not two.** Guest Status raised
+`StartAtBootNotRunning` on such a VM if it was set to start at boot, beside VM Health's `Paused`.
+It now raises that alert only on a guest that is stopped.
+
+**Guest Performance's contention alerts have one level.** A value that moves into a higher
+severity band restarts LogicMonitor's count of polls in a row, so a guest crossing the error line
+could thrash for as long as it liked without alerting. Each datapoint now warns, on the third poll
+in a row, and has no error level:
+
+| Datapoint | Warning |
+|---|---|
+| `PressureCPUSomePercent` | 25 |
+| `PressureMemoryFullPercent` | 5 |
+| `GuestSwapInRateMB` | 1 |
+
+If you add an error level of your own, a guest crossing it restarts the count in the same way.
+
+Re-import `Proxmox_VE_Cluster_GuestStatus` and `Proxmox_VE_Cluster_GuestPerformance`. The other
+modules, the NetScan and the dashboards are as in v2.6.0.
+
 ### Upgrading from v2.5.0
 
 **VM Health is a new module.** Proxmox reads a VM as running for as long as its QEMU process
@@ -437,7 +459,8 @@ hours, so the warning can take that long to open or clear. A node pinned to an o
 purpose will warn: disable the alert on that node. `UpdatesAvailable` reads No Data on a node
 whose package cache knows no repository, until `apt update` has run there.
 
-**Guest Performance** now alerts on contention, on the third poll in a row:
+**Guest Performance** now alerts on contention, on the third poll in a row. v2.6.1 drops the
+error level, so take the warning column:
 
 | Datapoint | Warning | Error |
 |---|---|---|
