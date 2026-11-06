@@ -109,10 +109,10 @@ try {
         /*
          * Only a cluster with HA services has a master to lose: with none there is no master
          * entry, and that is healthy. A stopped manager keeps its entry, read as "old timestamp -
-         * dead?", so the entry's presence is not enough (lab, 2026-11-06).
+         * dead?" or, with a removal pending, "idle", so only "active" counts (lab, 2026-11-06).
          */
         def master = ha.find { it.type == 'master' }
-        def masterAlive = master && !master.status?.toString()?.contains('old timestamp')
+        def masterAlive = master?.status?.toString()?.contains('(active')
         if (services) {
             pveEmit(null, 'HAMasterPresent', masterAlive ? 1 : 0)
         }

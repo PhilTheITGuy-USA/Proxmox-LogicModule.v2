@@ -3020,8 +3020,8 @@ loadThresholdCases()
 //
 // Shapes from the lab, one container under HA on two nodes (2026-11-06). With no HA there is no
 // master entry and fencing reads standby, on a healthy cluster. A stopped manager keeps its entry,
-// so its presence proves nothing: only the status text says it is dead, and fencing falls to
-// standby with it, which must not raise a second alert for the one cause.
+// so its presence proves nothing: only the status text says so, and it reads "old timestamp -
+// dead?" or, with a removal pending, "idle". Fencing falls to standby with it, which must not raise a second alert for the one cause.
 def haCases = { ->
     def haQuorum = [id: 'quorum', type: 'quorum', quorate: 1, status: 'OK']
     def haMaster = { String st -> [id: 'master', type: 'master', node: 'pve1', timestamp: 1793981487, status: "pve1 (${st}, Fri Nov  6 11:11:27 2026)".toString()] }
@@ -3038,6 +3038,9 @@ def haCases = { ->
     def haDead = haRun([haQuorum, haMaster('old timestamp - dead?'), haFencing('standby'), haService])
     note('ha-dead-master', haDead.HAMasterPresent == 0d && !haDead.containsKey('HAFencingArmed'),
          "a dead master printed ${haDead.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
+    def haIdle = haRun([haQuorum, haMaster('idle'), haFencing('standby'), haService + [state: 'deleting']])
+    note('ha-idle-master', haIdle.HAMasterPresent == 0d && !haIdle.containsKey('HAFencingArmed'),
+         "an idle master with a service still listed printed ${haIdle.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
     def haMissing = haRun([haQuorum, haFencing('standby'), haService])
     note('ha-no-master', haMissing.HAMasterPresent == 0d && !haMissing.containsKey('HAFencingArmed'),
          "no master entry printed ${haMissing.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
