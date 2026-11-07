@@ -718,8 +718,9 @@ names, and neither calls the portal API or reads a display name. How `Xen VM Per
 its instances is inside the Collector's built-in `ad_xen` discovery, so it is not visible. Rejected: showing
 the resource's name as the instance name, which no suite read does; and publishing a VMID-to-name
 list from the NetScan to carry the resource's name in the instance's description, which goes
-beyond those suites for about 1.3 KB of the NetScan's limit. Not seen on the lab: a rename in
-Proxmox reaching the instance.
+beyond those suites for about 1.3 KB of the NetScan's limit. A rename in Proxmox reached the
+instances on both the active and the standby resource within minutes, each keeping its instance
+ID, and the active one's history and collection carried on (lab, 2026-11-06).
 
 ### 3.7 Licensing (from the user, 2026-10-21)
 
