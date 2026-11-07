@@ -706,6 +706,21 @@ hostname would be its name, which does not answer, so it would be dead from the 
 `Migration-Test` was. The run reports it instead; `pve.netscan.guests.unaddressed=true` creates
 such guests anyway (NetScan spec §5.3).
 
+**A guest's instances keep its Proxmox name** (user, 2026-11-06, after a rename on the lab).
+Renaming a guest's resource leaves its instances on `guest.name` (`pveGuestDiscover`), so the two
+can drift, and a workflow that asks people to rename new devices makes that routine. Kept as it
+is, for the reasons on the product page (*Considerations > Guest Names*): an instance is the
+hypervisor's view; only opted-in guests have a resource, so resource names would leave a mix; and
+the cluster modules hold no portal credentials. LogicMonitor's own modules agree, read from the
+lab portal the same day: `VMware_vSphere_VirtualMachineStatus` names an instance `vm.name` with
+vCenter's object ID as its identity, `Citrix_VAD_MachineSummary` uses Citrix's DNS and machine
+names, and neither calls the portal API or reads a display name. How `Xen VM Performance-` names
+its instances is inside the Collector's built-in `ad_xen` discovery, so it is not visible. Rejected: showing
+the resource's name as the instance name, which no suite read does; and publishing a VMID-to-name
+list from the NetScan to carry the resource's name in the instance's description, which goes
+beyond those suites for about 1.3 KB of the NetScan's limit. Not seen on the lab: a rename in
+Proxmox reaching the instance.
+
 ### 3.7 Licensing (from the user, 2026-10-21)
 
 | Object | Host units |
