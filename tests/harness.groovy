@@ -867,6 +867,30 @@ def clusterNodeKeys = clusterNodesRun.stdout.readLines().findAll { it.contains('
 note('cluster-nodes-status-only', clusterNodesRun.exit == 0 && clusterNodeKeys == ['Status'] as Set,
      "Cluster_Nodes printed ${clusterNodeKeys}; CPU, memory and uptime belong to Node_Detail")
 
+// ------------------------------------------------------ node clock offset (gap review #8)
+//
+// /nodes/<n>/time gives whole seconds (lab, 2026-11-06). The offset reads the same either way
+// round, and a node that does not answer this one call keeps its other datapoints.
+def clockRun = { Long clockShift ->
+    def clockFixtures = clockShift == null ? [:] : ['/nodes/pve1/time': [time: System.currentTimeMillis().intdiv(1000L) + clockShift, timezone: 'UTC']]
+    def clockExec = withFixtures(clockFixtures) { runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps]) }
+    [exit: clockExec.exit, values: clockExec.stdout.readLines().findAll { it.contains('=') }.collectEntries { def kv = it.split('=', 2); [(kv[0]): kv[1] as double] }]
+}
+[30L, -30L].each { clockShift ->
+    def clockGot = clockRun(clockShift)
+    note('clock-offset', clockGot.exit == 0 && clockGot.values.ClockOffsetSeconds >= 29d && clockGot.values.ClockOffsetSeconds <= 31d,
+         "a clock ${clockShift} seconds out read ${clockGot.values.ClockOffsetSeconds}")
+}
+def clockSynced = clockRun(0L)
+note('clock-synced', clockSynced.values.ClockOffsetSeconds != null && clockSynced.values.ClockOffsetSeconds <= 1d,
+     "a synced clock read ${clockSynced.values.ClockOffsetSeconds}")
+def clockFailed = clockRun(null)
+note('clock-withheld', clockFailed.exit == 0 && !clockFailed.values.containsKey('ClockOffsetSeconds') && clockFailed.values.containsKey('CPUUsagePercent'),
+     "with no time call: exit ${clockFailed.exit}, ${clockFailed.values.keySet().take(3)}")
+def clockBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Node_Detail.json')).datapoints.find { it.name == 'ClockOffsetSeconds' }
+note('clock-threshold', clockBuilt?.threshold == '> 5' && clockBuilt?.triggerInterval == 2,
+     "ClockOffsetSeconds: threshold ${clockBuilt?.threshold}, triggerInterval ${clockBuilt?.triggerInterval}")
+
 // ------------------------------------------- Node_Detail on its node (A§3.2)
 
 def detail = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps])
