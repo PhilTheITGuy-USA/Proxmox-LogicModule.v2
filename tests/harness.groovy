@@ -905,6 +905,8 @@ def healthCases = { ->
     note('health-store-90', hs(twoNodes, still, ok, [store('pve1', 90)])?.HealthStorage == 75d, 'a store at 90 did not score 75')
     note('health-store-95', hs(twoNodes, still, ok, [store('pve1', 95)])?.HealthStorage == 50d, 'a store at 95 did not score 50')
     note('health-store-local', hs(twoNodes, still, ok, [store('pve1', 0, [status: 'unavailable'])])?.HealthStorage == 50d, 'an unavailable local store did not score 50')
+    // An unreachable store reads unknown and loses its size; a disabled one has no row at all (lab, 2026-11-06).
+    note('health-store-unknown', hs(twoNodes, still, ok, [[type: 'storage', node: 'pve1', status: 'unknown', shared: 0, plugintype: 'dir']])?.HealthStorage == 50d, 'an unreachable store did not score 50')
     note('health-store-shared', hs(twoNodes, still, ok, [store('pve1', 10, [shared: 1]), store('pve2', 0, [shared: 1, status: 'unavailable'])])?.HealthStorage == 25d,
          'a shared store unavailable from one node did not score 25')
     note('health-store-offline', hs(statusWith([:], [online: 0], 1), [pve1: 0d], ok, [store('pve2', 0, [status: 'unavailable'])])?.HealthStorage == 100d,
