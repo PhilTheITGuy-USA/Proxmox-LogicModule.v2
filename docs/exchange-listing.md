@@ -1,9 +1,10 @@
 # LM Exchange listing -- Proxmox VE
 
-Suite-level text for LogicMonitor, should it publish the suite on Exchange (Exchange readiness
-review gap 2, 2026-10-27; current to v2.8.0). Exchange shows each module's own name, description,
-technical notes and keywords, which the modules already carry; this file holds the text for
-wherever a description of the whole package is needed, and the checks to make before publishing.
+Text for submitting the suite to LogicMonitor Exchange (Exchange readiness review gap 2,
+2026-10-27). Exchange shows each module's own name, description, technical notes and keywords,
+which the modules already carry; this file holds the suite-level text, for wherever the
+submission asks for a description of the whole package, and the checks to make before
+submitting.
 
 ## Short description
 
@@ -107,7 +108,7 @@ Keywords: proxmox, pve, proxmox ve, hypervisor, virtualization, cluster, node, q
 container, ceph, storage, backup, snapshot, replication, topology, quorum, ha, health score, guest agent,
 troubleshooter.
 
-## Before publishing
+## Before submitting
 
 - [x] The repository is **public** (confirmed 2026-11-05). The listing and the product page both
       send readers there.
