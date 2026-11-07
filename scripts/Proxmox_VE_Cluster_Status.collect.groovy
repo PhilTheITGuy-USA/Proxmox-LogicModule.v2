@@ -72,23 +72,31 @@ try {
      * little without the physical capacity they are drawn from. Templates are excluded
      * because they are never running and their allocation is not really committed.
      */
-    def resources = pveGet('/cluster/resources') ?: []
-    def guests = resources.findAll { it.type in ['qemu', 'lxc'] && !it.template }
-    def nodeRows = resources.findAll { it.type == 'node' }
+    def resources = null
+    try {
+        resources = pveGet('/cluster/resources') ?: []
+    } catch (Exception resourcesException) {
+        // Its own try, as a failed read must not cost the quorum and health figures after it.
+        System.err.println('Capacity and storage not read: ' + resourcesException.message)
+    }
+    if (resources != null) {
+        def guests = resources.findAll { it.type in ['qemu', 'lxc'] && !it.template }
+        def nodeRows = resources.findAll { it.type == 'node' }
 
-    def vcpuAllocated = (guests.sum { (it.maxcpu ?: 0) as double } ?: 0.0d) as double
-    def vcpuCapacity = (nodeRows.sum { (it.maxcpu ?: 0) as double } ?: 0.0d) as double
-    def memAllocated = (guests.sum { (it.maxmem ?: 0) as double } ?: 0.0d) as double
-    def memCapacity = (nodeRows.sum { (it.maxmem ?: 0) as double } ?: 0.0d) as double
+        def vcpuAllocated = (guests.sum { (it.maxcpu ?: 0) as double } ?: 0.0d) as double
+        def vcpuCapacity = (nodeRows.sum { (it.maxcpu ?: 0) as double } ?: 0.0d) as double
+        def memAllocated = (guests.sum { (it.maxmem ?: 0) as double } ?: 0.0d) as double
+        def memCapacity = (nodeRows.sum { (it.maxmem ?: 0) as double } ?: 0.0d) as double
 
-    pveEmit(null, 'GuestsTotal', guests.size())
-    pveEmit(null, 'GuestsRunning', guests.count { it.status?.toString() == 'running' })
-    pveEmit(null, 'VCPUsAllocated', pveRound(vcpuAllocated))
-    pveEmit(null, 'VCPUsCapacity', pveRound(vcpuCapacity))
-    pveEmit(null, 'VCPUOvercommitRatio', vcpuCapacity > 0 ? pveRound(vcpuAllocated / vcpuCapacity) : 0)
-    pveEmit(null, 'MemoryAllocatedBytes', memAllocated as long)
-    pveEmit(null, 'MemoryCapacityBytes', memCapacity as long)
-    pveEmit(null, 'MemoryOvercommitRatio', memCapacity > 0 ? pveRound(memAllocated / memCapacity) : 0)
+        pveEmit(null, 'GuestsTotal', guests.size())
+        pveEmit(null, 'GuestsRunning', guests.count { it.status?.toString() == 'running' })
+        pveEmit(null, 'VCPUsAllocated', pveRound(vcpuAllocated))
+        pveEmit(null, 'VCPUsCapacity', pveRound(vcpuCapacity))
+        pveEmit(null, 'VCPUOvercommitRatio', vcpuCapacity > 0 ? pveRound(vcpuAllocated / vcpuCapacity) : 0)
+        pveEmit(null, 'MemoryAllocatedBytes', memAllocated as long)
+        pveEmit(null, 'MemoryCapacityBytes', memCapacity as long)
+        pveEmit(null, 'MemoryOvercommitRatio', memCapacity > 0 ? pveRound(memAllocated / memCapacity) : 0)
+    }
 
     /*
      * HA is optional and needs Sys.Audit on /. Its absence is not a collection failure,
@@ -145,7 +153,9 @@ try {
     }
 
     // The health score, once everything it reads has been read: the areas, then the lowest.
-    def health = pveHealthScore(entries, stallByNode, haHealth, resources.findAll { it.type == 'storage' })
+    // No storage rows means unread: /cluster/resources filters by the token's privileges, not by
+    // error, so a token without Datastore.Audit sees none, and that is not a healthy store.
+    def health = pveHealthScore(entries, stallByNode, haHealth, resources?.findAll { it.type == 'storage' } ?: null)
     if (health.HealthNodes != null) { pveEmit(null, 'HealthNodes', health.HealthNodes) }
     if (health.HealthHA != null) { pveEmit(null, 'HealthHA', health.HealthHA) }
     if (health.HealthStorage != null) { pveEmit(null, 'HealthStorage', health.HealthStorage) }

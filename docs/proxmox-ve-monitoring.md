@@ -425,13 +425,22 @@ cluster's worst problem, and four new datapoints show which area that is:
 | Storage | `HealthStorage` | Every store is available, with `EffectiveUsedPercent` under 90 | 75 at 90; 50 at 95 or a local store unavailable; 25 for a shared store unavailable |
 | Pressure | `HealthPressure` | No node is stalled | 100 less the mean node stall, never below 75 |
 
-One busy guest no longer lowers the score: CPU pressure counts only with a node's CPU at 85% or
-more. Pressure stops at 75 because it can show a slow cluster, not a broken one. An area that
-cannot be read shows No Data, and so does the score. Scores from before this release are not
+A shared store unavailable, and a node offline while quorum holds, are *(not yet verified)*.
+
+One guest held back by its CPU limit no longer lowers the score: CPU pressure counts only with a
+node's CPU at 85% or more. Heavy I/O from one guest still can, because Proxmox cannot split it by
+guest, but pressure stops at 75: it can show a slow cluster, not a broken one. Without pressure
+figures, load per core stands in, with no CPU limit *(not yet verified)*.
+
+An area that cannot be read shows No Data, and so does the score *(not yet verified)*, except
+without quorum, which reads 0 whatever else is known. A token without `Datastore.Audit` sees no
+storage, so `HealthStorage` and the score show No Data. Scores from before this release are not
 comparable with new ones.
 
-**`HealthScore` no longer alerts.** Each cause already alerts on its own, so a problem alerts once.
-The score is for dashboards. An alert open on it when you import clears straight away.
+**`HealthScore` no longer alerts.** Quorum, nodes, HA and storage alert on their own, so those
+problems alert once. Pressure does not: the old `< 70` was the only alert on it, so set a threshold
+on Node Detail's pressure datapoints if you want one. The score is for dashboards. An alert open on
+it when you import clears straight away.
 
 **Storage alerts now depend on a store's size.** `UsedPercent` stays as the plain figure, with no
 threshold. `EffectiveUsedPercent` takes its `> 80 90 95`: it is the same percentage, eased for
@@ -450,9 +459,12 @@ A large store warns later than it did: 12 TB first warns at about 92% used, not 
 reads 0 until a large store is fairly full, so it has no graph, and the Used graph still shows
 `UsedPercent`. ZFS and Ceph stores read their real percentage *(not yet verified)*, because they
 suffer by how full they are, whatever their size. A store that should stay nearly full lowers
-`HealthStorage` for as long as it does.
+`HealthStorage` for as long as it does. So does a store defined for a node that does not have it,
+which holds `HealthStorage` at 50: limit it to its nodes under **Datacenter > Storage**.
 
-If you set your own threshold on `UsedPercent`, move it to `EffectiveUsedPercent`.
+If you set your own threshold on `UsedPercent`, move it to `EffectiveUsedPercent`. An alert open on
+`UsedPercent` at import should clear as `HealthScore`'s did *(not yet verified)*. The dashboards'
+storage widgets still colour `UsedPercent` at 80 and 90, so a large store can show red with no alert.
 
 Re-import `Proxmox_VE_Cluster_Status` and `Proxmox_VE_Cluster_StorageCapacity`. The other modules,
 the NetScan and the dashboards are as in v2.7.0.

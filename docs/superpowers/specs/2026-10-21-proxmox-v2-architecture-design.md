@@ -345,14 +345,21 @@ HealthScore = min(quorum, HealthNodes, HealthHA, HealthStorage, HealthPressure)
   node's. Pressure can show a slow cluster, never a broken one.
 - **Unknown is not healthy.** An area that cannot be read is withheld, and so is `HealthScore`,
   as gray beats every colour in vSphere; quorum lost is known, so it still scores 0. Pressure is
-  withheld only when no online node answers. Withholding rests on the harness: the HA call needs
+  withheld only when no online node answers. `/cluster/resources` filters by privilege rather than
+  failing, so no storage rows at all reads as unread, not as healthy; a token that sees only some
+  stores cannot be told from this data, which leaves it to the troubleshooter. Withholding rests
+  on the harness: the HA call needs
   the same `Sys.Audit` as the rest of the module, so a token without it stops more than this one
   area, and the troubleshooter's `permissions` check reports that (§5, 2026-11-02).
 - **No alerts on the score or its areas.** `HealthScore` loses its `< 70 50` threshold, and the new
   datapoints ship without one. `Quorate`, `NodesOnlinePercent`, the HA datapoints and storage's
-  `Status` and `EffectiveUsedPercent` alert, so each cause alerts once. The score is for dashboards.
+  `Status` and `EffectiveUsedPercent` alert, so each cause alerts once. Pressure alone has no alert
+  once this one goes: a threshold on Node Detail's pressure datapoints is the site's choice. The
+  score is for dashboards.
 - **Cost.** No new API calls: `/cluster/status`, `/cluster/resources`, the HA status and one
-  `rrddata` per online node are all read already. The score moves after those reads in the script.
+  `rrddata` per online node are all read already. The score moves after those reads in the script,
+  and `/cluster/resources` gets its own try, so its failure costs the capacity figures, not the
+  score's other areas or a quorum 0.
 - **What it leaves out.** Individual guests, which alert on their own, and whether the cluster
   could survive losing a node, which would read degraded all the time on a two-node cluster and
   needs its own design.
@@ -366,13 +373,7 @@ that week, so the replay never exercised CPU pressure counting: the lab test mus
 *Build and test.* One pure preamble closure decides the areas and the score, so the harness runs
 each row of the table, with its cases in their own closure (`harness.run()` is at the JVM's method
 limit). The Cluster Health graph gains the four area lines; the dashboards are unchanged, since
-the name and scale stay. Live tests, each from a scheduled poll: normal running; a capped container
-under load (the score holds); every core of a node loaded (CPU pressure counts); both HA managers
-stopped (`HealthHA` 50); a throwaway `dir` store unmounted, and filled past 90% and 95%, after
-confirming how `/cluster/resources` shows a disabled store, which must not count; a token without
-`Sys.Audit` (withheld); and whether an alert open on `HealthScore` or `UsedPercent` clears when the
-threshold goes, which the upgrade notes must then state. A size table case in the harness pins the
-storage scale, and its live test needs a store big enough that the two figures differ. Ships as
+the name and scale stay. The live tests are in §5. Ships as
 v2.8.0: the number means something new, so the
 notes say the history before it is not comparable.
 
@@ -961,7 +962,7 @@ a layer changes; spike results stay in their rows above.
 | How Proxmox shows a store (§3.2): the lab API | 2026-11-06 | A throwaway `dir` store on a mount, Proxmox VE 9.2.3, read from `/cluster/resources?type=storage`. Mounted: `available`. Disabled: no row at all. Unmounted: `unknown`, with no `disk` or `maxdisk`, about 2.5 minutes later; the node's own `/nodes/<n>/storage` read `active` 0. Defined for all nodes and present on one: `unknown` on the other |
 | HealthScore, worst area wins (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`, imported; the portal's scripts matched the build. One-core container with four `stress-ng` workers on Node-B: the old score read 49.52 and 47.83 and raised an error; the new one read 99.55 under the same load (node CPU 30.7%, CPU pressure 88.7). The open `HealthScore` alert cleared one second after the import removed its threshold. Eight busy loops on Node-B's four cores: node CPU 100%, CPU pressure 90, `HealthPressure` and `HealthScore` 75 on both polls. Container under HA: `HealthHA` 100. Both `pve-ha-crm` stopped: `HealthHA` and `HealthScore` 50 on the next poll, against an old score above 90; 100 on the first poll after they restarted. A throwaway store: `HealthStorage` 75 at 92%, 50 at 97%, 100 when emptied, 50 unmounted. Not driven live: withholding (harness: `health-withheld-*`), a shared store, a node offline with quorum (the lab has no qdevice) |
 | `EffectiveUsedPercent` (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`. An 8 TB store at 83.8% read 61.1, the formula's value, and `UsedPercent` carried no threshold. A 1 GB store at 96.97% read 96.97 and raised the critical alert; it cleared on the first poll after the store emptied, ten minutes later. Not driven live: a large store reaching the alert levels, and ZFS and Ceph staying flat; the harness covers both |
-| v2.8.0: local checks | 2026-11-06 | Branch `health-score`. Build clean (25 modules); compile job all pass; harness 2,189 of 2,189; lint 0 errors, 16 warnings; both dashboards check clean |
+| v2.8.0: local checks | 2026-11-06 | Branch `health-score`. Build clean (25 modules); compile job all pass; harness 2,192 of 2,192; lint 0 errors, 16 warnings; both dashboards check clean |
 
 **Not yet seen on the lab:** Replication, Ceph and ZFS (the lab has none), a cluster address
 (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the default duplicate-IP

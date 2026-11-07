@@ -930,6 +930,22 @@ def healthCases = { ->
     // The fixture: pve2 offline, a service in error, stores under the levels, pve1's worst I/O full 0.34.
     note('health-collect', sv.NodesOnlinePercent == 50d && sv.HealthNodes == 50d && sv.HealthHA == 50d && sv.HealthStorage == 100d && sv.HealthPressure == 99.66d && sv.HealthScore == 50d,
          "Cluster_Status printed ${sv.findAll { it.key.startsWith('Health') || it.key == 'NodesOnlinePercent' }}")
+    // What the script prints when a read fails or comes back filtered, not just what the closure decides.
+    def statusLines = { Map overrides ->
+        def run = withFixtures(overrides) { runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Status.collect.groovy'), [hostProps: hostProps]) }
+        [exit: run.exit, values: run.stdout.readLines().findAll { it ==~ /^[A-Za-z0-9_]+=.*/ }.collectEntries { def kv = it.split('=', 2); [(kv[0]): kv[1] as double] }]
+    }
+    def noQuorum = statusLines(['/cluster/resources': null, '/cluster/status': statusWith([:], [:], 0)])
+    note('health-resources-noquorum', noQuorum.exit == 0 && noQuorum.values.HealthScore == 0d && !noQuorum.values.containsKey('HealthStorage'),
+         "no quorum with /cluster/resources failing: ${noQuorum}")
+    def noResources = statusLines(['/cluster/resources': null])
+    note('health-resources-failed', noResources.exit == 0 && noResources.values.HealthNodes == 50d && noResources.values.HealthHA == 50d &&
+         !noResources.values.containsKey('HealthStorage') && !noResources.values.containsKey('HealthScore') &&
+         !noResources.values.containsKey('GuestsTotal') && noResources.values.containsKey('MigrationsRunning'),
+         "with /cluster/resources failing: ${noResources}")
+    def hidden = statusLines(['/cluster/resources': fixtures['/cluster/resources'].findAll { it.type != 'storage' }])
+    note('health-storage-hidden', !hidden.values.containsKey('HealthStorage') && !hidden.values.containsKey('HealthScore') && hidden.values.HealthNodes == 50d,
+         "a token that sees no storage gave ${hidden}")
     def healthBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Cluster_Status.json')).datapoints.collectEntries { [(it.name): it] }
     note('health-no-alert', ['HealthScore', 'HealthNodes', 'HealthHA', 'HealthStorage', 'HealthPressure'].every { healthBuilt[it] != null && !healthBuilt[it].threshold },
          'a health datapoint is missing or has a threshold')

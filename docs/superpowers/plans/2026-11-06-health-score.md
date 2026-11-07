@@ -18,7 +18,7 @@
 - A preamble closure must be defined before the closures that use it, and is found by name (`shake_preamble`).
 - `tests/harness.groovy` `run()` is at the JVM's method limit: every new test section goes inside its own closure, called once.
 - The harness reads `dist/`: run `python build/build.py` before it.
-- The user runs every command on nodes and guests. The API token is read-only. VM 106 stays out of every test.
+- The user runs every command on nodes and guests. The API token is read-only. Protected guests stay out of every test.
 - No new API calls in `Proxmox_VE_Cluster_Status`, unless Task 1 proves one is needed.
 - Pinned values: steps 75, 50, 25; HA 50; levels 90 and 95; pressure floor 75; CPU gate 85%; reference size 100 GB; exponent 0.2; flat `plugintype` values `zfspool`, `rbd`, `cephfs`.
 
@@ -214,7 +214,7 @@ Import the two changed modules, then run each case, reading scheduled polls only
 
 - [ ] **Step 5: Every core loaded.** `stress-ng --cpu 0` on Node-B itself for four polls. Expected: CPU at 85% or more, and `HealthPressure` falls. If it never reaches 85%, say so; do not report the gate as proven.
 
-- [ ] **Step 6: HA.** `ha-manager add ct:107 --state started`, confirm `HealthHA` 100, stop `pve-ha-crm` on the non-master node then the master. Expected: `HealthHA` 50, `HealthScore` 50, one alert (`HAMasterPresent`). Restart, confirm 100, `ha-manager remove ct:107`. Warn: no node restart until HA reads `standby`, about 15 minutes.
+- [ ] **Step 6: HA.** `ha-manager add ct:<test guest> --state started`, confirm `HealthHA` 100, stop `pve-ha-crm` on the non-master node then the master. Expected: `HealthHA` 50, `HealthScore` 50, one alert (`HAMasterPresent`). Restart, confirm 100, `ha-manager remove ct:<test guest>`. Warn: no node restart until HA reads `standby`, about 15 minutes.
 
 - [ ] **Step 7: Storage.** A throwaway `tmpfs` store as Task 1. Fill it past 90%, then past 95%, with `fallocate`; then unmount it. Expected: `HealthStorage` 75, 50, then 50 for a local store. Remove the store.
 
