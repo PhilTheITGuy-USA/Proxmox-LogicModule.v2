@@ -323,6 +323,9 @@ HealthScore = min(quorum, HealthNodes, HealthHA, HealthStorage, HealthPressure)
   ([TrueNAS](https://www.truenas.com/blog/zfs-80-percent-rule/)), and Ceph has percentage limits of
   its own (recalled, not checked). The lab has neither, so this rests on the harness.
 
+  The figure is only meaningful near full: a 12 TB store reads 0 until about 62% used. So it is an
+  alert input and gets no graph; the Used graph keeps showing `UsedPercent`.
+
   **The alert moves with it.** `UsedPercent` stays as the plain figure, with no threshold.
   `EffectiveUsedPercent` takes its `> 80 90 95`, so the alert and `HealthStorage` agree. A threshold
   set by hand on `UsedPercent` needs moving, and the upgrade notes must say so. This covers
