@@ -397,6 +397,27 @@ No datapoint alerts on No Data, as in LogicMonitor's own hypervisor modules, so 
 that stops reporting turns grey rather than raising an alert. When collection itself breaks, the
 Troubleshooter's instances say why.
 
+### Guest Names
+
+A guest's instances, such as those under Guest Status, Guest Performance and Snapshots, always show
+its name in Proxmox. Renaming its resource in LogicMonitor changes the resource only, so the two
+names can differ. To change an instance's name, rename the guest in Proxmox. The instance updates
+at the next discovery, within the hour, and keeps its history, because its identity is the guest's
+ID and not its name *(not yet verified)*.
+
+This is deliberate:
+
+- **An instance is the hypervisor's view of a guest.** During an incident, the Proxmox name is what
+  you need to find the guest in Proxmox.
+- **Every guest has instances, but only some have resources.** Guests are added as resources by
+  choice, so using resource names would leave a mix of the two kinds of name.
+- **The cluster modules read Proxmox, not LogicMonitor.** Reading resource names would put portal
+  credentials on every cluster resource, for a label.
+- **A name that changes with the portal could break what matches on it,** such as an alert rule
+  that matches an instance name.
+- **LogicMonitor's own suites do the same.** Their vSphere and Citrix Virtual Apps and Desktops VM
+  modules name instances from vCenter and Citrix, and never read the resource's name.
+
 ### Import LogicModules
 
 Import in this order, so that each module finds what it depends on:
