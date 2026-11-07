@@ -1,22 +1,21 @@
 # LM Exchange listing -- Proxmox VE
 
-Text for submitting the suite to LogicMonitor Exchange (Exchange readiness review gap 2,
-2026-10-27). Exchange shows each module's own name, description, technical notes and keywords,
-which the modules already carry; this file holds the suite-level text, for wherever the
-submission asks for a description of the whole package, and the checks to make before
-submitting.
+Suite-level text for LogicMonitor, should it publish the suite on Exchange (Exchange readiness
+review gap 2, 2026-10-27; current to v2.8.0). Exchange shows each module's own name, description,
+technical notes and keywords, which the modules already carry; this file holds the text for
+wherever a description of the whole package is needed, and the checks to make before publishing.
 
 ## Short description
 
-Monitors Proxmox VE clusters and standalone hosts through the Proxmox VE REST API: cluster
-health and quorum, nodes, every VM and container, storage, Ceph, backups, snapshots,
+Monitors Proxmox VE clusters and standalone hosts through the Proxmox VE REST API: a cluster
+health score, quorum and HA, nodes, every VM and container, storage, Ceph, backups, snapshots,
 replication, certificates, subscriptions and topology, with active/standby failover for the
 cluster modules.
 
 ## Overview
 
 The Proxmox VE package monitors Proxmox VE clusters and standalone hosts through the Proxmox VE
-REST API, with a read-only API token (the `PVEAuditor` role). It has 23 LogicModules: 19
+REST API, with a read-only API token (the `PVEAuditor` role). It has 25 LogicModules: 21
 DataSources, a TopologySource and three PropertySources.
 
 **How it applies.** An Enhanced Script NetScan, one per cluster, creates a resource for each
@@ -42,6 +41,12 @@ hourly and ask each guest's own node.
 **Node modules** collect on each node's own resource and ask only that node, so a node's alerts
 are raised, routed and silenced on the node.
 
+**Cluster health.** `HealthScore` is the lowest of five areas: quorum, nodes online, HA, storage
+and node pressure. Each area but quorum is its own datapoint, so the score also shows where to
+look. It is for dashboards and raises no alert, as those causes alert on their own. Storage alerts
+scale with a store's size, so a large store is not treated as an emergency at 90% full, while
+ZFS and Ceph stores keep their real percentage.
+
 **Topology.** Modelled on LogicMonitor's vSphere suite: cluster to node to guest, with guests
 matched to their own resources by MAC address, so a node's alerts explain its guests'; storage
 from each guest and node to its stores, labelled local, shared or network, and on to the ZFS,
@@ -61,9 +66,12 @@ way.
 their values, so alerts read "Offline (0)" rather than "0".
 
 **Verified.** Imported into a LogicMonitor portal and run against a two-node Proxmox VE 9.2.3
-cluster, including failover and hand-back of the cluster role. Ceph, replication and a cluster
-address are designed for but not yet seen on a live cluster. The troubleshooter was seen to find
-a wrong node name, raise its alert, clear it once fixed and drop the finding.
+cluster and a standalone host, including failover and hand-back of the cluster role. The alerts
+were driven on the lab: a stopped HA manager, a wrong node clock, a paused VM, guest contention
+and the health score's areas. The troubleshooter was seen to find a wrong node name, raise its
+alert, clear it once fixed and drop the finding. Ceph, ZFS, replication, a cluster address,
+Proxmox VE 8 and true scale are designed for but not yet seen on a live system. The architecture
+spec's §5 records what each test showed.
 
 ## Modules
 
@@ -96,9 +104,10 @@ a wrong node name, raise its alert, clear it once fixed and drop the finding.
 | `addERI_Proxmox_VE_GuestResource` | PropertySource (ERI) | 30 min |
 
 Keywords: proxmox, pve, proxmox ve, hypervisor, virtualization, cluster, node, qemu, lxc, vm,
-container, ceph, storage, backup, snapshot, replication, topology, quorum, ha, guest agent, troubleshooter.
+container, ceph, storage, backup, snapshot, replication, topology, quorum, ha, health score, guest agent,
+troubleshooter.
 
-## Before submitting
+## Before publishing
 
 - [x] The repository is **public** (confirmed 2026-11-05). The listing and the product page both
       send readers there.
