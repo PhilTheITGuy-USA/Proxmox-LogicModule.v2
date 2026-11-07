@@ -433,6 +433,11 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.8.0
+
+Nothing to import: this release adds [Guest Names](#guest-names) to this page. The modules, the
+NetScan and the dashboards are as in v2.8.0.
+
 ### Upgrading from v2.7.0
 
 **`HealthScore` means something new.** It is now the lowest of five areas, so it shows the
