@@ -578,6 +578,22 @@ def pvePercent = { used, total ->
 }
 
 /*
+ * How full a store is for its size, 0-100 (A§3.2). A store needs proportionally less free
+ * space the bigger it is, so past 100 GB the percentage is eased by (100 GB / size) ^ 0.2:
+ * 12 TB reads 90 at 96.2% used. The levels then suit every size. ZFS and Ceph stay flat, as
+ * they suffer by how full they are, whatever the size. Null with no size, never a guess.
+ */
+def pveEffectiveUsed = { Map store ->
+    def total = (store.maxdisk ?: 0) as double
+    if (total <= 0.0d) { return null }
+    def used = Math.min(100.0d, ((store.disk ?: 0) as double) * 100.0d / total)
+    def sizeGB = total / 1000000000.0d
+    def flat = store.plugintype?.toString() in ['zfspool', 'rbd', 'cephfs']
+    def scale = flat || sizeGB <= 100.0d ? 1.0d : Math.pow(100.0d / sizeGB, 0.2d)
+    pveRound(Math.max(0.0d, 100.0d - (100.0d - used) / scale))
+}
+
+/*
  * The instances Proxmox_VE_Cluster_Backups discovers and collects: one per guest per backup job,
  * and one per guest no job covers. Discovery and collection both build them here, so the
  * two always agree on the wildvalues.

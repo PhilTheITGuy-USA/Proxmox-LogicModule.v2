@@ -840,6 +840,41 @@ note('guestloop-http-error', agentRun.thrown == null && agentRun.exit?.every { i
                              agentRun.requests.count { it.endsWith('/agent/network-get-interfaces') } == agentRun.exit?.size(),
      "an HTTP error stopped the loop: ${agentRun.exit} / ${agentRun.thrown} / ${agentRun.requests}")
 
+// ------------------------------------- storage fullness scaled by size (A§3.2)
+//
+// One closure serves the alert and the health score, so they cannot disagree.
+
+def effectiveUsedCases = { ->
+    def effRow = { Map row -> runSource(preamble + '\nreturn pveEffectiveUsed(row)', [hostProps: hostProps, row: row]).exit }
+    def eff = { double sizeGB, double usedPercent, String plugin ->
+        effRow([disk: (sizeGB * 1e9 * usedPercent / 100d) as long, maxdisk: (sizeGB * 1e9) as long, plugintype: plugin])
+    }
+    def near = { value, double expected -> value != null && Math.abs((value as double) - expected) < 0.1d }
+    note('effective-small', eff(100, 90, 'dir') == 90d, "100 GB at 90% read ${eff(100, 90, 'dir')}")
+    note('effective-tiny', eff(32, 91, 'dir') == 91d, "a store under 100 GB was tightened: ${eff(32, 91, 'dir')}")
+    note('effective-500g', near(eff(500, 92.75, 'dir'), 90d), "500 GB at 92.75% read ${eff(500, 92.75, 'dir')}")
+    note('effective-12t', near(eff(12000, 96.16, 'dir'), 90d), "12 TB at 96.16% read ${eff(12000, 96.16, 'dir')}")
+    note('effective-48t', near(eff(48000, 97.09, 'dir'), 90d), "48 TB at 97.09% read ${eff(48000, 97.09, 'dir')}")
+    note('effective-128t', near(eff(128000, 98.8, 'dir'), 95d), "128 TB at 98.8% read ${eff(128000, 98.8, 'dir')}")
+    note('effective-floor', eff(12000, 10, 'dir') == 0d, "12 TB at 10% read ${eff(12000, 10, 'dir')}")
+    note('effective-full', eff(12000, 100, 'dir') == 100d, "12 TB at 100% read ${eff(12000, 100, 'dir')}")
+    note('effective-over', effRow([disk: 2000000000000L, maxdisk: 1000000000000L, plugintype: 'dir']) == 100d, 'a store reporting more used than its size passed 100')
+    note('effective-flat', ['zfspool', 'rbd', 'cephfs'].every { eff(48000, 91, it) == 91d }, 'a ZFS or Ceph store was scaled')
+    note('effective-nosize', effRow([disk: 0, maxdisk: 0, plugintype: 'dir']) == null && effRow([plugintype: 'dir']) == null,
+         'a store with no size got a figure')
+
+    def storeRun = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_StorageCapacity.collect.groovy'), [hostProps: hostProps])
+    def effective = storeRun.stdout.readLines().findAll { it.contains('.EffectiveUsedPercent=') }
+    def effectiveOf = { String name -> effective.find { it.contains(name) }?.split('=', 2)?.getAt(1) }
+    // The fixture's local store is 107 GB, so a little under its plain 10%; ceph-vm is flat at 50.
+    note('effective-collect', near(effectiveOf('local'), 8.71d) && near(effectiveOf('ceph-vm'), 50d) && effectiveOf('backup') == null,
+         "StorageCapacity printed ${effective}")
+    def storeBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Cluster_StorageCapacity.json')).datapoints.collectEntries { [(it.name): it] }
+    note('effective-threshold', storeBuilt.EffectiveUsedPercent?.threshold == '> 80 90 95' && !storeBuilt.UsedPercent?.threshold,
+         "EffectiveUsedPercent ${storeBuilt.EffectiveUsedPercent?.threshold}, UsedPercent ${storeBuilt.UsedPercent?.threshold}")
+}
+effectiveUsedCases()
+
 // ------------------------------------------------ cluster health score (A§3.2)
 
 def hs = { rows, stalls -> runSource(preamble + '\nreturn pveHealthScore(rows, stalls)',
