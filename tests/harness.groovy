@@ -871,6 +871,7 @@ note('cluster-nodes-status-only', clusterNodesRun.exit == 0 && clusterNodeKeys =
 //
 // /nodes/<n>/time gives whole seconds (lab, 2026-11-06). The offset reads the same either way
 // round, and a node that does not answer this one call keeps its other datapoints.
+def clockCases = { ->
 def clockRun = { Long clockShift ->
     def clockFixtures = clockShift == null ? [:] : ['/nodes/pve1/time': [time: System.currentTimeMillis().intdiv(1000L) + clockShift, timezone: 'UTC']]
     def clockExec = withFixtures(clockFixtures) { runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps]) }
@@ -890,6 +891,8 @@ note('clock-withheld', clockFailed.exit == 0 && !clockFailed.values.containsKey(
 def clockBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Node_Detail.json')).datapoints.find { it.name == 'ClockOffsetSeconds' }
 note('clock-threshold', clockBuilt?.threshold == '> 5' && clockBuilt?.triggerInterval == 2,
      "ClockOffsetSeconds: threshold ${clockBuilt?.threshold}, triggerInterval ${clockBuilt?.triggerInterval}")
+}
+clockCases()
 
 // ------------------------------------------- Node_Detail on its node (A§3.2)
 
