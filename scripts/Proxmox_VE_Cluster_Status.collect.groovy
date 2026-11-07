@@ -35,11 +35,12 @@ try {
     pveEmit(null, 'NodesTotal', nodes.size())
     pveEmit(null, 'NodesOnline', online)
     pveEmit(null, 'NodesOffline', nodes.size() - online)
+    pveEmit(null, 'NodesOnlinePercent', nodes ? pveRound(100.0d * online / nodes.size()) : 0.0d)
 
     /*
-     * The cluster health score: nodes online, weighted by how stalled each online node is,
-     * from the pressure stall figures in its rrddata -- one call per online node. A node
-     * whose rrddata cannot be read is left out of the score rather than guessed at.
+     * How stalled each online node is, for the health score, from the pressure stall figures
+     * in its rrddata -- one call per online node. A node whose rrddata cannot be read is left
+     * out rather than guessed at.
      */
     // One call per online node, twice over: both loops stop at the time budget,
     // pve.api.budget.ms (default 45000), so a slow cluster costs data, not the whole poll.
@@ -61,11 +62,6 @@ try {
             System.err.println('Health score: no pressure figures for node ' + node.name + ': ' + rrdException.message)
         }
     }
-    def health = pveHealthScore(entries, stallByNode)
-    pveEmit(null, 'NodesOnlinePercent', health.NodesOnlinePercent)
-    if (health.HealthScore != null) {
-        pveEmit(null, 'HealthScore', health.HealthScore)
-    }
 
     /*
      * Capacity rollups. One unfiltered /cluster/resources call returns every node, guest
@@ -76,28 +72,37 @@ try {
      * little without the physical capacity they are drawn from. Templates are excluded
      * because they are never running and their allocation is not really committed.
      */
-    def resources = pveGet('/cluster/resources') ?: []
-    def guests = resources.findAll { it.type in ['qemu', 'lxc'] && !it.template }
-    def nodeRows = resources.findAll { it.type == 'node' }
+    def resources = null
+    try {
+        resources = pveGet('/cluster/resources') ?: []
+    } catch (Exception resourcesException) {
+        // Its own try, as a failed read must not cost the quorum and health figures after it.
+        System.err.println('Capacity and storage not read: ' + resourcesException.message)
+    }
+    if (resources != null) {
+        def guests = resources.findAll { it.type in ['qemu', 'lxc'] && !it.template }
+        def nodeRows = resources.findAll { it.type == 'node' }
 
-    def vcpuAllocated = (guests.sum { (it.maxcpu ?: 0) as double } ?: 0.0d) as double
-    def vcpuCapacity = (nodeRows.sum { (it.maxcpu ?: 0) as double } ?: 0.0d) as double
-    def memAllocated = (guests.sum { (it.maxmem ?: 0) as double } ?: 0.0d) as double
-    def memCapacity = (nodeRows.sum { (it.maxmem ?: 0) as double } ?: 0.0d) as double
+        def vcpuAllocated = (guests.sum { (it.maxcpu ?: 0) as double } ?: 0.0d) as double
+        def vcpuCapacity = (nodeRows.sum { (it.maxcpu ?: 0) as double } ?: 0.0d) as double
+        def memAllocated = (guests.sum { (it.maxmem ?: 0) as double } ?: 0.0d) as double
+        def memCapacity = (nodeRows.sum { (it.maxmem ?: 0) as double } ?: 0.0d) as double
 
-    pveEmit(null, 'GuestsTotal', guests.size())
-    pveEmit(null, 'GuestsRunning', guests.count { it.status?.toString() == 'running' })
-    pveEmit(null, 'VCPUsAllocated', pveRound(vcpuAllocated))
-    pveEmit(null, 'VCPUsCapacity', pveRound(vcpuCapacity))
-    pveEmit(null, 'VCPUOvercommitRatio', vcpuCapacity > 0 ? pveRound(vcpuAllocated / vcpuCapacity) : 0)
-    pveEmit(null, 'MemoryAllocatedBytes', memAllocated as long)
-    pveEmit(null, 'MemoryCapacityBytes', memCapacity as long)
-    pveEmit(null, 'MemoryOvercommitRatio', memCapacity > 0 ? pveRound(memAllocated / memCapacity) : 0)
+        pveEmit(null, 'GuestsTotal', guests.size())
+        pveEmit(null, 'GuestsRunning', guests.count { it.status?.toString() == 'running' })
+        pveEmit(null, 'VCPUsAllocated', pveRound(vcpuAllocated))
+        pveEmit(null, 'VCPUsCapacity', pveRound(vcpuCapacity))
+        pveEmit(null, 'VCPUOvercommitRatio', vcpuCapacity > 0 ? pveRound(vcpuAllocated / vcpuCapacity) : 0)
+        pveEmit(null, 'MemoryAllocatedBytes', memAllocated as long)
+        pveEmit(null, 'MemoryCapacityBytes', memCapacity as long)
+        pveEmit(null, 'MemoryOvercommitRatio', memCapacity > 0 ? pveRound(memAllocated / memCapacity) : 0)
+    }
 
     /*
      * HA is optional and needs Sys.Audit on /. Its absence is not a collection failure,
      * so it is scoped to its own try and simply omits its datapoints when unavailable.
      */
+    def haHealth = null
     try {
         def ha = pveGet('/cluster/ha/status/current') ?: []
         def services = ha.findAll { it.type == 'service' }
@@ -140,10 +145,22 @@ try {
         if (fencing) {
             pveEmit(null, 'HAFencingArmed', services && masterAlive ? (fencing['armed-state']?.toString() == 'armed' ? 1 : 0) : 2)
         }
+        haHealth = [services: services.size(), masterAlive: masterAlive as boolean, errored: errored,
+                    armed: fencing ? fencing['armed-state']?.toString() == 'armed' : null]
     } catch (Exception haException) {
         System.err.println('HA status unavailable (this is expected when HA is not configured): ' +
             haException.message)
     }
+
+    // The health score, once everything it reads has been read: the areas, then the lowest.
+    // No storage rows means unread: /cluster/resources filters by the token's privileges, not by
+    // error, so a token without Datastore.Audit sees none, and that is not a healthy store.
+    def health = pveHealthScore(entries, stallByNode, haHealth, resources?.findAll { it.type == 'storage' } ?: null)
+    if (health.HealthNodes != null) { pveEmit(null, 'HealthNodes', health.HealthNodes) }
+    if (health.HealthHA != null) { pveEmit(null, 'HealthHA', health.HealthHA) }
+    if (health.HealthStorage != null) { pveEmit(null, 'HealthStorage', health.HealthStorage) }
+    if (health.HealthPressure != null) { pveEmit(null, 'HealthPressure', health.HealthPressure) }
+    if (health.HealthScore != null) { pveEmit(null, 'HealthScore', health.HealthScore) }
 
     /*
      * Migrations. Each is its own task -- vzmigrate for a container, qmigrate for a VM --

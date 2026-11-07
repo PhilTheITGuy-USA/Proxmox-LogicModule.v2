@@ -412,6 +412,63 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.7.0
+
+**`HealthScore` means something new.** It is now the lowest of five areas, so it shows the
+cluster's worst problem, and four new datapoints show which area that is:
+
+| Area | Datapoint | 100 when | Otherwise |
+|---|---|---|---|
+| Quorum | `Quorate` | Quorate, or a standalone host | 0 |
+| Nodes | `HealthNodes` | Every node online | Percent of nodes online |
+| HA | `HealthHA` | No HA services; or the master is active, fencing is armed and no service is in error | 50 |
+| Storage | `HealthStorage` | Every store is available, with `EffectiveUsedPercent` under 90 | 75 at 90; 50 at 95 or a local store unavailable; 25 for a shared store unavailable |
+| Pressure | `HealthPressure` | No node is stalled | 100 less the mean node stall, never below 75 |
+
+A shared store unavailable, and a node offline while quorum holds, are *(not yet verified)*.
+
+One guest held back by its CPU limit no longer lowers the score: CPU pressure counts only with a
+node's CPU at 85% or more. Heavy I/O from one guest still can, because Proxmox cannot split it by
+guest, but pressure stops at 75: it can show a slow cluster, not a broken one. Without pressure
+figures, load per core stands in, with no CPU limit *(not yet verified)*.
+
+An area that cannot be read shows No Data, and so does the score *(not yet verified)*, except
+without quorum, which reads 0 whatever else is known. A token without `Datastore.Audit` sees no
+storage, so `HealthStorage` and the score show No Data. Scores from before this release are not
+comparable with new ones.
+
+**`HealthScore` no longer alerts.** Quorum, nodes, HA and storage alert on their own, so those
+problems alert once. Pressure does not: the old `< 70` was the only alert on it, so set a threshold
+on Node Detail's pressure datapoints if you want one. The score is for dashboards. An alert open on
+it when you import clears straight away.
+
+**Storage alerts now depend on a store's size.** `UsedPercent` stays as the plain figure, with no
+threshold. `EffectiveUsedPercent` takes its `> 80 90 95`: it is the same percentage, eased for
+stores over 100 GB, because 90% of a 48 TB store is not the emergency 90% of a small disk is.
+
+| Store size | Reads 90 at | Free space | Reads 95 at | Free space |
+|---|---|---|---|---|
+| 100 GB or less | 90% | 10 GB at 100 GB | 95% | 5 GB at 100 GB |
+| 500 GB | 92.8% | 36 GB | 96.4% | 18 GB |
+| 2 TB | 94.5% | 110 GB | 97.3% | 55 GB |
+| 12 TB | 96.2% | 461 GB | 98.1% | 230 GB |
+| 48 TB | 97.1% | 1.4 TB | 98.5% | 698 GB |
+| 128 TB | 97.6% | 3.1 TB | 98.8% | 1.5 TB |
+
+A large store warns later than it did: 12 TB first warns at about 92% used, not 80%. The figure
+reads 0 until a large store is fairly full, so it has no graph, and the Used graph still shows
+`UsedPercent`. ZFS and Ceph stores read their real percentage *(not yet verified)*, because they
+suffer by how full they are, whatever their size. A store that should stay nearly full lowers
+`HealthStorage` for as long as it does. So does a store defined for a node that does not have it,
+which holds `HealthStorage` at 50: limit it to its nodes under **Datacenter > Storage**.
+
+If you set your own threshold on `UsedPercent`, move it to `EffectiveUsedPercent`. An alert open on
+`UsedPercent` at import should clear as `HealthScore`'s did *(not yet verified)*. The dashboards'
+storage widgets still colour `UsedPercent` at 80 and 90, so a large store can show red with no alert.
+
+Re-import `Proxmox_VE_Cluster_Status` and `Proxmox_VE_Cluster_StorageCapacity`. The other modules,
+the NetScan and the dashboards are as in v2.7.0.
+
 ### Upgrading from v2.6.2
 
 **A stopped HA manager raises an alert.** When a cluster has HA services and no running manager,
@@ -827,12 +884,12 @@ so no module replaces another.
 
 | Display Name | Type | Description | Replaces |
 |---|---|---|---|
-| Proxmox VE Cluster Status | DataSource | Quorum, HA manager health, migrations, nodes online and a cluster health score | — |
+| Proxmox VE Cluster Status | DataSource | Quorum, HA manager health, migrations, nodes online and a cluster health score, the lowest of five areas | — |
 | Proxmox VE Cluster Nodes | DataSource | Each node's online state, seen from the cluster | — |
 | Proxmox VE Cluster Guest Status | DataSource | Power state, lock and HA state of every VM and container | — |
 | Proxmox VE Cluster Guest Performance | DataSource | CPU, memory, network and disk of every VM and container; CPU/IO/memory pressure, with alerts on sustained CPU contention and memory thrashing; for VMs, ballooning, swap-in, disk IOPS and disk latency | — |
 | Proxmox VE Cluster VM Health | DataSource | Each VM that QEMU has paused while Proxmox reads it as running (a full or failed storage), and each VM whose guest agent stops answering (a hung guest) | — |
-| Proxmox VE Cluster Storage Capacity | DataSource | Capacity and availability of every storage, per node | — |
+| Proxmox VE Cluster Storage Capacity | DataSource | Capacity and availability of every storage, per node, with fullness scaled to its size | — |
 | Proxmox VE Cluster Ceph | DataSource | Ceph health, placement groups and capacity | — |
 | Proxmox VE Cluster Ceph OSD | DataSource | Each OSD's state, fill level and latency | — |
 | Proxmox VE Cluster Ceph Pools | DataSource | Each Ceph pool's use and replication | — |

@@ -578,6 +578,22 @@ def pvePercent = { used, total ->
 }
 
 /*
+ * How full a store is for its size, 0-100 (A§3.2). A store needs proportionally less free
+ * space the bigger it is, so past 100 GB the percentage is eased by (100 GB / size) ^ 0.2:
+ * 12 TB reads 90 at 96.2% used. The levels then suit every size. ZFS and Ceph stay flat, as
+ * they suffer by how full they are, whatever the size. Null with no size, never a guess.
+ */
+def pveEffectiveUsed = { Map store ->
+    def total = (store.maxdisk ?: 0) as double
+    if (total <= 0.0d) { return null }
+    def used = Math.min(100.0d, ((store.disk ?: 0) as double) * 100.0d / total)
+    def sizeGB = total / 1000000000.0d
+    def flat = store.plugintype?.toString() in ['zfspool', 'rbd', 'cephfs']
+    def scale = flat || sizeGB <= 100.0d ? 1.0d : Math.pow(100.0d / sizeGB, 0.2d)
+    pveRound(Math.max(0.0d, 100.0d - (100.0d - used) / scale))
+}
+
+/*
  * The instances Proxmox_VE_Cluster_Backups discovers and collects: one per guest per backup job,
  * and one per guest no job covers. Discovery and collection both build them here, so the
  * two always agree on the wildvalues.
@@ -843,17 +859,25 @@ def pveLatestRrd = { List rows ->
 }
 
 /*
- * How stalled a node is, 0-100: the share of time tasks waited on CPU, IO or memory, from
- * Linux pressure stall information in rrddata. The worst of the three, so one starved
- * resource is not averaged away. Pressure is already relative to the machine's size, and
- * load average already counts tasks waiting on IO, so load and IO wait are not added in.
- * Without pressure fields (a kernel or Proxmox release that does not report them) the
- * 1-minute load per CPU stands in, capped at 100; with neither, null -- never a guess.
+ * How stalled a node is, 0-100, from Linux pressure stall information in rrddata (A§3.2): the
+ * worst of I/O, memory and CPU, so one starved resource is not averaged away. I/O and memory
+ * use "full", or "some" where there is no full figure. Proxmox reports no CPU full, and CPU some
+ * on a node with idle cores is one capped guest, not a stalled node, so it counts only with the
+ * node's CPU at 85% or more. Without any pressure field the 1-minute load per CPU stands in,
+ * capped at 100; with neither, null -- never a guess.
  */
 def pveNodeStall = { Map rrdRow, Map status ->
-    def keys = ['pressurecpusome', 'pressureiosome', 'pressurememorysome']
-    def pressure = keys.findAll { rrdRow?.get(it) != null }.collect { rrdRow[it] as double }
-    if (pressure) { return pressure.max() }
+    def figure = { String resource ->
+        def value = rrdRow?.get(resource + 'full') != null ? rrdRow[resource + 'full'] : rrdRow?.get(resource + 'some')
+        value == null ? null : value as double
+    }
+    def waits = [figure('pressureio'), figure('pressurememory')].findAll { it != null }
+    def cpuSome = rrdRow?.get('pressurecpusome')
+    if (waits || cpuSome != null) {
+        def busy = rrdRow?.cpu != null && (rrdRow.cpu as double) >= 0.85d
+        if (cpuSome != null && busy) { waits << (cpuSome as double) }
+        return waits ? waits.max() : 0.0d
+    }
     def load = status?.loadavg ? status.loadavg[0]?.toString()?.toDouble() : null
     def cpus = status?.cpuinfo?.cpus
     if (load != null && cpus) { return Math.min(100.0d, 100.0d * load / (cpus as double)) }
@@ -912,29 +936,34 @@ def pveQuorate = { List status ->
 }
 
 /*
- * The cluster health score, 0-100: 100 x (nodes online / nodes) x the mean node score,
- * where an online node scores 1 - stall/100 and an offline node 0, so an offline node
- * counts twice, as it does for its guests. A cluster without quorum scores 0 whatever its
- * nodes say: losing quorum is a cliff, not a slope. An online node with no stall figure is
- * left out of the mean, and with no figure for any node there is no score -- never a
- * fabricated one. A standalone host (no cluster row) counts as quorate.
+ * The cluster health score, 0-100: the lowest of five areas (A§3.2). Each area says what it
+ * saw, so the number also says where to look. Quorum is a cliff: without it the score is 0
+ * whatever else is known. HA, storage and pressure each drop out when they could not be read
+ * (ha or stores null, no stall figure at all), and then the score does too, since unknown is
+ * not healthy. ha is [services, masterAlive, armed, errored]; armed is null when Proxmox has
+ * no fencing entry. A store on an offline node is left out, as Nodes counts that node.
+ * Pressure stops at 75: I/O cannot be split by guest, so it can show slow, never broken.
  */
-def pveHealthScore = { List statusRows, Map stallByNode ->
+def pveHealthScore = { List statusRows, Map stallByNode, Map ha, List stores ->
     def nodes = statusRows.findAll { it.type?.toString() == 'node' }
-    def isOnline = { row -> row.online == null || row.online?.toString() == '1' }
-    def online = nodes.count { isOnline(it) } as double
-    def total = nodes.size() as double
-    def result = [NodesOnline: online, NodesTotal: total,
-                  NodesOnlinePercent: total ? pveRound(100.0d * online / total) : 0.0d]
-    if (!pveQuorate(statusRows)) { return result + [HealthScore: 0.0d] }
-    def scores = nodes.collect { row ->
-        if (!isOnline(row)) { return 0.0d }
-        def stall = stallByNode[row.name?.toString()]
-        stall == null ? null : 1.0d - (stall as double) / 100.0d
+    def onlineNames = nodes.findAll { it.online == null || it.online?.toString() == '1' }*.name*.toString()
+    def areas = [:]
+    if (nodes) { areas.HealthNodes = pveRound(100.0d * onlineNames.size() / nodes.size()) }
+    if (ha != null) {
+        areas.HealthHA = ha.services && (!ha.masterAlive || ha.armed == false || ha.errored) ? 50.0d : 100.0d
     }
-    if (!nodes.any { isOnline(it) && stallByNode[it.name?.toString()] != null }) { return result }
-    def counted = scores.findAll { it != null }
-    result + [HealthScore: pveRound(100.0d * (online / total) * (counted.sum() / counted.size()))]
+    if (stores != null) {
+        def scores = stores.findAll { it.node?.toString() in onlineNames }.collect { store ->
+            if (store.status?.toString() != 'available') { return store.shared ? 25.0d : 50.0d }
+            def effective = pveEffectiveUsed(store)
+            effective == null || effective < 90.0d ? 100.0d : effective < 95.0d ? 75.0d : 50.0d
+        }
+        areas.HealthStorage = scores ? scores.min() : 100.0d
+    }
+    def stalls = onlineNames.collect { stallByNode[it] }.findAll { it != null }.collect { it as double }
+    if (stalls) { areas.HealthPressure = pveRound(Math.max(75.0d, 100.0d - stalls.sum() / stalls.size())) }
+    if (!pveQuorate(statusRows)) { return areas + [HealthScore: 0.0d] }
+    areas.size() == 4 ? areas + [HealthScore: areas.values().min()] : areas
 }
 
 // --------------------------------------------------------------- cluster role

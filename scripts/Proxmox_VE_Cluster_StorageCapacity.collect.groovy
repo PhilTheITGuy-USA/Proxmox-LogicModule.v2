@@ -24,6 +24,10 @@ try {
         pveEmit(id, 'CapacityGB', pveGB(total))
         pveEmit(id, 'FreeGB', pveGB(total > used ? total - used : 0))
         pveEmit(id, 'UsedPercent', pvePercent(used, total))
+        def effective = pveEffectiveUsed(store)
+        if (effective != null) {
+            pveEmit(id, 'EffectiveUsedPercent', effective)
+        }
         pveEmit(id, 'Shared', store.shared ? 1 : 0)
     }
     return 0

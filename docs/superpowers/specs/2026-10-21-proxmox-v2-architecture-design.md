@@ -213,11 +213,11 @@ of a v1 module at commit `2e0237b`, v1 complete (user, 2026-10-25):
 
 | v2 module | Role | From v1 | Change | Calls per poll |
 |---|---|---|---|---|
-| `Proxmox_VE_Cluster_Status` | Cluster | `Proxmox_VE_Cluster` | Its one instance still carries the cluster vertex key (§3.4); it includes v1's migration counts. **Gains the cluster health score** (below): `NodesOnline`, `NodesTotal`, `NodesOnlinePercent`, `HealthScore` | 4 + 2 per online node (migration history) + 1 `rrddata` per online node (health), every 5 minutes |
+| `Proxmox_VE_Cluster_Status` | Cluster | `Proxmox_VE_Cluster` | Its one instance still carries the cluster vertex key (§3.4); it includes v1's migration counts. **Gains the cluster health score** (below): `NodesOnline`, `NodesTotal`, `NodesOnlinePercent`, `HealthScore`, and with the 2026-11-06 redesign `HealthNodes`, `HealthHA`, `HealthStorage`, `HealthPressure` | 4 + 2 per online node (migration history) + 1 `rrddata` per online node (health), every 5 minutes |
 | `Proxmox_VE_Cluster_Nodes` | Cluster | `Proxmox_VE_Nodes` | **Keeps only `Status`** (online). A node that is down cannot report itself down, so this stays on the cluster role; CPU, memory and uptime move to `Proxmox_VE_Node_Detail` | O(1) |
 | `Proxmox_VE_Cluster_GuestStatus` | Cluster | `Proxmox_VE_GuestStatus` | AppliesTo only. Instance ERIs (guest MACs) unchanged. **Amended 2026-11-04** (user, gap review #3: "onboot [is] fine"): `StartAtBootNotRunning` alerts (error, trigger interval 2, which the lab showed alerts on the third poll in a row) on a guest set to Start at boot that is not running, the intent Proxmox itself records, since `Status` ships without a threshold. Discovery stamps `auto.pve_onboot` from the config it already reads -- with `topo.namespace` set too, which now stops only the keys -- and collection reads it back through `datasourceinstanceProps`. A locked guest, an HA-managed one (HA starts it; `HAError` alerts) and one on a node that is down (the node alerts: only the parent alerts, §3.4, amended 2026-10-31) read 0; a guest whose onboot is not recorded has no value. **Amended 2026-11-06** (lab): only a guest whose status is `stopped` counts as down, since `/cluster/resources` also reports `paused`, `guest-panicked` and `io-error`, and VM Health alerts on those | O(1) plus `/cluster/resources?type=node`, and the hourly guest-config read in discovery |
 | `Proxmox_VE_Cluster_GuestPerformance` | Cluster | `Proxmox_VE_GuestPerformance` | AppliesTo only. **Amended 2026-10-30** (user, against the targets LogicMonitor named for its own Proxmox research): **gains per-guest pressure, ballooning and disk latency**, which `/cluster/resources` does not carry but each node's guest lists do (lab, PVE 9.2.3): `/nodes/<n>/qemu?full=1` (pressure, `ballooninfo`, `blockstat`) and `/nodes/<n>/lxc` (pressure), asked only of nodes `/cluster/status` reports online and only where that node runs a guest of that type. Pressure (`PressureCPUSome/FullPercent`, IO, memory) is Proxmox's 10-second average at poll time. **Amended 2026-11-04** (gap review #6; user approved the values, 2026-11-04): three of them alert, each on the third poll in a row (`triggerInterval` 2, 10 minutes after the first): `PressureCPUSomePercent` `> 25 50` (contention, the nearest to CPU ready), `PressureMemoryFullPercent` `> 5 15` (thrashing, containers included) and `GuestSwapInRateMB` `> 1 10` (VMs). The values come from what the figures mean, not from vSphere's: a week of the lab's idle guests (8 guests, about 1,500 polls each) read CPU some at most 3.4% at p99 and 18.8% once, memory pressure and swap 0. IO pressure and the other three keep no threshold: a camera recorder's normal reads sit at 6.5% p95 and reach 23%. The technical notes call the values starting points to tune per group. Ballooning, VMs only: `BalloonMB` (`max_mem` − `actual`), guest swap rates and major page faults. Disks, VMs only, summed across the guest's disks: `DiskReadIOPS`, `DiskWriteIOPS` (derive), and `DiskReadLatencyMs`, `DiskWriteLatencyMs`, each from the change in `blockstat`'s total time and operations since the previous poll, kept in `lm.cache` (one entry per node), so LogicMonitor needs no complex datapoint; withheld on the first poll, across a counter reset, and over an interval with no I/O. LXC has no `blockstat`: its I/O pressure is its I/O signal. Storage-level latency is not in the Proxmox API outside Ceph (OSD commit and apply latency, `CephOSD`). `MemoryHostMB` is VMs only: Proxmox reports `memhost` for `qemu` (API schema) and 0 for every container (lab) **Amended 2026-11-06** (user, lab): `PressureCPUSomePercent`, `PressureMemoryFullPercent` and `GuestSwapInRateMB` have one warning level (25, 5, 1), not two, because a move into a higher band restarts the consecutive-poll count (LogicMonitor's Datapoint Overview) | O(1), plus 1 + up to 2 per online node |
-| `Proxmox_VE_Cluster_StorageCapacity` | Cluster | `Proxmox_VE_StorageCapacity` | AppliesTo only | O(1) |
+| `Proxmox_VE_Cluster_StorageCapacity` | Cluster | `Proxmox_VE_StorageCapacity` | AppliesTo only. **Amended 2026-11-06** (user): gains `EffectiveUsedPercent`, which takes the alert from `UsedPercent` (the health score, below) | O(1) |
 | `Proxmox_VE_Cluster_Ceph` | Cluster | `Proxmox_VE_Ceph` | AppliesTo only | O(1) |
 | `Proxmox_VE_Cluster_CephOSD` | Cluster | `Proxmox_VE_CephOSD` | AppliesTo only. Any node returns the whole CRUSH tree | O(1) |
 | `Proxmox_VE_Cluster_Backups` | Cluster | `Proxmox_VE_Backups` | AppliesTo only. Keeps its loop over nodes for vzdump tasks: the view is cluster-wide | O(jobs + nodes) |
@@ -244,26 +244,138 @@ pve.cluster.role == "standby"` (§3.1): the cluster resource and a node, or two 
 with the preamble's role check and prints nothing unless it is the resource that should collect.
 
 **The cluster health score** (user's proposal, 2026-10-25; inputs checked on the lab's API the
-same day). `/cluster/resources` gives each node's `cpu`, `maxcpu`, `mem`, `maxmem` and `status` in
-one call, but no load or IO wait; `/nodes/{node}/status`'s `cpu` and `wait` are one-moment samples
-(both read `0` on the lab); `/nodes/{node}/rrddata` gives per-minute averages including Linux
-pressure stall information, in percent of time stalled (Node-A: CPU 2.5, IO 0.37; Node-B:
-CPU 0, IO 0.29). Pressure replaces load per core and IO wait as the node input: it is already
-relative to the machine's size, and load average already counts tasks waiting on IO, so weighting
-both would count one stall twice.
+same day). **Redesigned 2026-11-06** (user: "make it truly representative of the overall Cluster
+Health"; approved as worst area wins, with fixed steps, a pressure limit and unknown withheld;
+built and lab-tested 2026-11-06, §5). `HealthScore` answers one question at a glance: is the cluster healthy? It should
+drop for a real cluster problem, and not because one guest is busy.
+
+*Why the first design changed.* It read only quorum, nodes online and node pressure, so it stayed
+above 90 for about 25 minutes with no running HA manager (lab, 2026-11-06). One capped container
+took it to 54 with its node's CPU at 30%: the container was stalled, the node was not (lab,
+2026-11-05). An offline node counted twice, in the ratio and in the mean, so one of 16 nodes down
+scored 88, which raised no alert, and a blended number could not say what was wrong.
+
+*What other platforms do* (research, 2026-11-06). None of the sources read blends live metrics
+into a health number. vSphere's `overallStatus` combines the alarms on an object: any gray gives
+gray, then any red gives red, then any yellow gives yellow
+([VMware text, quoted by SolarWinds](https://support.solarwinds.com/SuccessCenter/s/article/ESX-or-vCenter-warning-icon-under-Host-status)).
+Aria Operations has a 0-100 Health score, stepped by alert severity at 100, 75, 50 and 25 (from a
+search excerpt of its docs, not read in full), and keeps Risk and Efficiency apart. When Aria 8.18
+began counting alerts from objects below a cluster, the score became "highly variable or 'noisy'",
+and the workaround excludes those objects
+([Broadcom KB 418429](https://knowledge.broadcom.com/external/article/418429/following-an-aria-ops-upgrade-from-814-t.html)).
+Windows clusters list faults with severities, one per root cause, with no score
+([Microsoft](https://learn.microsoft.com/en-us/windows-server/failover-clustering/health-service-faults)).
+So a cluster score reflects cluster-level conditions, not everything beneath the cluster.
+
+*The design.* Each area scores 0-100, and the lowest is the score:
 
 ```
-node score     = 0 if the node is offline,
-                 else 1 − max(cpu some, io some, memory some pressure) / 100
-HealthScore    = 0 if the cluster is not quorate,
-                 else 100 × (NodesOnline ÷ NodesTotal) × mean(node scores)
+HealthScore = min(quorum, HealthNodes, HealthHA, HealthStorage, HealthPressure)
 ```
 
-`max` keeps one starved resource from being averaged away; an offline node lowers the score twice,
-in the ratio and in the mean, as it does for its guests. **`Quorate` and `NodesOnlinePercent`
-carry the alerts; `HealthScore` a warning threshold only,** since a blended number cannot say what
-is wrong. The weights are a starting point to tune. Whether Proxmox VE 8 returns the pressure
-fields is [unverified]; without them a node's input falls back to load average ÷ cores.
+| Area | Datapoint | 100 when | Otherwise |
+|---|---|---|---|
+| Quorum | `Quorate` (existing) | Quorate, or a standalone host | 0 |
+| Nodes | `HealthNodes` | Every node online | 100 x online / total, counted once |
+| HA | `HealthHA` | No HA services; or the master is active, fencing is armed and no service is in `error` or `fence` | 50 |
+| Storage | `HealthStorage` | Every store on an online node is `available`, with `EffectiveUsedPercent` under 90 | 75 at 90 or more; 50 at 95 or more, or a local store unavailable; 25 for a shared store unavailable |
+| Pressure | `HealthPressure` | No online node is stalled | 100 less the mean node stall, never below 75 |
+
+- **Steps.** HA and storage use fixed steps, following Aria's bands. They are starting points to
+  tune. 50 for HA says protection is lost while guests still run. Nodes stays a percentage, because
+  how much of the cluster is left is a sliding scale. On a two-node cluster without a qdevice, one
+  node down also loses quorum, so it scores 0, not 50 (lab, 2026-11-05).
+- **Storage.** The worst store sets the area. A store on an offline node is skipped, since Nodes
+  already counts that node. A disabled store has no row in `/cluster/resources`, so it never counts;
+  an unreachable one reads `unknown` with no size, about 2.5 minutes after it fails, and so does a
+  store defined for a node that does not have it (lab, 2026-11-06). Such a store scores 50 until
+  it is limited to the nodes that have it. A disk meant to stay nearly full holds the score down, and there is no
+  way to exclude one yet: Ceph's mute is the model if that proves a real need.
+- **How full a store is depends on its size** (user, 2026-11-06: 90% of a 48 TB store is not the
+  emergency 90% of a small disk is). `EffectiveUsedPercent`, a new datapoint on
+  `Proxmox_VE_Cluster_StorageCapacity`, restates a store's use on a size-adjusted scale:
+
+  ```
+  EffectiveUsedPercent = max(0, 100 - (100 - UsedPercent) / scale)
+  scale                = (100 GB / size) ^ 0.2, and 1 for a store of 100 GB or less
+  ```
+
+  So one set of levels serves every size. A store reaches 90 and 95 at these real figures:
+
+  | Size | Reads 90 at | Free | Reads 95 at | Free |
+  |---|---|---|---|---|
+  | 100 GB | 90% | 10 GB | 95% | 5 GB |
+  | 500 GB | 92.8% | 36 GB | 96.4% | 18 GB |
+  | 2 TB | 94.5% | 110 GB | 97.3% | 55 GB |
+  | 12 TB | 96.2% | 461 GB | 98.1% | 230 GB |
+  | 24 TB | 96.7% | 802 GB | 98.3% | 401 GB |
+  | 48 TB | 97.1% | 1.4 TB | 98.5% | 698 GB |
+  | 128 TB | 97.6% | 3.1 TB | 98.8% | 1.5 TB |
+
+  The shape is the "magic factor" of
+  [Checkmk](https://lists.checkmk.com/mailman3/hyperkitty/list/checkmk-commits@lists.checkmk.com/thread/FJG52EM5RTENO3OAC7HDFFVFPZ5XVXQK),
+  in the form a [Sensu plugin](https://www.rubydoc.info/gems/sensu-plugins-disk-checks/1.0.3)
+  publishes; Checkmk's own code was not read, so 100 GB and 0.2 are this suite's starting points.
+  Fixed free space was rejected because a small store would always look full, and days until full
+  (Aria's method) because it needs a history call per store, misreads a backup disk that fills and
+  prunes, and has nothing to say about a new store.
+
+  ZFS and Ceph stores (`plugintype` `zfspool`, `rbd`, `cephfs`) use a scale of 1, so they read their
+  real percentage: ZFS slows down by how full it is, whatever its size
+  ([TrueNAS](https://www.truenas.com/blog/zfs-80-percent-rule/)), and Ceph has percentage limits of
+  its own (recalled, not checked). The lab has neither, so this rests on the harness.
+
+  The figure is only meaningful near full: a 12 TB store reads 0 until about 62% used. So it is an
+  alert input and gets no graph; the Used graph keeps showing `UsedPercent`.
+
+  **The alert moves with it.** `UsedPercent` stays as the plain figure, with no threshold.
+  `EffectiveUsedPercent` takes its `> 80 90 95`, so the alert and `HealthStorage` agree. A threshold
+  set by hand on `UsedPercent` needs moving, and the upgrade notes must say so. This covers
+  `Proxmox_VE_Cluster_StorageCapacity` only: `Proxmox_VE_Node_StoragePools` keeps its percentages,
+  since its ZFS pools need them and a thin pool that fills fails its guests, and the Ceph modules
+  keep theirs.
+- **Pressure.** A node's stall is the largest of its I/O full, its memory full, and its CPU some,
+  which counts only while the node's CPU is at 85% or more, the level `CPUUsagePercent` warns at.
+  Proxmox reports no CPU full (lab, 2026-11-06), and CPU some on a node with idle cores is one
+  capped guest, not a stalled node. If a node has no full figure, its some figure is used; with no
+  pressure figures at all, load average / cores, as before (Proxmox VE 8 [unverified]). The area is
+  the mean over online nodes that answered. It stops at 75 because I/O cannot be split by guest:
+  full tracked some almost exactly on the lab (82 against 85), so one guest's I/O reads like a
+  node's. Pressure can show a slow cluster, never a broken one.
+- **Unknown is not healthy.** An area that cannot be read is withheld, and so is `HealthScore`,
+  as gray beats every colour in vSphere; quorum lost is known, so it still scores 0. Pressure is
+  withheld only when no online node answers. `/cluster/resources` filters by privilege rather than
+  failing, so no storage rows at all reads as unread, not as healthy; a token that sees only some
+  stores cannot be told from this data, which leaves it to the troubleshooter. Withholding rests
+  on the harness: the HA call needs
+  the same `Sys.Audit` as the rest of the module, so a token without it stops more than this one
+  area, and the troubleshooter's `permissions` check reports that (§5, 2026-11-02).
+- **No alerts on the score or its areas.** `HealthScore` loses its `< 70 50` threshold, and the new
+  datapoints ship without one. `Quorate`, `NodesOnlinePercent`, the HA datapoints and storage's
+  `Status` and `EffectiveUsedPercent` alert, so each cause alerts once. Pressure alone has no alert
+  once this one goes: a threshold on Node Detail's pressure datapoints is the site's choice. The
+  score is for dashboards.
+- **Cost.** No new API calls: `/cluster/status`, `/cluster/resources`, the HA status and one
+  `rrddata` per online node are all read already. The score moves after those reads in the script,
+  and `/cluster/resources` gets its own try, so its failure costs the capacity figures, not the
+  score's other areas or a quorum 0.
+- **What it leaves out.** Individual guests, which alert on their own, and whether the cluster
+  could survive losing a node, which would read degraded all the time on a two-node cluster and
+  needs its own design.
+
+*Replay* (2026-11-06). 1,989 quorate polls from the lab's past week through the pressure rule. The
+old score was under 70 on 20 polls and between 70 and 90 on 10. `HealthPressure` was 75 on 15,
+between 75 and 90 on 3, and 90 or more on 1,971. The five capped-container polls went from 54 to
+100. The polls at 75 are I/O on Node-B, probably the lab's memory tests. No node reached 85% CPU
+that week, so the replay never exercised CPU pressure counting: the lab test must.
+
+*Build and test.* One pure preamble closure decides the areas and the score, so the harness runs
+each row of the table, with its cases in their own closure (`harness.run()` is at the JVM's method
+limit). The Cluster Health graph gains the four area lines; the dashboards are unchanged, since
+the name and scale stay. The live tests are in §5. Ships as
+v2.8.0: the number means something new, so the
+notes say the history before it is not comparable.
 
 **How a node module finds its own node:** the `local` row of `/cluster/status`, which
 `pveTopoClusterName` already reads in v1, so no property is set by hand; a NetScan-created node
@@ -847,6 +959,10 @@ a layer changes; spike results stay in their rows above.
 | An alert one poll late after a reschedule: live target | 2026-11-06 | `triggerInterval` 2 alerted on the third poll in one HA run and on the fourth in two: once just after an import, once when every module's poll times shifted on a Collector with no import (Cluster Status polled after 4 minutes 9 seconds, then kept the new times). The trigger for that shift is not known |
 | Node clock offset (§3.2, gap review #8): portal import and live target | 2026-11-06 | Branch `clock-offset`. `/nodes/<n>/time` gives whole seconds; both nodes read 1 normally. `chrony` stopped on Node-A and its clock moved ahead: polls read 11, 21 and 21, the warning opened on the third poll, Node-B stayed quiet, and it cleared on the first poll (1) after `chrony` started again. Not seen: a slow drift, or a wrong Collector clock |
 | v2.7.0: local checks | 2026-11-06 | Branch `release-v2.7.0`, `ha-alerts` and `clock-offset` merged. Build clean (25 modules); compile job all pass; harness 2,147 of 2,147; lint 0 errors, 16 warnings; both dashboards check clean |
+| How Proxmox shows a store (§3.2): the lab API | 2026-11-06 | A throwaway `dir` store on a mount, Proxmox VE 9.2.3, read from `/cluster/resources?type=storage`. Mounted: `available`. Disabled: no row at all. Unmounted: `unknown`, with no `disk` or `maxdisk`, about 2.5 minutes later; the node's own `/nodes/<n>/storage` read `active` 0. Defined for all nodes and present on one: `unknown` on the other |
+| HealthScore, worst area wins (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`, imported; the portal's scripts matched the build. One-core container with four `stress-ng` workers on Node-B: the old score read 49.52 and 47.83 and raised an error; the new one read 99.55 under the same load (node CPU 30.7%, CPU pressure 88.7). The open `HealthScore` alert cleared one second after the import removed its threshold. Eight busy loops on Node-B's four cores: node CPU 100%, CPU pressure 90, `HealthPressure` and `HealthScore` 75 on both polls. Container under HA: `HealthHA` 100. Both `pve-ha-crm` stopped: `HealthHA` and `HealthScore` 50 on the next poll, against an old score above 90; 100 on the first poll after they restarted. A throwaway store: `HealthStorage` 75 at 92%, 50 at 97%, 100 when emptied, 50 unmounted. Not driven live: withholding (harness: `health-withheld-*`), a shared store, a node offline with quorum (the lab has no qdevice) |
+| `EffectiveUsedPercent` (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`. An 8 TB store at 83.8% read 61.1, the formula's value, and `UsedPercent` carried no threshold. A 1 GB store at 96.97% read 96.97 and raised the critical alert; it cleared on the first poll after the store emptied, ten minutes later. Not driven live: a large store reaching the alert levels, and ZFS and Ceph staying flat; the harness covers both |
+| v2.8.0: local checks | 2026-11-06 | Branch `health-score`. Build clean (25 modules); compile job all pass; harness 2,192 of 2,192; lint 0 errors, 16 warnings; both dashboards check clean |
 
 **Not yet seen on the lab:** Replication, Ceph and ZFS (the lab has none), a cluster address
 (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the default duplicate-IP
