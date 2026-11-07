@@ -718,8 +718,9 @@ names, and neither calls the portal API or reads a display name. How `Xen VM Per
 its instances is inside the Collector's built-in `ad_xen` discovery, so it is not visible. Rejected: showing
 the resource's name as the instance name, which no suite read does; and publishing a VMID-to-name
 list from the NetScan to carry the resource's name in the instance's description, which goes
-beyond those suites for about 1.3 KB of the NetScan's limit. Not seen on the lab: a rename in
-Proxmox reaching the instance.
+beyond those suites for about 1.3 KB of the NetScan's limit. A rename in Proxmox reached the
+instances on both the active and the standby resource within minutes, each keeping its instance
+ID, and the active one's history and collection carried on (lab, 2026-11-06).
 
 ### 3.7 Licensing (from the user, 2026-10-21)
 
@@ -978,6 +979,7 @@ a layer changes; spike results stay in their rows above.
 | HealthScore, worst area wins (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`, imported; the portal's scripts matched the build. One-core container with four `stress-ng` workers on Node-B: the old score read 49.52 and 47.83 and raised an error; the new one read 99.55 under the same load (node CPU 30.7%, CPU pressure 88.7). The open `HealthScore` alert cleared one second after the import removed its threshold. Eight busy loops on Node-B's four cores: node CPU 100%, CPU pressure 90, `HealthPressure` and `HealthScore` 75 on both polls. Container under HA: `HealthHA` 100. Both `pve-ha-crm` stopped: `HealthHA` and `HealthScore` 50 on the next poll, against an old score above 90; 100 on the first poll after they restarted. A throwaway store: `HealthStorage` 75 at 92%, 50 at 97%, 100 when emptied, 50 unmounted. Not driven live: withholding (harness: `health-withheld-*`), a shared store, a node offline with quorum (the lab has no qdevice) |
 | `EffectiveUsedPercent` (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`. An 8 TB store at 83.8% read 61.1, the formula's value, and `UsedPercent` carried no threshold. A 1 GB store at 96.97% read 96.97 and raised the critical alert; it cleared on the first poll after the store emptied, ten minutes later. Not driven live: a large store reaching the alert levels, and ZFS and Ceph staying flat; the harness covers both |
 | v2.8.0: local checks | 2026-11-06 | Branch `health-score`. Build clean (25 modules); compile job all pass; harness 2,192 of 2,192; lint 0 errors, 16 warnings; both dashboards check clean |
+| v2.8.1: local checks | 2026-11-06 | Documentation only: the 25 modules, the NetScan and the dashboards are byte for byte as in v2.8.0. Build clean; harness 2,192 of 2,192 |
 
 **Not yet seen on the lab:** Replication, Ceph and ZFS (the lab has none), a cluster address
 (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the default duplicate-IP

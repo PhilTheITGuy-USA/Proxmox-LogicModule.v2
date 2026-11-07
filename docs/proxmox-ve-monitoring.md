@@ -403,7 +403,7 @@ A guest's instances, such as those under Guest Status, Guest Performance and Sna
 its name in Proxmox. Renaming its resource in LogicMonitor changes the resource only, so the two
 names can differ. To change an instance's name, rename the guest in Proxmox. The instance updates
 at the next discovery, within the hour, and keeps its history, because its identity is the guest's
-ID and not its name *(not yet verified)*.
+ID and not its name.
 
 This is deliberate:
 
@@ -432,6 +432,11 @@ Import in this order, so that each module finds what it depends on:
 
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
+
+### Upgrading from v2.8.0
+
+Nothing to import: this release adds [Guest Names](#guest-names) to this page. The modules, the
+NetScan and the dashboards are as in v2.8.0.
 
 ### Upgrading from v2.7.0
 
