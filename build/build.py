@@ -108,7 +108,7 @@ CONDITIONAL_KEY = "conditional"
 # values the script prints.
 STATUS_NAMES_KEY = "statusNames"
 STATUS_NAME_TOKEN = "##ALERTVALUEDISPLAYSTATUSNAME##"
-STATUS_EMIT_RE = r"""pveEmit\(\s*[^,]+,\s*'{name}',[^\n]*\?\s*(\d+)\s*:\s*(\d+)\s*\)"""
+STATUS_EMIT_RE = r"""pveEmit\(\s*[^,]+,\s*'{name}',([^\n]*\?\s*\(?[^\n]*:\s*\d+\s*\)+)"""
 
 # Every script in this suite now has a module definition. The PropertySource export
 # schema was unverifiable for a long time, so addCategory_Proxmox_VE shipped as an
@@ -715,8 +715,8 @@ def check_status_names(defn: dict) -> list[str]:
     """
     A status name must name a value the script can print, and every value it can print.
 
-    The datapoints that carry names are printed as `cond ? 1 : 0`, so the values are read off
-    that expression. A name for a value never printed is dead, and a printed value with no
+    The datapoints that carry names are printed as `cond ? 1 : 0`, nested for a third value, so
+    the values are read off that expression. A name for a value never printed is dead, and a printed value with no
     name shows as a bare number beside the named ones. An alert body on a named datapoint
     must use the name, or naming it changes nothing anyone reads.
     """
@@ -738,7 +738,7 @@ def check_status_names(defn: dict) -> list[str]:
             problems.append(f"{where} has statusNames, but the script does not print it once "
                             f"as `cond ? a : b`, so its values cannot be checked")
             continue
-        values = set(printed[0])
+        values = set(re.findall(r"[?:]\s*(\d+)", printed[0]))
         if set(names) != values:
             problems.append(f"{where} statusNames name {sorted(names)}, but the script "
                             f"prints {sorted(values)}")

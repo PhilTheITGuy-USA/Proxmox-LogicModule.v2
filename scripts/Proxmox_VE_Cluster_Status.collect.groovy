@@ -105,7 +105,17 @@ try {
 
         pveEmit(null, 'HAServicesTotal', services.size())
         pveEmit(null, 'HAServicesError', errored)
-        pveEmit(null, 'HAMasterPresent', ha.any { it.type == 'master' } ? 1 : 0)
+
+        /*
+         * Only a cluster with HA services has a master to lose: with none there is no master
+         * entry, and that is healthy. A stopped manager keeps its entry, read as "old timestamp -
+         * dead?" or, with a removal pending, "idle", so only "active" counts (lab, 2026-11-06).
+         * With no services it reads 2, not nothing: a datapoint that stops reporting leaves an
+         * open alert open for good, and 2 is true and clears it.
+         */
+        def master = ha.find { it.type == 'master' }
+        def masterAlive = master?.status?.toString()?.contains('(active')
+        pveEmit(null, 'HAMasterPresent', services ? (masterAlive ? 1 : 0) : 2)
 
         /*
          * A service whose current state has not caught up with what the CRM requested is
@@ -122,11 +132,13 @@ try {
         /*
          * Fencing is what makes HA recovery possible: a cluster that cannot fence a failed
          * node cannot safely recover its guests. Only reported by Proxmox versions that
-         * expose a fencing entry, so it is withheld rather than guessed at.
+         * expose a fencing entry, so it is withheld rather than guessed at. Fencing falls to
+         * standby with the master and rests there with no services, so it reads 2 then: the
+         * master's alert covers the one, and the other is healthy.
          */
         def fencing = ha.find { it.type == 'fencing' }
         if (fencing) {
-            pveEmit(null, 'HAFencingArmed', fencing['armed-state']?.toString() == 'armed' ? 1 : 0)
+            pveEmit(null, 'HAFencingArmed', services && masterAlive ? (fencing['armed-state']?.toString() == 'armed' ? 1 : 0) : 2)
         }
     } catch (Exception haException) {
         System.err.println('HA status unavailable (this is expected when HA is not configured): ' +

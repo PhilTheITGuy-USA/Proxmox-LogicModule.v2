@@ -867,6 +867,33 @@ def clusterNodeKeys = clusterNodesRun.stdout.readLines().findAll { it.contains('
 note('cluster-nodes-status-only', clusterNodesRun.exit == 0 && clusterNodeKeys == ['Status'] as Set,
      "Cluster_Nodes printed ${clusterNodeKeys}; CPU, memory and uptime belong to Node_Detail")
 
+// ------------------------------------------------------ node clock offset (gap review #8)
+//
+// /nodes/<n>/time gives whole seconds (lab, 2026-11-06). The offset reads the same either way
+// round, and a node that does not answer this one call keeps its other datapoints.
+def clockCases = { ->
+def clockRun = { Long clockShift ->
+    def clockFixtures = clockShift == null ? [:] : ['/nodes/pve1/time': [time: System.currentTimeMillis().intdiv(1000L) + clockShift, timezone: 'UTC']]
+    def clockExec = withFixtures(clockFixtures) { runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps]) }
+    [exit: clockExec.exit, values: clockExec.stdout.readLines().findAll { it.contains('=') }.collectEntries { def kv = it.split('=', 2); [(kv[0]): kv[1] as double] }]
+}
+[30L, -30L].each { clockShift ->
+    def clockGot = clockRun(clockShift)
+    note('clock-offset', clockGot.exit == 0 && clockGot.values.ClockOffsetSeconds >= 29d && clockGot.values.ClockOffsetSeconds <= 31d,
+         "a clock ${clockShift} seconds out read ${clockGot.values.ClockOffsetSeconds}")
+}
+def clockSynced = clockRun(0L)
+note('clock-synced', clockSynced.values.ClockOffsetSeconds != null && clockSynced.values.ClockOffsetSeconds <= 1d,
+     "a synced clock read ${clockSynced.values.ClockOffsetSeconds}")
+def clockFailed = clockRun(null)
+note('clock-withheld', clockFailed.exit == 0 && !clockFailed.values.containsKey('ClockOffsetSeconds') && clockFailed.values.containsKey('CPUUsagePercent'),
+     "with no time call: exit ${clockFailed.exit}, ${clockFailed.values.keySet().take(3)}")
+def clockBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Node_Detail.json')).datapoints.find { it.name == 'ClockOffsetSeconds' }
+note('clock-threshold', clockBuilt?.threshold == '> 5' && clockBuilt?.triggerInterval == 2,
+     "ClockOffsetSeconds: threshold ${clockBuilt?.threshold}, triggerInterval ${clockBuilt?.triggerInterval}")
+}
+clockCases()
+
 // ------------------------------------------- Node_Detail on its node (A§3.2)
 
 def detail = runScript(new File(scriptsDir, 'Proxmox_VE_Node_Detail.collect.groovy'), [hostProps: nodeHostProps])
@@ -3015,6 +3042,48 @@ def loadThresholdCases = { ->
     }
 }
 loadThresholdCases()
+
+// -------------------------------------------------------------- HA alerts (gap review #7)
+//
+// Shapes from the lab, one container under HA on two nodes (2026-11-06). With no HA there is no
+// master entry and fencing reads standby, on a healthy cluster. A stopped manager keeps its entry,
+// so its presence proves nothing: only the status text says so, and it reads "old timestamp -
+// dead?" or, with a removal pending, "idle". Fencing falls to standby with it, which must not raise a second alert for the one cause. Both read 2, not nothing,
+// when there is nothing to check: a datapoint that stops reporting leaves its open alert open for
+// good (lab, over 40 minutes).
+def haCases = { ->
+    def haQuorum = [id: 'quorum', type: 'quorum', quorate: 1, status: 'OK']
+    def haMaster = { String st -> [id: 'master', type: 'master', node: 'pve1', timestamp: 1793981487, status: "pve1 (${st}, Fri Nov  6 11:11:27 2026)".toString()] }
+    def haFencing = { String st -> [id: 'fencing', type: 'fencing', node: 'pve1', 'armed-state': st, status: "${st} (CRM watchdog ${st == 'armed' ? 'active' : 'standby'})".toString()] }
+    def haService = [id: 'service:ct:107', type: 'service', sid: 'ct:107', node: 'pve2', state: 'started', request_state: 'started', crm_state: 'started']
+    def haRun = { List ha -> parsePlain(withFixtures(['/cluster/ha/status/current': ha]) { discoverWith(clusterCollect, hostProps) }.stdout) }
+
+    def haNone = haRun([haQuorum, haFencing('standby')])
+    note('ha-none', haNone.HAServicesTotal == 0d && haNone.HAMasterPresent == 2d && haNone.HAFencingArmed == 2d,
+         "a cluster with no HA printed ${haNone.subMap(['HAServicesTotal', 'HAMasterPresent', 'HAFencingArmed'])}")
+    def haHealthy = haRun([haQuorum, haMaster('active'), haFencing('armed'), haService])
+    note('ha-healthy', haHealthy.HAMasterPresent == 1d && haHealthy.HAFencingArmed == 1d,
+         "healthy HA printed ${haHealthy.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
+    def haDead = haRun([haQuorum, haMaster('old timestamp - dead?'), haFencing('standby'), haService])
+    note('ha-dead-master', haDead.HAMasterPresent == 0d && haDead.HAFencingArmed == 2d,
+         "a dead master printed ${haDead.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
+    def haIdle = haRun([haQuorum, haMaster('idle'), haFencing('standby'), haService + [state: 'deleting']])
+    note('ha-idle-master', haIdle.HAMasterPresent == 0d && haIdle.HAFencingArmed == 2d,
+         "an idle master with a service still listed printed ${haIdle.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
+    def haMissing = haRun([haQuorum, haFencing('standby'), haService])
+    note('ha-no-master', haMissing.HAMasterPresent == 0d && haMissing.HAFencingArmed == 2d,
+         "no master entry printed ${haMissing.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
+    def haUnarmed = haRun([haQuorum, haMaster('active'), haFencing('standby'), haService])
+    note('ha-unarmed', haUnarmed.HAMasterPresent == 1d && haUnarmed.HAFencingArmed == 0d,
+         "a live master with fencing down printed ${haUnarmed.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
+
+    def haBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Cluster_Status.json')).datapoints.collectEntries { [(it.name): it] }
+    ['HAMasterPresent', 'HAFencingArmed'].each { dp ->
+        note('ha-threshold', haBuilt[dp]?.threshold == '< 1 1' && haBuilt[dp]?.triggerInterval == 2,
+             "${dp}: threshold ${haBuilt[dp]?.threshold}, triggerInterval ${haBuilt[dp]?.triggerInterval}")
+    }
+}
+haCases()
 
 // ----------------------------------------------------- reboot required (gap review #4)
 //

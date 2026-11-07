@@ -412,6 +412,29 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.6.2
+
+**A stopped HA manager raises an alert.** When a cluster has HA services and no running manager,
+nothing restarts a failed guest. `HAMasterPresent` raises an error on the third poll in a row (10
+to 15 minutes). It used to read 1 for as long as Proxmox listed a master, and Proxmox keeps
+listing one that has stopped, so it now reads 1 only for a master Proxmox calls active. `HAFencingArmed` raises an error on the third poll in a row when the
+master is running and fencing is not armed. A dead master gives one alert, not two.
+
+Both datapoints read 2 on a cluster with no HA services, so they do not alert there, and a cluster
+that stops using HA clears any alert that was open. `HAFencingArmed` also reads 2 while the master
+is down, because the master alert covers it. Their lines moved from the Cluster State graph to a
+new HA State graph, where 0 is a problem and 2 means no HA. Guests set to `ignored` or `disabled`
+in HA raise no alert.
+
+**A node with a wrong clock raises a warning.** `ClockOffsetSeconds` is the difference between the
+node's clock and the Collector's, and warns on the third poll in a row above 5 seconds (10 to 15
+minutes). Each poll costs one more small API call to the node. The reading is in whole seconds,
+and it can be a second or so high from rounding alone. It does not show which clock is wrong: if
+every node warns at once, check the Collector's clock first.
+
+Re-import `Proxmox_VE_Cluster_Status` and `Proxmox_VE_Node_Detail`. The other modules, the NetScan
+and the dashboards are as in v2.6.2.
+
 ### Upgrading from v2.6.1
 
 **Four CPU and load alerts have one level.** A value that moves up a severity band restarts
