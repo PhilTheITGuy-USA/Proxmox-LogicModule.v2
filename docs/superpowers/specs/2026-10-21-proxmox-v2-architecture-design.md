@@ -246,7 +246,7 @@ with the preamble's role check and prints nothing unless it is the resource that
 **The cluster health score** (user's proposal, 2026-10-25; inputs checked on the lab's API the
 same day). **Redesigned 2026-11-06** (user: "make it truly representative of the overall Cluster
 Health"; approved as worst area wins, with fixed steps, a pressure limit and unknown withheld;
-not yet built). `HealthScore` answers one question at a glance: is the cluster healthy? It should
+built and lab-tested 2026-11-06, §5). `HealthScore` answers one question at a glance: is the cluster healthy? It should
 drop for a real cluster problem, and not because one guest is busy.
 
 *Why the first design changed.* It read only quorum, nodes online and node pressure, so it stayed
@@ -287,7 +287,10 @@ HealthScore = min(quorum, HealthNodes, HealthHA, HealthStorage, HealthPressure)
   how much of the cluster is left is a sliding scale. On a two-node cluster without a qdevice, one
   node down also loses quorum, so it scores 0, not 50 (lab, 2026-11-05).
 - **Storage.** The worst store sets the area. A store on an offline node is skipped, since Nodes
-  already counts that node. A disk meant to stay nearly full holds the score down, and there is no
+  already counts that node. A disabled store has no row in `/cluster/resources`, so it never counts;
+  an unreachable one reads `unknown` with no size, about 2.5 minutes after it fails, and so does a
+  store defined for a node that does not have it (lab, 2026-11-06). Such a store scores 50 until
+  it is limited to the nodes that have it. A disk meant to stay nearly full holds the score down, and there is no
   way to exclude one yet: Ceph's mute is the model if that proves a real need.
 - **How full a store is depends on its size** (user, 2026-11-06: 90% of a 48 TB store is not the
   emergency 90% of a small disk is). `EffectiveUsedPercent`, a new datapoint on
@@ -341,9 +344,10 @@ HealthScore = min(quorum, HealthNodes, HealthHA, HealthStorage, HealthPressure)
   full tracked some almost exactly on the lab (82 against 85), so one guest's I/O reads like a
   node's. Pressure can show a slow cluster, never a broken one.
 - **Unknown is not healthy.** An area that cannot be read is withheld, and so is `HealthScore`,
-  as gray beats every colour in vSphere. A token without `Sys.Audit` on `/` therefore shows No Data
-  for the score; the troubleshooter reports the missing permission. Pressure is withheld only when
-  no online node answers.
+  as gray beats every colour in vSphere; quorum lost is known, so it still scores 0. Pressure is
+  withheld only when no online node answers. Withholding rests on the harness: the HA call needs
+  the same `Sys.Audit` as the rest of the module, so a token without it stops more than this one
+  area, and the troubleshooter's `permissions` check reports that (§5, 2026-11-02).
 - **No alerts on the score or its areas.** `HealthScore` loses its `< 70 50` threshold, and the new
   datapoints ship without one. `Quorate`, `NodesOnlinePercent`, the HA datapoints and storage's
   `Status` and `EffectiveUsedPercent` alert, so each cause alerts once. The score is for dashboards.
@@ -954,6 +958,10 @@ a layer changes; spike results stay in their rows above.
 | An alert one poll late after a reschedule: live target | 2026-11-06 | `triggerInterval` 2 alerted on the third poll in one HA run and on the fourth in two: once just after an import, once when every module's poll times shifted on a Collector with no import (Cluster Status polled after 4 minutes 9 seconds, then kept the new times). The trigger for that shift is not known |
 | Node clock offset (§3.2, gap review #8): portal import and live target | 2026-11-06 | Branch `clock-offset`. `/nodes/<n>/time` gives whole seconds; both nodes read 1 normally. `chrony` stopped on Node-A and its clock moved ahead: polls read 11, 21 and 21, the warning opened on the third poll, Node-B stayed quiet, and it cleared on the first poll (1) after `chrony` started again. Not seen: a slow drift, or a wrong Collector clock |
 | v2.7.0: local checks | 2026-11-06 | Branch `release-v2.7.0`, `ha-alerts` and `clock-offset` merged. Build clean (25 modules); compile job all pass; harness 2,147 of 2,147; lint 0 errors, 16 warnings; both dashboards check clean |
+| How Proxmox shows a store (§3.2): the lab API | 2026-11-06 | A throwaway `dir` store on a mount, Proxmox VE 9.2.3, read from `/cluster/resources?type=storage`. Mounted: `available`. Disabled: no row at all. Unmounted: `unknown`, with no `disk` or `maxdisk`, about 2.5 minutes later; the node's own `/nodes/<n>/storage` read `active` 0. Defined for all nodes and present on one: `unknown` on the other |
+| HealthScore, worst area wins (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`, imported; the portal's scripts matched the build. One-core container with four `stress-ng` workers on Node-B: the old score read 49.52 and 47.83 and raised an error; the new one read 99.55 under the same load (node CPU 30.7%, CPU pressure 88.7). The open `HealthScore` alert cleared one second after the import removed its threshold. Eight busy loops on Node-B's four cores: node CPU 100%, CPU pressure 90, `HealthPressure` and `HealthScore` 75 on both polls. Container under HA: `HealthHA` 100. Both `pve-ha-crm` stopped: `HealthHA` and `HealthScore` 50 on the next poll, against an old score above 90; 100 on the first poll after they restarted. A throwaway store: `HealthStorage` 75 at 92%, 50 at 97%, 100 when emptied, 50 unmounted. Not driven live: withholding (harness: `health-withheld-*`), a shared store, a node offline with quorum (the lab has no qdevice) |
+| `EffectiveUsedPercent` (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`. An 8 TB store at 83.8% read 61.1, the formula's value, and `UsedPercent` carried no threshold. A 1 GB store at 96.97% read 96.97 and raised the critical alert; it cleared on the first poll after the store emptied, ten minutes later. Not driven live: a large store reaching the alert levels, and ZFS and Ceph staying flat; the harness covers both |
+| v2.8.0: local checks | 2026-11-06 | Branch `health-score`. Build clean (25 modules); compile job all pass; harness 2,189 of 2,189; lint 0 errors, 16 warnings; both dashboards check clean |
 
 **Not yet seen on the lab:** Replication, Ceph and ZFS (the lab has none), a cluster address
 (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the default duplicate-IP
