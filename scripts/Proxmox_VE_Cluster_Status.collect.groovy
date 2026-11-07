@@ -35,11 +35,12 @@ try {
     pveEmit(null, 'NodesTotal', nodes.size())
     pveEmit(null, 'NodesOnline', online)
     pveEmit(null, 'NodesOffline', nodes.size() - online)
+    pveEmit(null, 'NodesOnlinePercent', nodes ? pveRound(100.0d * online / nodes.size()) : 0.0d)
 
     /*
-     * The cluster health score: nodes online, weighted by how stalled each online node is,
-     * from the pressure stall figures in its rrddata -- one call per online node. A node
-     * whose rrddata cannot be read is left out of the score rather than guessed at.
+     * How stalled each online node is, for the health score, from the pressure stall figures
+     * in its rrddata -- one call per online node. A node whose rrddata cannot be read is left
+     * out rather than guessed at.
      */
     // One call per online node, twice over: both loops stop at the time budget,
     // pve.api.budget.ms (default 45000), so a slow cluster costs data, not the whole poll.
@@ -60,11 +61,6 @@ try {
         } catch (Exception rrdException) {
             System.err.println('Health score: no pressure figures for node ' + node.name + ': ' + rrdException.message)
         }
-    }
-    def health = pveHealthScore(entries, stallByNode)
-    pveEmit(null, 'NodesOnlinePercent', health.NodesOnlinePercent)
-    if (health.HealthScore != null) {
-        pveEmit(null, 'HealthScore', health.HealthScore)
     }
 
     /*
@@ -98,6 +94,7 @@ try {
      * HA is optional and needs Sys.Audit on /. Its absence is not a collection failure,
      * so it is scoped to its own try and simply omits its datapoints when unavailable.
      */
+    def haHealth = null
     try {
         def ha = pveGet('/cluster/ha/status/current') ?: []
         def services = ha.findAll { it.type == 'service' }
@@ -140,10 +137,20 @@ try {
         if (fencing) {
             pveEmit(null, 'HAFencingArmed', services && masterAlive ? (fencing['armed-state']?.toString() == 'armed' ? 1 : 0) : 2)
         }
+        haHealth = [services: services.size(), masterAlive: masterAlive as boolean, errored: errored,
+                    armed: fencing ? fencing['armed-state']?.toString() == 'armed' : null]
     } catch (Exception haException) {
         System.err.println('HA status unavailable (this is expected when HA is not configured): ' +
             haException.message)
     }
+
+    // The health score, once everything it reads has been read: the areas, then the lowest.
+    def health = pveHealthScore(entries, stallByNode, haHealth, resources.findAll { it.type == 'storage' })
+    if (health.HealthNodes != null) { pveEmit(null, 'HealthNodes', health.HealthNodes) }
+    if (health.HealthHA != null) { pveEmit(null, 'HealthHA', health.HealthHA) }
+    if (health.HealthStorage != null) { pveEmit(null, 'HealthStorage', health.HealthStorage) }
+    if (health.HealthPressure != null) { pveEmit(null, 'HealthPressure', health.HealthPressure) }
+    if (health.HealthScore != null) { pveEmit(null, 'HealthScore', health.HealthScore) }
 
     /*
      * Migrations. Each is its own task -- vzmigrate for a container, qmigrate for a VM --

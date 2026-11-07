@@ -877,22 +877,62 @@ effectiveUsedCases()
 
 // ------------------------------------------------ cluster health score (A§3.2)
 
-def hs = { rows, stalls -> runSource(preamble + '\nreturn pveHealthScore(rows, stalls)',
-    [hostProps: hostProps, rows: rows, stalls: stalls]).exit }
-def twoNodes = statusWith([:], [:], 1)
-note('health', hs(twoNodes, [pve1: 10d, pve2: 30d]) == [NodesOnline: 2d, NodesTotal: 2d, NodesOnlinePercent: 100d, HealthScore: 80d],
-     "two healthy nodes gave ${hs(twoNodes, [pve1: 10d, pve2: 30d])}")
-note('health-offline', hs(statusWith([:], [online: 0], 1), [pve1: 0d])?.HealthScore == 25d,
-     "an offline node did not count twice (ratio and mean): ${hs(statusWith([:], [online: 0], 1), [pve1: 0d])}")
-note('health-quorum', hs(statusWith([:], [:], 0), [pve1: 0d, pve2: 0d])?.HealthScore == 0d, 'no quorum did not score 0')
-note('health-fallback', hs(twoNodes, [:]) != null && !hs(twoNodes, [:]).containsKey('HealthScore'),
-     "a score was fabricated with no node input: ${hs(twoNodes, [:])}")
-note('health-standalone', hs([[type: 'node', name: 'pve-a', online: 1, local: 1]], ['pve-a': 0d])?.HealthScore == 100d,
-     'a standalone host was not counted quorate')
-def statusRun = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Status.collect.groovy'), [hostProps: hostProps])
-def sv = statusRun.stdout.readLines().findAll { it ==~ /^[A-Za-z0-9_]+=.*/ }.collectEntries { def kv = it.split('=', 2); [(kv[0]): kv[1] as double] }
-// The fixture: pve1 online, worst pressure CPU 2.5, pve2 offline -> 100 x 1/2 x mean(1 - 0.025, 0) = 24.38
-note('health-collect', sv.NodesOnlinePercent == 50d && sv.HealthScore == 24.38d, "Cluster_Status printed ${sv.subMap(['NodesOnlinePercent', 'HealthScore'])}")
+def healthCases = { ->
+    def hs = { rows, stalls, ha, stores -> runSource(preamble + '\nreturn pveHealthScore(rows, stalls, ha, stores)',
+        [hostProps: hostProps, rows: rows, stalls: stalls, ha: ha, stores: stores]).exit }
+    def twoNodes = statusWith([:], [:], 1)
+    def ok = [services: 1, masterAlive: true, armed: true, errored: 0]
+    // A 100 GB store, so EffectiveUsedPercent is its plain percentage.
+    def store = { String node, double used, Map extra = [:] ->
+        [type: 'storage', node: node, status: 'available', disk: (used * 1e9) as long, maxdisk: 100000000000L, plugintype: 'dir', shared: 0] + extra }
+    def calm = [store('pve1', 10)]
+    def still = [pve1: 0d, pve2: 0d]
+
+    def well = hs(twoNodes, still, ok, calm)
+    note('health-all-well', well == [HealthNodes: 100d, HealthHA: 100d, HealthStorage: 100d, HealthPressure: 100d, HealthScore: 100d], "a healthy cluster gave ${well}")
+    def worst = hs(twoNodes, [pve1: 10d, pve2: 30d], ok + [errored: 1], calm)
+    note('health-worst-wins', worst?.HealthHA == 50d && worst?.HealthPressure == 80d && worst?.HealthScore == 50d, "the lowest area did not win: ${worst}")
+    note('health-no-ha', hs(twoNodes, still, [services: 0, masterAlive: false, armed: false, errored: 0], calm)?.HealthHA == 100d, 'a cluster without HA services lost points')
+    note('health-ha-dead', hs(twoNodes, still, ok + [masterAlive: false], calm)?.HealthHA == 50d, 'a dead master did not score 50')
+    note('health-ha-unarmed', hs(twoNodes, still, ok + [armed: false], calm)?.HealthHA == 50d, 'unarmed fencing did not score 50')
+    note('health-ha-nofencing', hs(twoNodes, still, ok + [armed: null], calm)?.HealthHA == 100d, 'a Proxmox with no fencing entry lost points')
+
+    def sixteen = [[type: 'cluster', quorate: 1]] + (1..16).collect { [type: 'node', name: "n${it}".toString(), online: it == 16 ? 0 : 1] }
+    def fifteen = hs(sixteen, (1..15).collectEntries { ["n${it}".toString(), 0d] }, ok, calm)
+    note('health-nodes', fifteen?.HealthNodes == 93.75d && fifteen?.HealthScore == 93.75d, "15 of 16 online gave ${fifteen}")
+    note('health-quorum', hs(statusWith([:], [:], 0), [:], null, null)?.HealthScore == 0d, 'no quorum with areas unread did not score 0')
+
+    note('health-store-90', hs(twoNodes, still, ok, [store('pve1', 90)])?.HealthStorage == 75d, 'a store at 90 did not score 75')
+    note('health-store-95', hs(twoNodes, still, ok, [store('pve1', 95)])?.HealthStorage == 50d, 'a store at 95 did not score 50')
+    note('health-store-local', hs(twoNodes, still, ok, [store('pve1', 0, [status: 'unavailable'])])?.HealthStorage == 50d, 'an unavailable local store did not score 50')
+    note('health-store-shared', hs(twoNodes, still, ok, [store('pve1', 10, [shared: 1]), store('pve2', 0, [shared: 1, status: 'unavailable'])])?.HealthStorage == 25d,
+         'a shared store unavailable from one node did not score 25')
+    note('health-store-offline', hs(statusWith([:], [online: 0], 1), [pve1: 0d], ok, [store('pve2', 0, [status: 'unavailable'])])?.HealthStorage == 100d,
+         'a store on an offline node counted')
+    note('health-store-nosize', hs(twoNodes, still, ok, [[type: 'storage', node: 'pve1', status: 'available', disk: 0, maxdisk: 0]])?.HealthStorage == 100d, 'a store with no size lost points')
+
+    note('health-pressure-floor', hs(twoNodes, [pve1: 90d, pve2: 90d], ok, calm)?.HealthPressure == 75d, 'pressure fell below 75')
+    note('health-pressure-part', hs(twoNodes, [pve1: 20d], ok, calm)?.HealthPressure == 80d, 'a node that did not answer changed the mean')
+
+    def noHa = hs(twoNodes, still, null, calm)
+    note('health-withheld-ha', noHa != null && !noHa.containsKey('HealthHA') && !noHa.containsKey('HealthScore') && noHa.HealthNodes == 100d, "unread HA gave ${noHa}")
+    def noStores = hs(twoNodes, still, ok, null)
+    note('health-withheld-store', noStores != null && !noStores.containsKey('HealthStorage') && !noStores.containsKey('HealthScore'), "unread storage gave ${noStores}")
+    def noStall = hs(twoNodes, [:], ok, calm)
+    note('health-withheld-press', noStall != null && !noStall.containsKey('HealthPressure') && !noStall.containsKey('HealthScore'), "no pressure figures gave ${noStall}")
+    def alone = hs([[type: 'node', name: 'pve-a', online: 1, local: 1]], ['pve-a': 0d], ok, [])
+    note('health-standalone', alone?.HealthNodes == 100d && alone?.HealthScore == 100d, "a standalone host gave ${alone}")
+
+    def statusRun = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Status.collect.groovy'), [hostProps: hostProps])
+    def sv = statusRun.stdout.readLines().findAll { it ==~ /^[A-Za-z0-9_]+=.*/ }.collectEntries { def kv = it.split('=', 2); [(kv[0]): kv[1] as double] }
+    // The fixture: pve2 offline, a service in error, stores under the levels, pve1's worst I/O full 0.34.
+    note('health-collect', sv.NodesOnlinePercent == 50d && sv.HealthNodes == 50d && sv.HealthHA == 50d && sv.HealthStorage == 100d && sv.HealthPressure == 99.66d && sv.HealthScore == 50d,
+         "Cluster_Status printed ${sv.findAll { it.key.startsWith('Health') || it.key == 'NodesOnlinePercent' }}")
+    def healthBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Cluster_Status.json')).datapoints.collectEntries { [(it.name): it] }
+    note('health-no-alert', ['HealthScore', 'HealthNodes', 'HealthHA', 'HealthStorage', 'HealthPressure'].every { healthBuilt[it] != null && !healthBuilt[it].threshold },
+         'a health datapoint is missing or has a threshold')
+}
+healthCases()
 
 // ---------------------------------------- Cluster_Nodes keeps only Status (A§3.2)
 
@@ -948,12 +988,16 @@ def standaloneDetail = withFixtures(['/cluster/status': [[type: 'node', name: 'p
 note('detail-standalone', standaloneDetail.exit == 0 && !standaloneDetail.stdout.contains('Quorate'),
      "a standalone host reported a quorum it does not have: ${standaloneDetail.stdout}")
 def stall = runSource(preamble + '''
-return [pveNodeStall([pressurecpusome: 2.5, pressureiosome: 30, pressurememorysome: 1], [:]),
+return [pveNodeStall([pressurecpusome: 89.7, pressureiofull: 0, pressurememoryfull: 0, cpu: 0.30], [:]),
+        pveNodeStall([pressurecpusome: 89.7, pressureiofull: 0, pressurememoryfull: 0, cpu: 0.85], [:]),
+        pveNodeStall([pressurecpusome: 1, pressureiosome: 12, pressureiofull: 10, cpu: 0.1], [:]),
+        pveNodeStall([pressurecpusome: 1, pressureiosome: 30, pressurememorysome: 1, cpu: 0.1], [:]),
+        pveNodeStall([pressurecpusome: 2.5, cpu: 0.1], [loadavg: ['6.0'], cpuinfo: [cpus: 4]]),
         pveNodeStall([cpu: 0.1], [loadavg: ['6.0'], cpuinfo: [cpus: 4]]),
         pveNodeStall([cpu: 0.1], [loadavg: ['1.0'], cpuinfo: [cpus: 4]]),
         pveNodeStall([:], [:]),
         pveLatestRrd([[time: 1, cpu: 0.1], [time: 2, cpu: 0.2], [time: 3, cpu: null]])?.time]''', [hostProps: hostProps])
-note('stall', stall.exit == [30d, 100d, 25d, null, 2], "pveNodeStall / pveLatestRrd gave ${stall.exit} / ${stall.thrown}")
+note('stall', stall.exit == [0d, 89.7d, 10d, 30d, 0d, 100d, 25d, null, 2], "pveNodeStall / pveLatestRrd gave ${stall.exit} / ${stall.thrown}")
 
 // Only the collecting resource stamps instance ERIs: a standby's would double every key.
 withFixtures(['/cluster/status': statusWith([:], [:], 1)]) {
