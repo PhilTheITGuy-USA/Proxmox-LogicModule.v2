@@ -461,7 +461,7 @@ cluster's worst problem, and four new datapoints show which area that is:
 |---|---|---|---|
 | Quorum | `Quorate` | Quorate, or a standalone host | 0 |
 | Nodes | `HealthNodes` | Every node online | Percent of nodes online |
-| HA | `HealthHA` | No HA services; or the master is active, fencing is armed and no service is in error | 50 |
+| HA | `HealthHA` | No HA services; or the master is active, fencing is armed and no service is in error or fence | 50 |
 | Storage | `HealthStorage` | Every store is available, with `EffectiveUsedPercent` under 90 | 75 at 90; 50 at 95 or a local store unavailable; 25 for a shared store unavailable |
 | Pressure | `HealthPressure` | No node is stalled | 100 less the mean node stall, never below 75 |
 
