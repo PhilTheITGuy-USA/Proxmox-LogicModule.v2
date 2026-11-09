@@ -74,7 +74,7 @@
     },
     {
       "name": "HealthHA",
-      "description": "Health score area: 100 with no HA services, or with the master active, fencing armed and no service in error; otherwise 50. Withheld when HA cannot be read, except on a standalone host, which cannot run HA and reads 100.",
+      "description": "Health score area: 100 with no HA services, or with the master active, fencing armed and no service in error or fence; otherwise 50. Withheld when HA cannot be read, except on a standalone host, which cannot run HA and reads 100.",
       "conditional": true
     },
     {
