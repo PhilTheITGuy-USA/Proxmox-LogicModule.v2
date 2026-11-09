@@ -941,7 +941,8 @@ def pveQuorate = { List status ->
  * whatever else is known. HA, storage and pressure each drop out when they could not be read
  * (ha or stores null, no stall figure at all), and then the score does too, since unknown is
  * not healthy. ha is [services, masterAlive, armed, errored]; armed is null when Proxmox has
- * no fencing entry. A store on an offline node is left out, as Nodes counts that node.
+ * no fencing entry. A standalone host (no cluster row) cannot run HA, so there an unread ha
+ * scores 100, as no services do. A store on an offline node is left out, as Nodes counts that node.
  * Pressure stops at 75: I/O cannot be split by guest, so it can show slow, never broken.
  */
 def pveHealthScore = { List statusRows, Map stallByNode, Map ha, List stores ->
@@ -949,7 +950,9 @@ def pveHealthScore = { List statusRows, Map stallByNode, Map ha, List stores ->
     def onlineNames = nodes.findAll { it.online == null || it.online?.toString() == '1' }*.name*.toString()
     def areas = [:]
     if (nodes) { areas.HealthNodes = pveRound(100.0d * onlineNames.size() / nodes.size()) }
-    if (ha != null) {
+    if (ha == null && !statusRows.any { it.type?.toString() == 'cluster' }) {
+        areas.HealthHA = 100.0d
+    } else if (ha != null) {
         areas.HealthHA = ha.services && (!ha.masterAlive || ha.armed == false || ha.errored) ? 50.0d : 100.0d
     }
     if (stores != null) {

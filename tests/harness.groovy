@@ -925,6 +925,9 @@ def healthCases = { ->
     note('health-withheld-press', noStall != null && !noStall.containsKey('HealthPressure') && !noStall.containsKey('HealthScore'), "no pressure figures gave ${noStall}")
     def alone = hs([[type: 'node', name: 'pve-a', online: 1, local: 1]], ['pve-a': 0d], ok, [])
     note('health-standalone', alone?.HealthNodes == 100d && alone?.HealthScore == 100d, "a standalone host gave ${alone}")
+    // A standalone host cannot run HA, so a failed HA read there is no HA, not unread.
+    def aloneNoHa = hs([[type: 'node', name: 'pve-a', online: 1, local: 1]], ['pve-a': 0d], null, [])
+    note('health-standalone-ha', aloneNoHa?.HealthHA == 100d && aloneNoHa?.HealthScore == 100d, "a standalone host with HA unread gave ${aloneNoHa}")
 
     def statusRun = runScript(new File(scriptsDir, 'Proxmox_VE_Cluster_Status.collect.groovy'), [hostProps: hostProps])
     def sv = statusRun.stdout.readLines().findAll { it ==~ /^[A-Za-z0-9_]+=.*/ }.collectEntries { def kv = it.split('=', 2); [(kv[0]): kv[1] as double] }
