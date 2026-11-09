@@ -349,7 +349,9 @@ HealthScore = min(quorum, HealthNodes, HealthHA, HealthStorage, HealthPressure)
   full tracked some almost exactly on the lab (82 against 85), so one guest's I/O reads like a
   node's. Pressure can show a slow cluster, never a broken one.
 - **Unknown is not healthy.** An area that cannot be read is withheld, and so is `HealthScore`,
-  as gray beats every colour in vSphere; quorum lost is known, so it still scores 0. Pressure is
+  as gray beats every colour in vSphere; quorum lost is known, so it still scores 0. A standalone
+  host cannot run HA, so there an unread HA scores 100, as no services do (amended 2026-11-09,
+  user: v2.8.0 deferred minor; harness only, the lab has no standalone host). Pressure is
   withheld only when no online node answers. `/cluster/resources` filters by privilege rather than
   failing, so no storage rows at all reads as unread, not as healthy; a token that sees only some
   stores cannot be told from this data, which leaves it to the troubleshooter. Withholding rests
