@@ -433,6 +433,16 @@ Import in this order, so that each module finds what it depends on:
 The modules apply by category and `pve.cluster.role`, so nothing else needs to be set on the
 resources the NetScan creates.
 
+### Upgrading from v2.8.1
+
+**A store that becomes unavailable clears its nearly-full alert.** `EffectiveUsedPercent` used to
+send no value for a store with no size, and an alert already open on it stayed open until the store
+came back. An unavailable store now reads 0, so that alert clears and `Status` alerts for the store
+instead. A store that is available but reports no size still sends no value.
+
+Re-import `Proxmox_VE_Cluster_StorageCapacity`. The other modules, the NetScan and the dashboards
+are as in v2.8.1.
+
 ### Upgrading from v2.8.0
 
 Nothing to import: this release adds [Guest Names](#guest-names) to this page. The modules, the

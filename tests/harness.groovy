@@ -867,7 +867,8 @@ def effectiveUsedCases = { ->
     def effective = storeRun.stdout.readLines().findAll { it.contains('.EffectiveUsedPercent=') }
     def effectiveOf = { String name -> effective.find { it.contains(name) }?.split('=', 2)?.getAt(1) }
     // The fixture's local store is 107 GB, so a little under its plain 10%; ceph-vm is flat at 50.
-    note('effective-collect', near(effectiveOf('local'), 8.71d) && near(effectiveOf('ceph-vm'), 50d) && effectiveOf('backup') == null,
+    // backup.nfs is unavailable: 0, so an alert open on it clears while Status alerts instead.
+    note('effective-collect', near(effectiveOf('local'), 8.71d) && near(effectiveOf('ceph-vm'), 50d) && near(effectiveOf('backup'), 0d),
          "StorageCapacity printed ${effective}")
     def storeBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Cluster_StorageCapacity.json')).datapoints.collectEntries { [(it.name): it] }
     note('effective-threshold', storeBuilt.EffectiveUsedPercent?.threshold == '> 80 90 95' && !storeBuilt.UsedPercent?.threshold,

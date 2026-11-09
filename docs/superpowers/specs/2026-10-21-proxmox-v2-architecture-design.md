@@ -326,6 +326,11 @@ HealthScore = min(quorum, HealthNodes, HealthHA, HealthStorage, HealthPressure)
   ([TrueNAS](https://www.truenas.com/blog/zfs-80-percent-rule/)), and Ceph has percentage limits of
   its own (recalled, not checked). The lab has neither, so this rests on the harness.
 
+  **An unavailable store reads 0** (amended 2026-11-09, user: v2.8.0 deferred minor). It has no
+  size, and withholding the figure left an alert open on it held open, since No Data never
+  clears one; `Status` alerts for the store instead, so it still alerts once. An available store
+  that reports no size is still withheld.
+
   The figure is only meaningful near full: a 12 TB store reads 0 until about 62% used. So it is an
   alert input and gets no graph; the Used graph keeps showing `UsedPercent`.
 
