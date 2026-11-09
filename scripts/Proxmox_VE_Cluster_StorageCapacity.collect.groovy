@@ -19,12 +19,15 @@ try {
         def total = store.maxdisk ?: 0
 
         // "available" is the status Proxmox reports for a storage it can actually reach.
-        pveEmit(id, 'Status', store.status?.toString() == 'available' ? 1 : 0)
+        def available = store.status?.toString() == 'available'
+        pveEmit(id, 'Status', available ? 1 : 0)
         pveEmit(id, 'UsedGB', pveGB(used))
         pveEmit(id, 'CapacityGB', pveGB(total))
         pveEmit(id, 'FreeGB', pveGB(total > used ? total - used : 0))
         pveEmit(id, 'UsedPercent', pvePercent(used, total))
-        def effective = pveEffectiveUsed(store)
+        // An unavailable store has no size. It reads 0, not No Data, which would hold a nearly-full
+        // alert open; Status alerts for it instead. An available store with no size is withheld.
+        def effective = available ? pveEffectiveUsed(store) : 0
         if (effective != null) {
             pveEmit(id, 'EffectiveUsedPercent', effective)
         }

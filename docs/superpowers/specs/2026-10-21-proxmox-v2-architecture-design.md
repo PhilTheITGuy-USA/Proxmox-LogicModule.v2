@@ -326,6 +326,11 @@ HealthScore = min(quorum, HealthNodes, HealthHA, HealthStorage, HealthPressure)
   ([TrueNAS](https://www.truenas.com/blog/zfs-80-percent-rule/)), and Ceph has percentage limits of
   its own (recalled, not checked). The lab has neither, so this rests on the harness.
 
+  **An unavailable store reads 0** (amended 2026-11-09, user: v2.8.0 deferred minor). It has no
+  size, and withholding the figure left an alert open on it held open, since No Data never
+  clears one; `Status` alerts for the store instead, so it still alerts once. An available store
+  that reports no size is still withheld.
+
   The figure is only meaningful near full: a 12 TB store reads 0 until about 62% used. So it is an
   alert input and gets no graph; the Used graph keeps showing `UsedPercent`.
 
@@ -980,6 +985,7 @@ a layer changes; spike results stay in their rows above.
 | `EffectiveUsedPercent` (§3.2): portal import and live target | 2026-11-06 | Branch `health-score`. An 8 TB store at 83.8% read 61.1, the formula's value, and `UsedPercent` carried no threshold. A 1 GB store at 96.97% read 96.97 and raised the critical alert; it cleared on the first poll after the store emptied, ten minutes later. Not driven live: a large store reaching the alert levels, and ZFS and Ceph staying flat; the harness covers both |
 | v2.8.0: local checks | 2026-11-06 | Branch `health-score`. Build clean (25 modules); compile job all pass; harness 2,192 of 2,192; lint 0 errors, 16 warnings; both dashboards check clean |
 | v2.8.1: local checks | 2026-11-06 | Documentation only: the 25 modules, the NetScan and the dashboards are byte for byte as in v2.8.0. Build clean; harness 2,192 of 2,192 |
+| An unavailable store reads `EffectiveUsedPercent` 0 (§3.2, v2.8.0 deferred minor): local checks, portal import and live target | 2026-11-09 | Branch `effective-used-unknown`. Build clean; compile job all pass; harness 2,194 of 2,194; lint 0 errors, 16 warnings. Imported with a 1-minute interval for the test. A 1 GiB tmpfs `dir` store on Node-A filled to 97.7% opened the critical `EffectiveUsedPercent` alert; unmounted, it read `unknown`, the alert cleared and `Status` opened; remounted and refilled, `Status` cleared and the critical alert reopened at 97.66 |
 
 **Not yet seen on the lab:** Replication, Ceph and ZFS (the lab has none), a cluster address
 (VIP/DNS), a large portal's one-at-a-time lookups, adoption under the default duplicate-IP
