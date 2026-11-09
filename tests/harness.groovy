@@ -3178,6 +3178,20 @@ def haCases = { ->
     note('ha-unarmed', haUnarmed.HAMasterPresent == 1d && haUnarmed.HAFencingArmed == 0d,
          "a live master with fencing down printed ${haUnarmed.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
 
+    // HealthHA as the script builds it from the same shapes: armed from 'armed-state', a service in
+    // fence counted as errored, and an older Proxmox with no fencing entry not marked down.
+    def haFenced = haRun([haQuorum, haMaster('active'), haFencing('armed'), haService + [state: 'fence']])
+    def haNoFencing = haRun([haQuorum, haMaster('active'), haService])
+    [['ha-health-none', haNone, 100d], ['ha-health-healthy', haHealthy, 100d], ['ha-health-dead', haDead, 50d],
+     ['ha-health-no-master', haMissing, 50d], ['ha-health-unarmed', haUnarmed, 50d], ['ha-health-fence', haFenced, 50d],
+     ['ha-health-no-fencing', haNoFencing, 100d]].each { name, run, want ->
+        note(name, run.HealthHA == want, "HealthHA ${run.HealthHA}, want ${want}")
+    }
+    note('ha-fence-errored', haFenced.HAServicesError == 1d && haFenced.HAFencingArmed == 1d,
+         "a service in fence printed ${haFenced.subMap(['HAServicesError', 'HAFencingArmed'])}")
+    note('ha-no-fencing-entry', !haNoFencing.containsKey('HAFencingArmed') && haNoFencing.HAMasterPresent == 1d,
+         "no fencing entry printed ${haNoFencing.subMap(['HAMasterPresent', 'HAFencingArmed'])}")
+
     def haBuilt = new JsonSlurper().parse(new File(ROOT, 'dist/Proxmox_VE_Cluster_Status.json')).datapoints.collectEntries { [(it.name): it] }
     ['HAMasterPresent', 'HAFencingArmed'].each { dp ->
         note('ha-threshold', haBuilt[dp]?.threshold == '< 1 1' && haBuilt[dp]?.triggerInterval == 2,
